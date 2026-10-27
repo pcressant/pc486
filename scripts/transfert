@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# transfert — échange de fichiers avec la VM via le disque D: (vm/transfert.img)
+#   transfert ls [CHEMIN]              liste (ex. transfert ls APPS)
+#   transfert put FICHIER... [-d REP]  copie vers D:\REP (récursif pour les dossiers)
+#   transfert get CHEMIN_DOS DEST      copie depuis D: vers Linux
+# La VM doit être arrêtée (DOS garde des données en cache).
+set -euo pipefail
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+IMG="$ROOT/vm/transfert.img@@32256"
+[[ -f "${IMG%@@*}" ]] || { echo "disque D: introuvable : ${IMG%@@*} (aucune VM n'attache de D:)" >&2; exit 1; }
+for p in qemu 86box; do
+    if [[ -f "$ROOT/run/$p.pid" ]] && kill -0 "$(cat "$ROOT/run/$p.pid")" 2>/dev/null; then
+        echo "la VM tourne : arrêtez-la d'abord (scripts/pc486 stop)" >&2; exit 1
+    fi
+done
+cmd="${1:-}"; shift || true
+case "$cmd" in
+    ls) mdir -i "$IMG" "::/${1:-}" ;;
+    put)
+        dest=""; files=()
+        while [[ $# -gt 0 ]]; do
+            if [[ "$1" == -d ]]; then dest="$2"; shift 2; else files+=("$1"); shift; fi
+        done
+        [[ -n "$dest" ]] && mmd -D s -i "$IMG" "::/$dest" 2>/dev/null || true
+        mcopy -s -o -i "$IMG" "${files[@]}" "::/$dest/" ;;
+    get) mcopy -s -o -i "$IMG" "::/$1" "$2" ;;
+    *) sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

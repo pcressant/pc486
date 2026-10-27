@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# bios-86box — intervenir dans le Setup du BIOS de la VM 86Box sans toucher à vm/ ni à
+# la session de l'utilisateur. Voir docs/bios-86box.md.
+#
+#   bios-86box prepare [--vierge] [--sans-d]   machine d'essai dans work/dev/bios
+#   bios-86box start [--setup] [--floppy IMG]  86Box isolé (Xvfb, D-Bus privé, sans a11y)
+#   bios-86box key TOUCHE...                   touches xdotool (Delete, Up, Next, Return…)
+#   bios-86box shot [FICHIER.png]              capture de l'écran virtuel
+#   bios-86box com1                            ce que la sonde a écrit sur COM1
+#   bios-86box stop                            arrêt propre : 86Box écrit sa CMOS
+#   bios-86box save                            copie la CMOS d'essai vers la référence .nvr.ok
+#
+# Les disques sont vierges, de la géométrie du modèle ; C: porte une sonde d'amorçage qui
+# écrit sur COM1 « N<nb disques> <C:> <D:> Z » (cylindre max/tête max/secteurs, en hex).
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+DIR="${PC486_BIOS_DIR:-$ROOT/work/dev/bios}"
+DPY="${PC486_BIOS_DISPLAY:-:77}"
+NVR_OK="$ROOT/86box/nvr/hot433a_v451pg.nvr.ok"
+
+# Outils pris dans le nixpkgs verrouillé du flake (mis en cache dans le magasin).
+tool() {
+    local p
+    p=$(nix build --no-link --print-out-paths --inputs-from "$ROOT" "nixpkgs#$1" 2>/dev/null | tail -1)
+    [[ -n "$p" ]] || { echo "outil introuvable : nixpkgs#$1" >&2; exit 1; }
+    echo "$p/bin"
+}
+tools_path() {
+    local p="" t
+    for t in xdotool imagemagick xorg.xorgserver openbox; do p="$p:$(tool "$t")"; done
+    echo "${p#:}:$ROOT/tools/socat/bin:$PATH"
+}
+
+geometry() {   # cylindres têtes secteurs de hdd_0N dans le modèle
+    awk -F'[=,]' -v k="hdd_0$1_parameters" '$1 ~ "^"k" *$" {gsub(/ /,""); print $4, $3, $2}' \
+        "$ROOT/86box/86box.cfg"
+}
+
+cmd_prepare() {
+    local vierge=0 sans_d=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --vierge) vierge=1 ;;
+            --sans-d) sans_d=1 ;;
+            *) echo "option inconnue : $1" >&2; exit 1 ;;
+        esac
+        shift
+    done
+    [[ -f "$DIR/box.pid" ]] && kill -0 "$(cat "$DIR/box.pid")" 2>/dev/null \
+        && { echo "86Box d'essai en cours : bios-86box stop" >&2; exit 1; }
+    rm -rf "$DIR"; mkdir -p "$DIR/nvr"
+    "$(tool nasm)/nasm" -f bin -o "$DIR/sonde.bin" "$ROOT/tools/bios/sonde.asm"
+    local c h s
+    read -r c h s < <(geometry 1)
+    truncate -s $((c * h * s * 512)) "$DIR/c.img"
+    dd if="$DIR/sonde.bin" of="$DIR/c.img" conv=notrunc status=none
+    read -r c h s < <(geometry 2)
+    truncate -s $((c * h * s * 512)) "$DIR/d.img"
+    awk -v c="$DIR/c.img" -v d="$DIR/d.img" -v sans_d="$sans_d" '
+        /^hdd_02_/ && sans_d { next }
+        /^hdd_01_fn/ { print "hdd_01_fn = " c; next }
+        /^hdd_02_fn/ { print "hdd_02_fn = " d; next }
+        { print }' "$ROOT/86box/86box.cfg" >"$DIR/86box.cfg.modele"
+    [[ $vierge == 1 ]] || cp "$NVR_OK" "$DIR/nvr/$(basename "${NVR_OK%.ok}")"
+    echo "machine d'essai prête : $DIR (CMOS $([[ $vierge == 1 ]] && echo vierge || echo de référence))"
+}
+
+cmd_start() {
+    local setup=0 floppy=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --setup) setup=1 ;;
+            --floppy) floppy="$(readlink -f "$2")"; shift ;;
+            *) echo "option inconnue : $1" >&2; exit 1 ;;
+        esac
+        shift
+    done
+    [[ -f "$DIR/86box.cfg.modele" ]] || { echo "lancer d'abord : bios-86box prepare" >&2; exit 1; }
+    [[ -f "$DIR/box.pid" ]] && kill -0 "$(cat "$DIR/box.pid")" 2>/dev/null \
+        && { echo "déjà lancé" >&2; exit 1; }
+    cp "$DIR/86box.cfg.modele" "$DIR/86box.cfg"   # 86Box réécrit sa configuration
+    export PATH; PATH="$(tools_path)"
+    nohup setsid dbus-run-session -- "$0" __session "$floppy" >"$DIR/session.log" 2>&1 &
+    local _
+    for _ in $(seq 100); do [[ -s "$DIR/box.pid" ]] && break; sleep 0.1; done
+    sleep 2
+    if [[ $setup == 1 ]]; then   # Suppr pendant le POST : ouvre le Setup de l'Award
+        for _ in $(seq 25); do cmd_key Delete; done
+        echo "Setup demandé ; vérifier par : bios-86box shot"
+    fi
+}
+
+# Dans dbus-run-session : bus privé, accessibilité coupée, affichage virtuel seulement.
+# Sans cela, Orca annonce la fenêtre d'essai dans la session de l'utilisateur.
+cmd___session() {
+    local floppy="$1" pts="" _
+    unset WAYLAND_DISPLAY XDG_SESSION_TYPE AT_SPI_BUS_ADDRESS
+    export DISPLAY="$DPY" QT_ACCESSIBILITY=0 NO_AT_BRIDGE=1
+    Xvfb "$DPY" -screen 0 1024x768x24 >"$DIR/xvfb.log" 2>&1 & echo $! >"$DIR/xvfb.pid"
+    sleep 1
+    openbox >/dev/null 2>&1 &     # sans gestionnaire de fenêtres, 86Box n'a pas le focus
+    rm -f "$DIR/mgr.sock" "$DIR/ctl" "$DIR/com1.out"; mkfifo "$DIR/ctl"
+    socat "UNIX-LISTEN:$DIR/mgr.sock,unlink-early" "OPEN:$DIR/ctl,rdonly,ignoreeof" &
+    sleep 0.5
+    env QT_QPA_PLATFORM=xcb 86BOX_MANAGER_SOCKET="$DIR/mgr.sock" \
+        "$ROOT/tools/86box/bin/86Box" -N -P "$DIR" ${floppy:+-I "A:$floppy"} "$DIR/86box.cfg" \
+        >"$DIR/86box.log" 2>&1 &
+    local box=$!; echo $box >"$DIR/box.pid"
+    for _ in $(seq 100); do
+        pts=$(grep -a -o 'Slave side is /dev/pts/[0-9]*' "$DIR/86box.log" | awk 'NR == 1 {print $4}') || true
+        [[ -n "$pts" ]] && break; sleep 0.1
+    done
+    [[ -n "$pts" ]] && socat -u "$pts,raw,echo=0" "OPEN:$DIR/com1.out,creat,trunc" &
+    wait $box || true
+    kill $(jobs -p) 2>/dev/null || true
+    rm -f "$DIR/box.pid" "$DIR/xvfb.pid" "$DIR/ctl" "$DIR/mgr.sock"
+}
+
+session_env() {
+    [[ -f "$DIR/box.pid" ]] || { echo "86Box d'essai arrêté : bios-86box start" >&2; exit 1; }
+    export DISPLAY="$DPY" PATH; PATH="$(tools_path)"
+}
+
+# Appui de 80 ms puis 350 ms de pause : plus court, l'Award perd des touches.
+# Passent : Delete, Up, Down, Left, Right, Prior, Next, Return, Escape, lettres.
+# Ne passent pas : F1, F10… (choisir « SAVE & EXIT SETUP » au menu, puis y, Return).
+cmd_key() {
+    session_env
+    local w k
+    w=$(xdotool search --name ' - 86Box ' 2>/dev/null | head -1) || true
+    [[ -n "$w" ]] && xdotool windowactivate --sync "$w" 2>/dev/null || true
+    for k in "$@"; do
+        xdotool keydown "$k"; sleep 0.08; xdotool keyup "$k"; sleep 0.35
+    done
+}
+
+cmd_shot() {
+    session_env
+    local out="${1:-$DIR/ecran.png}"
+    sleep 0.5; import -window root "$out"; echo "$out"
+}
+
+cmd_com1() { cat -v "$DIR/com1.out" 2>/dev/null; echo; }
+
+cmd_stop() {
+    [[ -p "$DIR/ctl" ]] && echo shutdownnoprompt >"$DIR/ctl" || true
+    local _
+    for _ in $(seq 50); do [[ -f "$DIR/box.pid" ]] || break; sleep 0.2; done
+    if [[ -f "$DIR/box.pid" ]]; then
+        kill "$(cat "$DIR/box.pid")" 2>/dev/null || true
+        [[ -f "$DIR/xvfb.pid" ]] && kill "$(cat "$DIR/xvfb.pid")" 2>/dev/null || true
+    fi
+    echo "86Box d'essai arrêté"
+}
+
+cmd_save() {
+    local nvr; nvr="$DIR/nvr/$(basename "${NVR_OK%.ok}")"
+    [[ -f "$DIR/box.pid" ]] && { echo "arrêter d'abord : bios-86box stop" >&2; exit 1; }
+    [[ -f "$nvr" ]] || { echo "pas de CMOS d'essai : $nvr" >&2; exit 1; }
+    cp "$nvr" "$NVR_OK"
+    echo "référence mise à jour : $NVR_OK ; pour la VM : supprimer 86box/nvr/$(basename "$nvr") (VM arrêtée)"
+}
+
+case "${1:-}" in
+    prepare|start|key|shot|com1|stop|save|__session) c="$1"; shift; "cmd_$c" "$@" ;;
+    *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac

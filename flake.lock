@@ -1,0 +1,48 @@
+{
+  "nodes": {
+    "apolo-emu": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793071381,
+        "narHash": "sha256-zOt2aKCGBRsOLG7kh/zf16hny2Oj6pHHsl/Gz8W9a3k=",
+        "owner": "pcressant",
+        "repo": "apolo-emu",
+        "rev": "681f04c29cb89ef213f2a36ada5a0f5491d6391c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "pcressant",
+        "repo": "apolo-emu",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1792898606,
+        "narHash": "sha256-Mg3rRjsbMqhSMxop5PYMXos8SwAjejrxSgVThTvP9eg=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "1f607aa79b6356ed45d3cd3c8079c196e79efa2c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-26.05",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "apolo-emu": "apolo-emu",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

@@ -1,0 +1,95 @@
+diff -ru a/src/qt/qt_mainwindow.cpp b/src/qt/qt_mainwindow.cpp
+--- a/src/qt/qt_mainwindow.cpp	2026-10-24 14:27:10.173503684 +0200
++++ b/src/qt/qt_mainwindow.cpp	2026-10-24 15:50:51.515004460 +0200
+@@ -376,6 +376,12 @@
+ 
+     connect(qApp, &QGuiApplication::applicationStateChanged, [this](Qt::ApplicationState state) {
+         if (state == Qt::ApplicationState::ApplicationActive) {
++#ifdef WAYLAND
++            if (QApplication::platformName().contains("wayland")) {
++                extern void wl_keyboard_autograb(QWindow * window);
++                wl_keyboard_autograb(this->windowHandle());
++            }
++#endif
+             if (auto_paused) {
+                 plat_pause(0);
+                 auto_paused = 0;
+@@ -1534,6 +1540,14 @@
+             if ((QKeySequence) (ke->key() | (ke->modifiers() & ~Qt::KeypadModifier)) == FindAcceleratorSeq("release_mouse") || (QKeySequence) (ke->key() | ke->modifiers()) == FindAcceleratorSeq("release_mouse")) {
+                 plat_mouse_capture(0);
+             }
++#ifdef WAYLAND
++            if (!ke->isAutoRepeat() && (ke->key() == Qt::Key_G)
++                && ((ke->modifiers() & (Qt::ControlModifier | Qt::AltModifier)) == (Qt::ControlModifier | Qt::AltModifier))
++                && QApplication::platformName().contains("wayland")) {
++                extern void wl_keyboard_toggle_grab(QWindow * window);
++                wl_keyboard_toggle_grab(this->windowHandle());
++            }
++#endif
+         }
+ 
+         if (event->type() == QEvent::KeyPress && video_fullscreen != 0) {
+diff -ru a/src/qt/wl_mouse.cpp b/src/qt/wl_mouse.cpp
+--- a/src/qt/wl_mouse.cpp	2026-10-24 14:27:10.169360736 +0200
++++ b/src/qt/wl_mouse.cpp	2026-10-24 15:50:51.514881078 +0200
+@@ -12,6 +12,7 @@
+  *
+  *          Copyright 2021-2022 Cacodemon345
+  */
++#include <cstdio>
+ #include "wl_mouse.hpp"
+ #include <QGuiApplication>
+ #include <wayland-client-core.h>
+@@ -103,11 +104,42 @@
+ void
+ wl_keyboard_grab(QWindow *window)
+ {
++    /* pc486 : s'enregistrer auprès du compositeur avant la demande ; sinon, appelée juste
++       après l'ouverture de la fenêtre, elle part avant wl_init() et ne fait rien. */
++    wl_init();
+     if (!kbd_inhibitor && kbd_manager) {
++        fprintf(stderr, "pc486-grab on\n");
+         kbd_inhibitor = zwp_keyboard_shortcuts_inhibit_manager_v1_inhibit_shortcuts(kbd_manager, (wl_surface *) QGuiApplication::platformNativeInterface()->nativeResourceForWindow("surface", window), (wl_seat *) QGuiApplication::platformNativeInterface()->nativeResourceForIntegration("wl_seat"));
+     }
+ }
+ 
++/* pc486 : Ctrl+Alt+G bascule le blocage des raccourcis du compositeur, comme sous QEMU. */
++static bool kbd_released = false;   /* relâché par Ctrl+Alt+G : ne pas reprendre seul */
++
++void
++wl_keyboard_toggle_grab(QWindow *window)
++{
++    if (kbd_inhibitor) {
++        zwp_keyboard_shortcuts_inhibitor_v1_destroy(kbd_inhibitor);
++        kbd_inhibitor = nullptr;
++        kbd_released  = true;
++        fprintf(stderr, "pc486-grab off\n");
++    } else {
++        kbd_released = false;
++        wl_keyboard_grab(window);
++    }
++}
++
++/* pc486 : au démarrage, la liaison au gestionnaire de raccourcis peut arriver après la
++   demande (événements Wayland traités par le fil de Qt) : redemander à chaque fois que
++   la fenêtre reprend le focus. */
++void
++wl_keyboard_autograb(QWindow *window)
++{
++    if (!kbd_released)
++        wl_keyboard_grab(window);
++}
++
+ void
+ wl_mouse_capture(QWindow *window)
+ {
+diff --git a/src/include/86box/serial.h b/src/include/86box/serial.h
+--- a/src/include/86box/serial.h
++++ b/src/include/86box/serial.h
+@@ -38,5 +38,5 @@
+ #define COM2_ADDR 0x02f8
+ #define COM2_IRQ  3
+ #define COM3_ADDR 0x03e8
+-#define COM3_IRQ  4
++#define COM3_IRQ  9
+ #define COM4_ADDR 0x02e8

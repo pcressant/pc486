@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Environnement d'essai isolé : QEMU muet sur une copie de C:, sans D:,
+# sockets dans work/dev/run/ et journaux dans work/dev/logs/. Peut tourner à côté de la
+# session 86Box de l'utilisateur. Usage :
+#   scripts/pc486-dev pc486 status|start|stop|screen ...
+#   scripts/pc486-dev vmctl key ret
+#   scripts/pc486-dev env            # affiche les variables, pour un shell
+# Le C: d'essai se prépare depuis un disque arrêté :
+#   mkdir -p work/dev
+#   cp vm/win311.img work/dev/win311.img
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+export PC486_RUN="${PC486_DEV_RUN:-$ROOT/work/dev/run}"
+export PC486_LOGS="${PC486_DEV_LOGS:-$ROOT/work/dev/logs}"
+export PC486_DISK="${PC486_DEV_DISK:-$ROOT/work/dev/win311.img}"
+export PC486_GATEWAY_OPTS="${PC486_DEV_GATEWAY_OPTS:---backend simulated}"
+export PC486_TRANSFERT=
+# Pas de plage réelle : com3.sock reste libre pour un faux Baum (--braille).
+export PC486_BRAILLE_CMD="${PC486_DEV_BRAILLE_CMD:-$(type -P true)}"
+
+die() { echo "pc486-dev : $*" >&2; exit 1; }
+
+disk="$(realpath -m "$PC486_DISK")"
+[[ "$disk" != "$(realpath -m "$ROOT/vm/win311.img")" ]] \
+    || die "refus : le disque d'essai ne doit pas être vm/win311.img"
+[[ "$PC486_RUN" != "$ROOT/run" ]] || die "refus : PC486_RUN doit différer de run/"
+
+cmd="${1:-}"
+[[ $# -gt 0 ]] && shift
+case "$cmd" in
+    pc486)
+        if [[ "${1:-}" == start ]]; then
+            [[ -f "$disk" ]] || die "disque absent : $disk (mkdir -p work/dev ; cp vm/win311.img work/dev/win311.img, VM arrêtée)"
+            mkdir -p "$PC486_LOGS"
+        fi
+        exec "$ROOT/scripts/pc486" "$@" ;;
+    vmctl)
+        exec python3 "$ROOT/scripts/vmctl.py" "$@" ;;
+    env)
+        for v in PC486_RUN PC486_LOGS PC486_DISK PC486_GATEWAY_OPTS \
+                 PC486_TRANSFERT PC486_BRAILLE_CMD; do
+            printf 'export %s=%q\n' "$v" "${!v}"
+        done ;;
+    *)
+        sed -n '2,9s/^# \{0,1\}//p' "${BASH_SOURCE[0]}" >&2
+        exit 2 ;;
+esac

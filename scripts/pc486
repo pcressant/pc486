@@ -1,0 +1,405 @@
+#!/usr/bin/env bash
+# pc486 — PC 486 virtuel (86Box ou QEMU) + synthèse Apollo II virtuelle (Apolo-emu) -> Speech Dispatcher
+#
+#   pc486 start [options]   démarre la VM et la synthèse Apollo II (Apolo-emu)
+#                           (86Box par défaut : minutage fidèle à un vrai 486)
+#       --qemu              QEMU au lieu de 86Box (pilotable par scripts/vmctl.py)
+#       --headless          QEMU sans fenêtre (pilotage par scripts/vmctl.py uniquement)
+#       --boot a|c          QEMU : démarrer sur la disquette (a) ou le disque dur (c, défaut)
+#                           (86Box : le BIOS essaie A: puis C:)
+#       --floppy FICHIER    disquette dans A:
+#                           Disque vm/win311.img, menu au démarrage : 1 = DOS + Épaudos,
+#                           2 = Windows + Épaulard ; DOS par défaut après 10 s
+#       --win               sans effet (ancien choix du disque Windows, désormais le seul)
+#       --braille           impose Baum sur COM3 (automatique si tools/braille existe)
+#       --no-braille        désactive la passerelle braille
+#       --no-gateway        ne pas lancer la synthèse vocale
+#   pc486 stop              arrête la VM (comme couper le courant : attendre C:\>) et la synthèse
+#   pc486 status            état de la VM et de la synthèse
+#   pc486 gateway start|stop|restart   gérer la synthèse seule (Apolo-emu)
+#   pc486 screen            affiche l'écran texte de la VM (QEMU)
+#   pc486 cad               envoie Ctrl+Alt+Suppr à la VM (redémarrage à chaud)
+#   pc486 reset             redémarrage à froid (bouton reset)
+#   pc486 pause             met la VM en pause / la relance (86Box)
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+# PC486_RUN : autre dossier de sockets/pid, pour une 2e VM (QEMU) en parallèle
+# PC486_LOGS : autre dossier de journaux (synthèse, QEMU), pour ne pas mêler deux VM
+RUN="${PC486_RUN:-$ROOT/run}"; LOGS="${PC486_LOGS:-$ROOT/logs}"; VM="$ROOT/vm"
+mkdir -p "$RUN" "$LOGS"
+
+RAM_MB="${PC486_RAM:-16}"
+DISK="${PC486_DISK:-$VM/win311.img}"
+# D: (QEMU et 86Box), attaché seulement si l'image existe ; PC486_TRANSFERT= (vide) :
+# aucun, pour un essai pendant qu'une autre VM l'utilise
+XFER_DISK="${PC486_TRANSFERT-$VM/transfert.img}"
+# 86Box : modèle de configuration et CMOS dans 86box/ ; outils fixés par nix dans tools/
+BOX_DIR="$ROOT/86box"
+BOX="${PC486_86BOX:-$ROOT/tools/86box/bin/86Box}"
+SOCAT="${PC486_SOCAT:-$ROOT/tools/socat/bin/socat}"
+AUDIO="${PC486_AUDIO:-pipewire}"
+# vitesse CPU : 2^N ns par instruction ; 7 => ~7,8 MIPS (486 lent). Avec 6 (~15 MIPS),
+# l'émulateur (un seul fil d'exécution en mode icount) ne suit plus : la VM tourne à
+# ~55 % du temps réel et prend tout un cœur. align=on cale l'horloge sur le temps réel.
+# Un 486 trop rapide fait échouer les boucles de temporisation des vieux programmes
+# DOS (Turbo Pascal : « Runtime error 200 ») et fausse le minutage des lecteurs.
+# PC486_ICOUNT=off : aucun bridage (pleine vitesse, pour les essais automatiques).
+ICOUNT="${PC486_ICOUNT:-7}"
+
+running() { [[ -f "$RUN/$1.pid" ]] && kill -0 "$(cat "$RUN/$1.pid")" 2>/dev/null; }
+
+# Synthèse vocale : Apollo II virtuel Apolo-emu, connecté au COM1 de la VM.
+# Commande apolo-emu si elle est installée, sinon le dépôt voisin (PC486_APOLO_EMU_DIR).
+# Réglages pour Épaudos et Épaulard (docs/protocole-apollo.md) ; PC486_GATEWAY_OPTS
+# ajoute des options d'apolo-emu, par exemple « --backend simulated » pour un essai muet.
+APOLO_EMU_DIR="${PC486_APOLO_EMU_DIR:-$ROOT/../apolo-emu}"
+
+gateway_start() {
+    running gateway && { echo "synthèse déjà active"; return; }
+    local cmd
+    if command -v apolo-emu >/dev/null 2>&1; then
+        cmd=(apolo-emu)
+    elif [[ -x "$ROOT/tools/apolo-emu/bin/apolo-emu" ]]; then
+        cmd=("$ROOT/tools/apolo-emu/bin/apolo-emu")
+    elif [[ -f "$APOLO_EMU_DIR/apolo_emu/__main__.py" ]]; then
+        cmd=(env PYTHONPATH="$APOLO_EMU_DIR" python3 -P -m apolo_emu)
+    else
+        echo "apolo-emu introuvable : lancer nix run .#prepare, utiliser nix run .#run ou indiquer PC486_APOLO_EMU_DIR" >&2
+        return 1
+    fi
+    nohup setsid "${cmd[@]}" --connect "$RUN/com1.sock" \
+        --language fr --codepage cp850 --extension burst-interrupt --no-volume \
+        --trace "$LOGS/apollo-trace.log" ${PC486_GATEWAY_OPTS:-} \
+        >>"$LOGS/apolo-emu.log" 2>&1 &
+    echo $! >"$RUN/gateway.pid"
+    echo "synthèse Apollo II lancée (journal : $LOGS/apolo-emu.log)"
+}
+
+gateway_stop() {
+    if running gateway; then kill "$(cat "$RUN/gateway.pid")"; echo "synthèse arrêtée"; fi
+    rm -f "$RUN/gateway.pid"
+}
+
+# Passerelle commune : automatique si construite, désactivable explicitement.
+BRAILLE_CMD="${PC486_BRAILLE_CMD:-$ROOT/tools/braille/bin/pc486-braille}"
+BRAILLE="${PC486_BRAILLE:-auto}"
+if [[ "$BRAILLE" == auto ]]; then
+    BRAILLE=0
+    [[ -x "$BRAILLE_CMD" ]] && BRAILLE=1
+fi
+export PC486_BRAILLE="$BRAILLE"
+
+braille_start() {
+    [[ "$BRAILLE" == 1 ]] || return 0
+    running braille && return 0
+    nohup setsid "$BRAILLE_CMD" "$@" --focus "${PC486_BRAILLE_FOCUS:-auto}" \
+        >>"$LOGS/braille.log" 2>&1 &
+    echo $! >"$RUN/braille.pid"
+}
+
+braille_stop() {
+    if running braille; then kill "$(cat "$RUN/braille.pid")" 2>/dev/null || true; fi
+    rm -f "$RUN/braille.pid"
+}
+
+vm_running() { running qemu || running 86box; }
+
+start() {
+    local display="gtk,zoom-to-fit=on" boot=c floppy="" disk="$DISK" gw=1 emu=86box
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --braille) BRAILLE=1; export PC486_BRAILLE=1 ;;
+            --no-braille) BRAILLE=0; export PC486_BRAILLE=0 ;;
+            --qemu) emu=qemu ;;
+            --headless) display=none; emu=qemu ;;
+            --boot) boot="$2"; shift ;;
+            --floppy)
+                # chemin relatif au répertoire courant, sinon à la racine du projet
+                if [[ -f "$2" ]]; then floppy="$(readlink -f "$2")"
+                elif [[ -f "$ROOT/$2" ]]; then floppy="$ROOT/$2"
+                else echo "disquette introuvable : $2" >&2; exit 1; fi
+                shift ;;
+            --win) ;;
+            --no-gateway) gw=0 ;;
+            *) echo "option inconnue : $1" >&2; exit 2 ;;
+        esac
+        shift
+    done
+    if [[ "$BRAILLE" == 1 && ! -x "$BRAILLE_CMD" ]]; then
+        echo "construire la passerelle : nix build --impure -f tools/braille.nix -o tools/braille" >&2
+        return 1
+    fi
+    { vm_running || running 86box-supervisor; } && { echo "la VM tourne déjà"; exit 1; }
+    if [[ $emu == 86box ]]; then start_86box "$floppy"; [[ $gw == 1 ]] && gateway_start; return 0; fi
+    [[ -f "$disk" ]] || { echo "disque introuvable : $disk" >&2; exit 1; }
+    local fmt=raw; [[ "$disk" == *.qcow2 ]] && fmt=qcow2
+    [[ "$boot" == a ]] && boot=a || boot=c
+    local fdopt=(-drive "if=floppy,index=0${floppy:+,format=raw,file=$floppy}")
+    # disque de transfert (D:), rempli depuis Linux avec scripts/transfert, VM arrêtée
+    local xfer=(); [[ -n "$XFER_DISK" && -f "$XFER_DISK" ]] && \
+        xfer=(-drive "file=$XFER_DISK,if=ide,index=1,media=disk,format=raw")
+    # PC486_TRACE_KEYS=1 : journal des touches reçues de GTK dans logs/touches.log
+    # PC486_TRACE=ev1,ev2 : événements de trace QEMU (qemu-system-i386 -trace help)
+    # dans logs/trace.log, ex. pcspk_io_write,ps2_put_keycode
+    local trace=() ev
+    if [[ -n "${PC486_TRACE:-}" ]]; then
+        for ev in ${PC486_TRACE//,/ }; do trace+=(-trace "enable=$ev"); done
+        trace+=(-D "$LOGS/trace.log" -msg timestamp=on)
+    elif [[ -n "${PC486_TRACE_KEYS:-}" ]]; then
+        trace=(-trace "enable=gd_key_event" -D "$LOGS/touches.log" -msg timestamp=on)
+    fi
+    rm -f "$RUN/qmp.sock" "$RUN/monitor.sock" "$RUN/com1.sock"
+
+    local braille=()
+    if [[ "$BRAILLE" == 1 ]]; then
+        rm -f "$RUN/com3.sock"
+        braille=(-chardev "socket,id=com3,path=$RUN/com3.sock,server=on,wait=off"
+                 -device "isa-serial,chardev=com3,index=2,iobase=0x3e8,irq=9")
+    fi
+    local icount=(-icount "shift=$ICOUNT,sleep=on,align=on"); [[ $ICOUNT == off ]] && icount=()
+    # 486 en émulation pure (TCG, pas de KVM) ; chipset i440FX ; périphériques ISA
+    local locked_disks=("$disk"); [[ ${#xfer[@]} == 0 ]] || locked_disks+=("$XFER_DISK")
+    python3 "$ROOT/scripts/with-disk-lock.py" "${locked_disks[@]}" -- qemu-system-i386 \
+        -name pc486 \
+        -machine pc,accel=tcg,hpet=off,pcspk-audiodev=snd0 \
+        -cpu 486 -m "$RAM_MB" \
+        "${icount[@]}" \
+        "${trace[@]}" \
+        -rtc base=localtime \
+        -drive "file=$disk,if=ide,index=0,media=disk,format=$fmt" \
+        "${xfer[@]}" \
+        "${fdopt[@]}" \
+        -boot "order=$boot,menu=off" \
+        -vga cirrus \
+        -audiodev "$AUDIO,id=snd0" \
+        -device sb16,audiodev=snd0,iobase=0x220,irq=5,dma=1,dma16=5 \
+        -device adlib,audiodev=snd0 \
+        -chardev "socket,id=com1,path=$RUN/com1.sock,server=on,wait=off" \
+        -serial chardev:com1 \
+        "${braille[@]}" \
+        -chardev "file,id=lpt1,path=$LOGS/lpt1.out" \
+        -parallel chardev:lpt1 \
+        -nic none \
+        -qmp "unix:$RUN/qmp.sock,server=on,wait=off" \
+        -monitor "unix:$RUN/monitor.sock,server=on,wait=off" \
+        -display "$display" \
+        -pidfile "$RUN/qemu.pid" \
+        >>"$LOGS/qemu.log" 2>&1 &
+    for _ in $(seq 50); do [[ -S "$RUN/qmp.sock" ]] && break; sleep 0.1; done
+    running qemu || { echo "échec du démarrage de QEMU, voir logs/qemu.log" >&2; tail -5 "$LOGS/qemu.log" >&2; exit 1; }
+    echo "VM démarrée (disque : $(basename "$disk"), démarrage sur $boot:)"
+    braille_start --connect "$RUN/com3.sock"
+    [[ $gw == 1 ]] && gateway_start
+    return 0
+}
+
+# 86Box : Shuttle HOT-433A (Award 4.51PG), i486DX4/100, 16 Mo, Cirrus GD5428, SB16 (86box/86box.cfg).
+# 86Box n'a pas de socket Unix pour le port série : COM1 est un pseudo-terminal dont
+# 86Box affiche le nom au démarrage ; socat le relie à run/com1.sock pour Apolo-emu.
+start_86box() {
+    local floppy="$1"
+    # Une fermeture par l'interface de 86Box doit aussi fermer les relais : le numéro
+    # du pseudo-terminal peut être réattribué à la prochaine VM (ou à un terminal).
+    stop_86box_helpers
+    rm -f "$RUN/86box.ready"
+    # Détacher le superviseur du terminal qui lance pc486 : sa fermeture ne doit
+    # pas tuer la VM avant que le nettoyage puisse s'exécuter.
+    nohup setsid "$ROOT/scripts/pc486" __supervise-86box "$BOX_DIR" "$floppy" \
+        >>"$LOGS/86box-supervisor.log" 2>&1 </dev/null &
+    echo $! >"$RUN/86box-supervisor.pid"
+    for _ in $(seq 150); do
+        [[ -f "$RUN/86box.ready" ]] && break
+        running 86box-supervisor || break
+        sleep 0.1
+    done
+    if [[ ! -f "$RUN/86box.ready" ]]; then
+        if running 86box-supervisor; then
+            kill "$(cat "$RUN/86box-supervisor.pid")"
+            wait "$(cat "$RUN/86box-supervisor.pid")" 2>/dev/null || true
+        fi
+        rm -f "$RUN/86box-supervisor.pid"
+        echo "échec du démarrage de 86Box, voir logs/86box-supervisor.log" >&2
+        tail -5 "$LOGS/86box-supervisor.log" >&2
+        return 1
+    fi
+    echo "VM 86Box démarrée (COM1 -> $RUN/com1.sock${floppy:+, disquette $(basename "$floppy")})"
+}
+
+stop_86box_helpers() {
+    local p
+    for p in socat 86box-mgr; do
+        if running "$p"; then
+            pkill -P "$(cat "$RUN/$p.pid")" || true
+            kill "$(cat "$RUN/$p.pid")" 2>/dev/null || true
+        fi
+    done
+    rm -f "$RUN/socat.pid" "$RUN/86box-mgr.pid" \
+        "$RUN/com1.sock" "$RUN/86box-mgr.sock" "$RUN/86box.ctl"
+}
+
+cleanup_86box() {
+    # Le superviseur est le parent de 86Box et attend sa fin avec wait ; aucun
+    # sondage d'un ancien PID qui pourrait ensuite désigner un autre processus.
+    if running 86box; then
+        kill -KILL "$(cat "$RUN/86box.pid")" 2>/dev/null || true
+        wait "$(cat "$RUN/86box.pid")" 2>/dev/null || true
+    fi
+    braille_stop
+    stop_86box_helpers
+    rm -f "$RUN/86box.pid" "$RUN/86box.ready" "$RUN/86box-supervisor.pid" "$RUN/86box.cfg"
+    # Fermeture par la fenêtre de 86Box : la synthèse n'a plus de VM à servir.
+    gateway_stop
+}
+
+# Configuration de cette exécution, tirée du modèle versionné 86box/86box.cfg. 86Box
+# réécrit son fichier à chaque lancement (host_cpu, uuid propres à l'hôte) : il écrit
+# ici, jamais dans le modèle. Les modifications faites dans l'interface de 86Box sont
+# donc perdues à l'arrêt ; les reporter dans le modèle. Chemins de disques absolus
+# (86Box résout les relatifs depuis -P) ; D: (hdd_02) seulement si son image existe.
+box_config() {
+    local xfer=""
+    [[ -n "$XFER_DISK" && -f "$XFER_DISK" ]] && xfer="$(readlink -f "$XFER_DISK")"
+    awk -v dir="$BOX_DIR" -v xfer="$xfer" '
+        /^[ \t]*(host_cpu|uuid)[ \t]*=/ { next }
+        /^hdd_02_/ && xfer == "" { next }
+        /^hdd_[0-9]+_fn[ \t]*=/ {
+            key = $0; sub(/[ \t]*=.*/, "", key)
+            val = $0; sub(/^[^=]*=[ \t]*/, "", val); sub(/[ \t\r]*$/, "", val)
+            if (key == "hdd_02_fn") val = xfer
+            else if (val !~ /^\//) val = dir "/" val
+            print key " = " val; next
+        }
+        { print }' "$BOX_DIR/86box.cfg" >"$RUN/86box.cfg"
+    if [[ -z "$XFER_DISK" ]]; then echo "86Box : pas de D: (PC486_TRANSFERT vide)"
+    elif [[ -z "$xfer" ]]; then echo "86Box : pas de D: ($XFER_DISK introuvable)"; fi
+}
+
+# CMOS : 86Box lit et écrit nvr/<BIOS>.nvr à côté de son fichier de configuration,
+# donc $RUN/nvr, et non sous -P. Une CMOS vierge arrête l'Award au démarrage
+# (« CMOS checksum error », F1, écran non vocalisé) : partir de la référence
+# versionnée 86box/nvr/<BIOS>.nvr.ok, sans jamais remplacer une CMOS existante.
+box_nvr() {
+    local ok dst
+    mkdir -p "$RUN/nvr"
+    for ok in "$BOX_DIR"/nvr/*.nvr.ok; do
+        dst="$RUN/nvr/$(basename "${ok%.ok}")"
+        [[ -f "$ok" && ! -e "$dst" ]] || continue
+        cp "$ok" "$dst" && echo "86Box : CMOS créée depuis $(basename "$ok")"
+    done
+}
+
+run_86box() {
+    local floppy="$1" pts="" brpts=""
+    [[ -x "$BOX" ]] || { echo "86Box introuvable : $BOX" >&2; exit 1; }
+    rm -f "$RUN/com1.sock" "$RUN/86box.ctl"
+    box_config
+    box_nvr
+    : >"$LOGS/86box.log"
+    # 86Box ignore SIGTERM/SIGINT ; il se connecte à une socket de gestion qui accepte
+    # « shutdownnoprompt ». socat la sert et relaie ce qu'on écrit dans run/86box.ctl.
+    mkfifo "$RUN/86box.ctl"
+    "$SOCAT" "UNIX-LISTEN:$RUN/86box-mgr.sock,unlink-early" "OPEN:$RUN/86box.ctl,rdonly,ignoreeof" \
+        >>"$LOGS/socat.log" 2>&1 &
+    echo $! >"$RUN/86box-mgr.pid"
+    for _ in $(seq 20); do [[ -S "$RUN/86box-mgr.sock" ]] && break; sleep 0.1; done
+    # Wayland natif forcé (sinon Qt passe par XWayland sous GNOME) : 86Box y demande au
+    # compositeur de lui laisser tous les raccourcis (Alt+F6…). Super+Échap les rend à GNOME.
+    local qpa="${PC486_QPA:-xcb}"; [[ -n "${WAYLAND_DISPLAY:-}" ]] && qpa="${PC486_QPA:-wayland}"
+    # (env : un nom de variable commençant par un chiffre n'est pas une affectation bash)
+    env QT_QPA_PLATFORM="$qpa" 86BOX_MANAGER_SOCKET="$RUN/86box-mgr.sock" \
+        python3 "$ROOT/scripts/with-disk-lock.py" --86box-dir "$BOX_DIR" --86box-cfg "$RUN/86box.cfg" \
+        -- "$BOX" -N -P "$BOX_DIR" ${floppy:+-I "A:$floppy"} "$RUN/86box.cfg" \
+        >>"$LOGS/86box.log" 2>&1 &
+    echo $! >"$RUN/86box.pid"
+    for _ in $(seq 100); do
+        pts=$(grep -a -o 'Slave side is /dev/pts/[0-9]*' "$LOGS/86box.log" | awk 'NR == 1 {print $4}') || true
+        [[ -n "$pts" ]] && break
+        running 86box || break
+        sleep 0.1
+    done
+    [[ -n "$pts" ]] || { echo "échec du démarrage de 86Box, voir logs/86box.log" >&2; tail -5 "$LOGS/86box.log" >&2; exit 1; }
+    # une connexion d'Apolo-emu = une ouverture du pseudo-terminal (reconnexion possible)
+    "$SOCAT" "UNIX-LISTEN:$RUN/com1.sock,fork,unlink-early" "FILE:$pts,rawer,nonblock" \
+        >>"$LOGS/socat.log" 2>&1 &
+    echo $! >"$RUN/socat.pid"
+    # Ne pas annoncer une VM prête avant que son relais écoute réellement.
+    for _ in $(seq 20); do [[ -S "$RUN/com1.sock" ]] && break; sleep 0.1; done
+    running socat && [[ -S "$RUN/com1.sock" ]] || { echo "échec du relais COM1" >&2; exit 1; }
+    if [[ "$BRAILLE" == 1 ]]; then
+        for _ in $(seq 50); do
+            brpts=$(grep -a -o 'Slave side is /dev/pts/[0-9]*' "$LOGS/86box.log" | awk 'NR == 2 {print $4}') || true
+            [[ -n "$brpts" ]] && break
+            running 86box || break
+            sleep 0.1
+        done
+        [[ -n "$brpts" ]] || { echo "PTY COM3 absent : activer serial3 dans 86box/86box.cfg" >&2; exit 1; }
+        braille_start --device "$brpts"
+    fi
+    touch "$RUN/86box.ready"
+    wait "$(cat "$RUN/86box.pid")" || true
+}
+
+stop() {
+    if running qemu; then
+        python3 -I "$ROOT/scripts/vmctl.py" quit 2>/dev/null || kill "$(cat "$RUN/qemu.pid")"
+        for _ in $(seq 30); do running qemu || break; sleep 0.2; done
+        echo "VM arrêtée"
+    elif running 86box; then
+        timeout 3 sh -c "echo shutdownnoprompt >'$RUN/86box.ctl'" || true
+        for _ in $(seq 50); do running 86box || break; sleep 0.2; done
+        running 86box && { echo "86Box ne répond pas : arrêt forcé"; kill -KILL "$(cat "$RUN/86box.pid")"; }
+        echo "VM 86Box arrêtée"
+    else
+        echo "la VM ne tourne pas"
+    fi
+    # Le superviseur nettoie aussi lors d'une fermeture par la fenêtre de 86Box.
+    # Attendre ce nettoyage avant de permettre un nouveau démarrage.
+    for _ in $(seq 30); do running 86box-supervisor || break; sleep 0.1; done
+    braille_stop
+    stop_86box_helpers
+    rm -f "$RUN/com3.sock"
+    rm -f "$RUN/qemu.pid" "$RUN/86box.pid"
+    gateway_stop
+}
+
+status() {
+    if running qemu; then echo "VM : en marche sous QEMU (pid $(cat "$RUN/qemu.pid"))"
+    elif running 86box; then echo "VM : en marche sous 86Box (pid $(cat "$RUN/86box.pid"))"
+    else echo "VM : arrêtée"; fi
+    running braille && echo "braille : en marche (pid $(cat "$RUN/braille.pid"))" || echo "braille : arrêté"
+    running gateway && echo "synthèse : en marche (pid $(cat "$RUN/gateway.pid"))" || echo "synthèse : arrêtée"
+}
+
+case "${1:-}" in
+    __supervise-86box)
+        BOX_DIR="$2"
+        trap cleanup_86box EXIT
+        trap 'exit 143' TERM
+        run_86box "$3"
+        ;;
+    start) shift; start "$@" ;;
+    stop) stop ;;
+    status) status ;;
+    screen) python3 -I "$ROOT/scripts/vmctl.py" screen ;;
+    cad|reset|pause)
+        # 86Box : commandes de sa socket de gestion ; QEMU : équivalents QMP
+        if running 86box; then
+            timeout 3 sh -c "echo $1 >'$RUN/86box.ctl'" || { echo "86Box ne répond pas" >&2; exit 1; }
+        elif running qemu; then
+            case "$1" in
+                cad) python3 -I "$ROOT/scripts/vmctl.py" key ctrl-alt-delete ;;
+                reset) python3 -I "$ROOT/scripts/vmctl.py" hmp system_reset >/dev/null ;;
+                pause) python3 -I "$ROOT/scripts/vmctl.py" hmp "$(python3 -I "$ROOT/scripts/vmctl.py" hmp 'info status' | grep -q paused && echo cont || echo stop)" >/dev/null ;;
+            esac
+        else
+            echo "la VM ne tourne pas" >&2; exit 1
+        fi ;;
+    gateway)
+        case "${2:-}" in
+            start) gateway_start ;; stop) gateway_stop ;;
+            restart) gateway_stop; gateway_start ;;
+            *) echo "pc486 gateway start|stop|restart"; exit 2 ;;
+        esac ;;
+    *) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 2 ;;
+esac

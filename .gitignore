@@ -1,0 +1,53 @@
+# Disques virtuels et supports logiciels tiers
+/vm/
+/media/
+
+# Exécution et journaux
+/run/
+/run-*/
+/logs/
+/logs-*/
+*.pid
+*.sock
+
+# Compilation et caches
+/epaulard/build/
+/epaudos/build/
+__pycache__/
+*.py[cod]
+
+# Outils locaux : liens vers le magasin Nix
+/tools/86box
+/tools/86box-orig
+/tools/braille
+/tools/socat
+/tools/watcom
+/tools/apolo-emu
+
+# État CMOS mutable ; la copie de référence .nvr.ok reste versionnée
+*.nvr
+*.nvr.vierge
+# Copie de la mémoire flash du BIOS écrite par 86Box à côté de la CMOS
+/86box/nvr/*.bin
+
+# Documents et désassemblage issus de Sonolect (logiciel tiers)
+/work/
+
+# Fichiers locaux et temporaires des éditeurs
+/.agents/
+/.codex/
+/.aws/
+*.swp
+*.swo
+*~
+/.claude/
+
+# Installations neuves et supports : ne jamais les publier avec les sources
+.pc486-install-*/
+*.[iI][mM][gG]
+*.[iI][mM][aA]
+*.qcow2
+
+# Résultats des constructions Nix
+/result
+/result-*

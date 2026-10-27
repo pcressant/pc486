@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Installation neuve depuis les supports locaux de l'utilisateur.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec python3 "$ROOT/scripts/installation.py" "$@"
