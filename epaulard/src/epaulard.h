@@ -60,3 +60,4 @@ int FAR PASCAL EpBrailleEpoch(void);
 BOOL osm_install(void);
 BOOL osm_remove(void);          /* TRUE : un appel d'origine est encore actif */
 void osm_reap(void);            /* appels abandonnés par une tâche terminée */
+void osm_destroyed(HWND hwnd);  /* fenêtre détruite : oublier ses textes */

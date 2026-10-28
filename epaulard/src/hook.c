@@ -9,7 +9,8 @@
  *   (osm.c : modèle hors écran, texte affiché par GDI)
  *   WH_CBT         : changements de focus et de fenêtre active (Windows réutilise
  *                    aussitôt les identifiants de fenêtre : la scrutation seule ne voit
- *                    pas qu'un nouveau contrôle a pris la place d'un ancien)
+ *                    pas qu'un nouveau contrôle a pris la place d'un ancien) ;
+ *                    destruction de fenêtre : textes oubliés par osm.c
  */
 #include <windows.h>
 #include "epaulard.h"
@@ -346,6 +347,8 @@ LRESULT CALLBACK __export EpCbtProc(int code, WPARAM wp, LPARAM lp)
         PostMessage(ep_hwnd_main, EPM_FOCUS, wp, 0L);
     else if (code == HCBT_ACTIVATE && ep_hwnd_main && wp)
         PostMessage(ep_hwnd_main, EPM_ACTIVATE, wp, 0L);
+    else if (code == HCBT_DESTROYWND && wp)
+        osm_destroyed((HWND) wp);
     return CallNextHookEx(hk_cbt, code, wp, lp);
 }
 

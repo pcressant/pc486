@@ -449,6 +449,28 @@ static void test_abandoned_call(void)
     CHECK(osm_install());
 }
 
+/* Fenêtre détruite : son identifiant, aussitôt réutilisé par Windows, ne doit pas
+   reprendre ses anciens textes (« Ligne de commande: » lu dans le glossaire). */
+static void test_destroyed(void)
+{
+    HWND dlg, label, topic;
+    HDC dc;
+
+    reset_world();
+    dlg = sim_create(0, "#32770", "Exécuter", 0, 100, 100, 400, 200);
+    label = sim_create(dlg, "Static", "", 0, 110, 110, 300, 130);
+    dc = EpGetDC(label);
+    text(dc, 0, 0, "Ligne de commande:");
+    CHECK_STR(row(dlg, 112), "Ligne de commande:");
+    osm_destroyed(dlg);                 /* seule la boîte passe par le crochet */
+    sim_destroy(label);
+    sim_destroy(dlg);
+    dlg = sim_create(0, "MS_WINTOPIC_SECONDARY", "glossaire", 0, 100, 100, 400, 200);
+    topic = sim_create(dlg, "MS_WINTOPIC", "", 0, 110, 110, 300, 130);
+    CHECK(topic == label);              /* même identifiant */
+    CHECK_STR(row(dlg, 112), "");
+}
+
 int main(void)
 {
     test_patch_lifecycle();
@@ -461,6 +483,7 @@ int main(void)
     test_sdm();
     test_paint();
     test_review();
+    test_destroyed();
     if (failures)
         printf("%d échec(s)\n", failures);
     else

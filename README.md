@@ -282,9 +282,12 @@ par Apolo-emu, comme Épaudos. Le dire tout attend l'écho `@E` renvoyé après 
   police et mise en forme, Inser+Maj+Haut lire la sélection, Inser+PgSuiv barre
   d'état, **Inser+E réglages** (débit, hauteur, voix, ponctuation, écho du clavier,
   majuscules ; voir [les réglages](docs/reglages.md)), Inser+H aide,
-  Inser+F4 quitter, Inser+D débogage, Ctrl seul = silence. Ctrl+Gauche/Droite lit le
+  Inser+F4 quitter, Inser+D débogage (Inser+Maj+D : arbre des fenêtres), Ctrl seul = silence. Ctrl+Gauche/Droite lit le
   mot ; Maj+flèches annonce le texte sélectionné ou désélectionné (zones d'édition,
   Write, Word). La touche Inser est réservée à Épaulard.
+- Autres programmes Windows (Aide, Fiches, Table de caractères, Panneau de
+  configuration, Mail, Terminal, Didacticiel…) : état et limites par programme dans
+  [les programmes Windows](docs/programmes-windows.md).
 - Souris, comme NVDA, Verr Num éteint : / du pavé clic gauche, * clic droit, Maj+/ ou
   Maj+* verrouille le bouton, Inser+/ amène le pointeur au point de revue, Inser+*
   lit sous le pointeur. Voir [la revue et la souris](docs/revue-pave.md).

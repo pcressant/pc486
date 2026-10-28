@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <stdarg.h>
 #include <stdint.h>
 
@@ -79,11 +80,13 @@ static BYTE sim_patch_area[16];
 /* ------------------------------------------------------------- constantes */
 #define WS_OVERLAPPED 0x00000000L
 #define WS_CHILD      0x40000000L
+#define WS_CAPTION    0x00C00000L
 #define WS_DISABLED   0x08000000L
 #define WS_VISIBLE    0x10000000L
 #define GWW_ID (-12)
 #define GWL_STYLE (-16)
 #define GW_HWNDNEXT 2
+#define GW_HWNDPREV 3
 #define GW_OWNER 4
 #define GW_CHILD 5
 #define ES_MULTILINE 0x0004L
@@ -97,6 +100,8 @@ static BYTE sim_patch_area[16];
 #define BS_GROUPBOX 7
 #define BS_AUTORADIOBUTTON 9
 #define LBS_MULTIPLESEL 0x0008L
+#define CBS_OWNERDRAWFIXED 0x0010L
+#define CBS_OWNERDRAWVARIABLE 0x0020L
 #define LBS_OWNERDRAWFIXED 0x0010L
 #define LBS_OWNERDRAWVARIABLE 0x0020L
 #define LBS_HASSTRINGS 0x0040L
@@ -120,6 +125,7 @@ static BYTE sim_patch_area[16];
 #define LB_GETTEXT (WM_USER + 10)
 #define LB_GETTEXTLEN (WM_USER + 11)
 #define LB_GETITEMRECT (WM_USER + 25)
+#define LB_GETCOUNT (WM_USER + 12)
 #define LB_GETCARETINDEX (WM_USER + 32)
 #define CB_GETLBTEXT (WM_USER + 8)
 #define CB_GETLBTEXTLEN (WM_USER + 9)
@@ -192,6 +198,7 @@ static int lstrlen(LPCSTR s) { return s ? (int) strlen(s) : 0; }
 static LPSTR lstrcpy(LPSTR d, LPCSTR s) { memmove(d, s, strlen(s) + 1); return d; }
 static LPSTR lstrcat(LPSTR d, LPCSTR s) { memmove(d + strlen(d), s, strlen(s) + 1); return d; }
 static int lstrcmp(LPCSTR a, LPCSTR b) { return strcmp(a, b); }
+static int lstrcmpi(LPCSTR a, LPCSTR b) { return strcasecmp(a, b); }
 static LPSTR lstrcpyn(LPSTR d, LPCSTR s, int n)
 {
     int k = 0;
@@ -238,6 +245,7 @@ static BOOL WritePrivateProfileString(LPCSTR sec, LPCSTR key, LPCSTR val, LPCSTR
 }
 #define wsprintf sprintf
 #define _fstrchr strchr
+#define _fstrstr strstr
 #define _fstrncmp strncmp
 #define _fmemset memset
 #define _fmemcpy memcpy
@@ -297,8 +305,27 @@ static HWND GetWindow(HWND h, UINT cmd)
             if (sim_win[i].used && sim_win[i].parent == h) return (HWND) i;
         return 0;
     }
+    if (cmd == GW_HWNDPREV) {
+        for (i = h - 1; i > 0; i--)
+            if (sim_win[i].used && sim_win[i].parent == sim_win[h].parent) return (HWND) i;
+        return 0;
+    }
     for (i = h + 1; i < SIM_WN; i++)
         if (sim_win[i].used && sim_win[i].parent == sim_win[h].parent) return (HWND) i;
+    return 0;
+}
+static BOOL IsZoomed(HWND h) { (void) h; return FALSE; }
+static BOOL IsChild(HWND p, HWND h)
+{
+    for (h = IsWindow(h) ? sim_win[h].parent : 0; h; h = sim_win[h].parent)
+        if (h == p) return TRUE;
+    return FALSE;
+}
+static HWND GetDlgItem(HWND h, int id)
+{
+    HWND c;
+    for (c = GetWindow(h, GW_CHILD); c; c = GetWindow(c, GW_HWNDNEXT))
+        if (sim_win[c].id == (WORD) id) return c;
     return 0;
 }
 static BOOL GetWindowRect(HWND h, RECT *r) { *r = sim_win[h].rc; return TRUE; }
@@ -516,7 +543,9 @@ static POINT sim_cursor, sim_caret;
 static BOOL GetCursorPos(POINT *p) { *p = sim_cursor; return TRUE; }
 static BOOL SetCursorPos(int x, int y) { sim_cursor.x = x; sim_cursor.y = y; return TRUE; }
 static void GetCaretPos(POINT *p) { *p = sim_caret; }
-static int GetScrollPos(HWND h, int b) { (void) h; (void) b; return 0; }
+static int sim_scroll_pos, sim_scroll_max;
+static int GetScrollPos(HWND h, int b) { (void) h; (void) b; return sim_scroll_pos; }
+static void GetScrollRange(HWND h, int b, int *lo, int *hi) { (void) h; (void) b; *lo = 0; *hi = sim_scroll_max; }
 /* Menus : sim_menu[m] liste les éléments du menu m (1 à SIM_MN - 1) */
 #define SIM_MN 16
 static struct { const char *name; HMENU sub; UINT id; } sim_menu[SIM_MN][8];
@@ -546,6 +575,8 @@ static BOOL GetMessage(MSG *m, HWND h, UINT a, UINT b) { (void) m; (void) h; (vo
 static BOOL TranslateMessage(const MSG *m) { (void) m; return TRUE; }
 static LRESULT DispatchMessage(const MSG *m) { (void) m; return 0; }
 static int GetProfileInt(LPCSTR a, LPCSTR k, int d) { (void) a; (void) k; (void) d; return 3; }
+static int GetProfileString(LPCSTR a, LPCSTR k, LPCSTR d, LPSTR o, int n)
+{ (void) a; (void) k; lstrcpyn(o, d, n); return lstrlen(o); }
 
 /* ------------------------------------------------------------- ports série */
 /* COM1 (id 1) : synthèse ; COM3 (id 3) : plage braille */

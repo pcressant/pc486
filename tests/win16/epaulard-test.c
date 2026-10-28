@@ -354,6 +354,8 @@ static LRESULT wf_proc(HWND h, UINT m, WPARAM w, LPARAM l)
 {
     (void) h;
     switch (m) {
+    case LB_GETCOUNT:
+        return 4;
     case LB_GETCURSEL:
     case LB_GETCARETINDEX:
         return wf.sel;
@@ -390,8 +392,45 @@ static void wf_open(void)
 }
 
 /* ------------------------------------------------------- boucle du système */
+/* Aide de Windows : focus sur MS_WINDOC, texte dans MS_WINTOPIC (6 rangées
+   visibles) ; Page suivante avance de 5 rangées (une de recouvrement), Tab inverse le
+   lien suivant. */
+#define H_ROWS 6
+static struct {
+    HWND doc, topic;
+    HDC dc;
+    const char *lines[40];
+    int n, top, link;
+} hp;
+
+static void hp_draw(void)
+{
+    int r, l;
+    for (r = 0; r < H_ROWS; r++) {
+        l = hp.top + r;
+        clear(hp.dc, 0, r * 16, 400, r * 16 + 16);
+        if (l < hp.n && hp.lines[l][0])
+            EpExtTextOut(hp.dc, 0, r * 16, 0, NULL, hp.lines[l], (UINT) strlen(hp.lines[l]), NULL);
+    }
+}
+
+static LRESULT hp_key(UINT vk)
+{
+    int max = hp.n > H_ROWS ? hp.n - H_ROWS : 0, old = hp.top;
+    if (vk == VK_NEXT) hp.top = hp.top + H_ROWS - 1 > max ? max : hp.top + H_ROWS - 1;
+    if (vk == VK_DOWN && hp.top < max) hp.top++;
+    if (vk == VK_TAB) {                 /* liens : rangées 2 et 3 */
+        hp.link = hp.link == 2 ? 3 : 2;
+        hp_draw();
+        EpPatBlt(hp.dc, 0, (hp.link - hp.top) * 16, 8 * (int) strlen(hp.lines[hp.link]), 16, DSTINVERT);
+    }
+    if (hp.top != old) hp_draw();
+    return 0;
+}
+
 static LRESULT app_key(HWND h, UINT vk)
 {
+    if (h == hp.doc && hp.doc) return hp_key(vk);
     if (h == wr.doc && wr.doc) return wr_key(vk);
     if (h == np.edit && np.edit) return np_key(vk);
     if (h == pm.grp && pm.grp) return pm_key(vk);
@@ -465,6 +504,7 @@ static void boot(void)
     memset(&np, 0, sizeof(np));
     memset(&pm, 0, sizeof(pm));
     memset(&wf, 0, sizeof(wf));
+    memset(&hp, 0, sizeof(hp));
     sim_focus = sim_active = 0;
     sim_qn = 0;
     osm_remove();
@@ -978,6 +1018,7 @@ static int sim_item_len, sim_item_sel;
 static LRESULT long_list_proc(HWND h, UINT msg, WPARAM w, LPARAM l)
 {
     (void) h; (void) w;
+    if (msg == LB_GETCOUNT) return 1;
     if (msg == LB_GETTEXTLEN) return sim_item_len;
     if (msg == LB_GETTEXT) {
         memset((char *) l, 'x', sim_item_len);
@@ -1354,6 +1395,385 @@ static void test_disabled_controls(void)
     CHECK_STR(out, "Option, case à cocher, non coché, grisé");
 }
 
+static LRESULT tree_proc(HWND h, UINT m, WPARAM w, LPARAM l)
+{
+    (void) h;
+    if (m == LB_GETCOUNT) return 2;
+    if (m == LB_GETCURSEL || m == LB_GETCARETINDEX) return 0;
+    if (m == LB_GETITEMRECT) SetRect((RECT *) l, 0, (int) w * 16, 200, (int) w * 16 + 16);
+    return 0;
+}
+
+static LRESULT empty_list_proc(HWND h, UINT m, WPARAM w, LPARAM l)
+{
+    (void) h; (void) w; (void) l;
+    return m == LB_GETCURSEL || m == LB_GETCARETINDEX ? LB_ERR : 0;
+}
+
+/* Programmes divers : liste vide (Gestionnaire d'impression), libellé désigné par
+   l'ordre des fenêtres (Dame de Pique), message d'une boîte d'une autre classe que
+   #32770 (Microsoft Backup), titre du document MDI au Ctrl+F6 (Sysedit). */
+static void test_generic_windows(void)
+{
+    HWND dlg, list, edit, frame, client, doc1, doc2, ed1, ed2, ok;
+    char out[TXT * 2];
+    int i;
+    BOOL found;
+
+    boot();
+    dlg = sim_create(0, "PrintManager", "Gestionnaire d'impression", 0, 0, 0, 400, 300);
+    list = sim_create(dlg, "LISTBOX", "", LBS_OWNERDRAWFIXED, 0, 20, 400, 300);
+    sim_win[list].proc = empty_list_proc;
+    describe_value(list, out);
+    CHECK_STR(out, "vide");
+
+    dlg = sim_create(0, "#32770", "La Dame de Pique réseau", 0, 0, 0, 400, 300);
+    sim_create(dlg, "STATIC", "Bienvenue à la Dame de Pique réseau.", 0, 10, 10, 390, 30);
+    /* libellé à gauche, un peu plus bas que la zone : la géométrie ne le voit pas */
+    sim_create(dlg, "STATIC", "Quel est votre nom?", 0, 10, 72, 150, 90);
+    edit = sim_create(dlg, "EDIT", "", 0, 10, 54, 200, 70);
+    describe(edit, out);
+    CHECK_STR(out, "Quel est votre nom?, zone d'édition, vide");
+
+    boot();
+    dlg = sim_create(0, "NBMSGCLASS", "Microsoft Backup", 0, 0, 0, 300, 120);
+    sim_create(dlg, "STATIC", "Microsoft Backup n'a pas été configuré.", 0, 40, 10, 290, 40);
+    ok = sim_create(dlg, "BUTTON", "&Oui", 0, 40, 60, 100, 80);
+    sim_active = dlg;
+    sim_focus = ok;
+    ap_reset();
+    run(1000);
+    found = FALSE;
+    for (i = 0; i < spoken_n; i++)
+        if (strstr(spoken[i], "n'a pas été configuré")) found = TRUE;
+    CHECK(found);
+
+    boot();
+    frame = sim_create(0, "Sysedit", "Editeur de configuration système", 0, 0, 0, 600, 400);
+    client = sim_create(frame, "MDIClient", "", 0, 0, 20, 600, 400);
+    doc1 = sim_create(client, "SysEditDoc", "C:\\AUTOEXEC.BAT", 0, 0, 20, 300, 200);
+    ed1 = sim_create(doc1, "EDIT", "", ES_MULTILINE, 0, 40, 300, 200);
+    doc2 = sim_create(client, "SysEditDoc", "C:\\CONFIG.SYS", 0, 20, 40, 320, 220);
+    ed2 = sim_create(doc2, "EDIT", "", ES_MULTILINE, 20, 60, 320, 220);
+    sim_active = frame;
+    sim_focus = ed1;
+    run(1000);
+    ap_reset();
+    sim_focus = ed2;
+    run(1000);
+    CHECK(spoken_n >= 1 && strstr(spoken[0], "CONFIG.SYS") && strstr(spoken[0], "zone de texte"));
+    ap_reset();
+    sim_focus = ed1;
+    run(1000);
+    CHECK(spoken_n >= 1 && strstr(spoken[0], "AUTOEXEC.BAT"));
+
+    /* Couleurs : liste déroulante dessinée dont le texte porte des données ;
+       bouton « Palette de couleurs >> » */
+    boot();
+    dlg = sim_create(0, "#32770", "Couleurs", 0, 0, 0, 400, 300);
+    list = sim_create(dlg, "ComboBox", "", CBS_OWNERDRAWFIXED, 10, 30, 300, 50);
+    EpExtTextOut(EpGetDC(list), 2, 2, 0, NULL, "Standard Microsoft", 18, NULL);
+    describe_value(list, out);
+    CHECK_STR(out, "Standard Microsoft");
+    ok = sim_create(dlg, "Button", "&Palette de couleurs >>", 0, 10, 60, 200, 80);
+    describe(ok, out);
+    CHECK_STR(out, "Palette de couleurs, bouton");
+
+    /* Souris : curseur nommé par son cadre de groupe, valeur en pour cent */
+    boot();
+    dlg = sim_create(0, "#32770", "Souris", 0, 0, 0, 400, 300);
+    sim_create(dlg, "Button", "Vitesse du double-clic", BS_GROUPBOX, 10, 10, 300, 80);
+    sim_create(dlg, "Static", "Lente", 0, 20, 30, 60, 46);
+    list = sim_create(dlg, "ScrollBar", "", 0, 20, 50, 290, 66);
+    sim_scroll_pos = 548;
+    sim_scroll_max = 1000;
+    describe(list, out);
+    CHECK_STR(out, "Vitesse du double-clic, barre de défilement, 54 %");
+    /* Clavier : deux curseurs dans le même cadre, chacun après son libellé à
+       raccourci puis ses textes d'extrémités */
+    sim_create(dlg, "Button", "Clavier", BS_GROUPBOX, 10, 100, 300, 260);
+    sim_create(dlg, "Static", "&Délai avant la première répétition", 0, 20, 110, 290, 126);
+    sim_create(dlg, "Static", "Longue", 0, 20, 130, 60, 146);
+    sim_create(dlg, "Static", "Courte", 0, 250, 130, 290, 146);
+    list = sim_create(dlg, "ScrollBar", "", 0, 70, 130, 240, 146);
+    describe(list, out);
+    CHECK_STR(out, "Délai avant la première répétition, barre de défilement, 54 %");
+    sim_scroll_pos = sim_scroll_max = 0;
+
+    /* International : boutons homonymes distingués par leur cadre, dit en y
+       entrant ; Date/Heure : champs nommés, séparateurs ignorés */
+    boot();
+    dlg = sim_create(0, "#32770", "International", 0, 0, 0, 400, 300);
+    sim_create(dlg, "Button", "Format de date", BS_GROUPBOX, 10, 10, 190, 100);
+    ok = sim_create(dlg, "Button", "&Modifier...", 0, 100, 60, 180, 80);
+    sim_create(dlg, "Button", "Format horaire", BS_GROUPBOX, 210, 10, 390, 100);
+    edit = sim_create(dlg, "Button", "M&odifier...", 0, 300, 60, 380, 80);
+    sim_active = dlg;
+    sim_focus = ok;
+    ap_reset();
+    run(5000);
+    CHECK(spoken_n == 1 && !strcmp(spoken[0], "International, Format de date, Modifier..., bouton"));
+    ap_reset();
+    sim_focus = edit;
+    run(3000);
+    CHECK(spoken_n == 1 && !strcmp(spoken[0], "Format horaire, Modifier..., bouton"));
+    dlg = sim_create(0, "#32770", "Date & Heure", 0, 0, 0, 400, 300);
+    sim_create(dlg, "Static", "/", 0, 50, 10, 55, 26);
+    edit = sim_create(dlg, "Edit", "10", ES_MULTILINE, 60, 10, 80, 26);
+    sim_win[edit].id = 705;
+    sim_win[sim_create(dlg, "Edit", "28", ES_MULTILINE, 10, 10, 40, 26)].id = 704;
+    sim_win[sim_create(dlg, "Edit", "2026", ES_MULTILINE, 110, 10, 150, 26)].id = 706;
+    sim_win[sim_create(dlg, "CPArrow", "", 0, 90, 10, 100, 26)].id = 711;
+    describe(edit, out);
+    CHECK_STR(out, "mois, zone d'édition, 10");
+
+    /* 386 étendu : zone réglée par le bouton radio qui la précède */
+    dlg = sim_create(0, "#32770", "Etendu", 0, 0, 0, 400, 300);
+    sim_create(dlg, "Button", "&Inactivité (secs)", BS_AUTORADIOBUTTON, 10, 10, 150, 26);
+    edit = sim_create(dlg, "Edit", "2", 0, 160, 10, 200, 26);
+    describe(edit, out);
+    CHECK_STR(out, "Inactivité (secs), zone d'édition, 2");
+
+    /* Bureau : zone numérique, unité après elle, flèches de réglage */
+    boot();
+    dlg = sim_create(0, "#32770", "Bureau", 0, 0, 0, 400, 300);
+    sim_create(dlg, "Static", "&Délai:", 0, 10, 10, 60, 26);
+    edit = sim_create(dlg, "Edit", "2", 0, 70, 10, 110, 26);
+    sim_create(dlg, "Static", "Minutes", 0, 115, 10, 170, 26);
+    describe(edit, out);
+    CHECK_STR(out, "Délai:, zone d'édition, 2 Minutes");
+    sim_active = dlg;
+    sim_focus = edit;
+    run(3000);
+    ap_reset();
+    PostMessage(hwnd_main, EPM_KEY, VK_UP, 0);
+    strcpy(sim_win[edit].text, "3");
+    run(2000);
+    CHECK(spoken_n == 1 && !strcmp(spoken[0], "3 Minutes"));
+
+    /* Arbre du Gestionnaire de fichiers : focus donné avant le premier dessin */
+    boot();
+    frame = sim_create(0, "WFS_Frame", "Gestionnaire de fichiers", 0, 0, 0, 600, 400);
+    list = sim_create(frame, "ListBox", "", LBS_OWNERDRAWFIXED, 10, 40, 210, 300);
+    sim_win[list].proc = tree_proc;
+    sim_active = frame;
+    sim_focus = list;
+    ap_reset();
+    run(100);
+    CHECK(spoken_n >= 1 && strstr(spoken[spoken_n - 1], "élément 1"));
+    EpExtTextOut(EpGetDC(list), 2, 0, 0, NULL, "c:\\", 3, NULL);
+    run(5000);                          /* (annonce précédente : 3 s à 15 car./s) */
+    CHECK(spoken_n >= 2 && strstr(spoken[spoken_n - 1], "c:") &&
+          !strstr(spoken[spoken_n - 1], "élément"));
+}
+
+/* Enregistreur de sons : boutons « #Play » nommés en français, position du son au
+   lieu de la graduation, état (Arrêté, Lecture) annoncé quand il change. */
+static void test_sound_recorder(void)
+{
+    HWND app, state, pos, bar, play;
+    char out[TXT * 2];
+    int i;
+    BOOL found;
+
+    boot();
+    app = sim_create(0, "SoundRec", "Enregisteur de sons - (Sans titre)", 0, 0, 0, 300, 200);
+    state = sim_create(app, "NoFlickerText", "Arrêté", 0, 10, 10, 290, 30);
+    sim_win[state].id = 200;
+    pos = sim_create(app, "NoFlickerText", "1,20 sec.", 0, 10, 40, 60, 60);
+    sim_win[pos].id = 201;
+    bar = sim_create(app, "ScrollBar", "", 0, 10, 100, 290, 116);
+    play = sim_create(app, "SButton", "#Play", 0, 100, 120, 140, 150);
+    describe(play, out);
+    CHECK_STR(out, "Lecture, bouton");
+    describe(bar, out);
+    CHECK_STR(out, "Position, curseur, 1,20 sec.");
+    sim_active = app;
+    sim_focus = play;
+    run(1000);
+    ap_reset();
+    strcpy(sim_win[state].text, "Lecture");
+    run(1000);
+    found = FALSE;
+    for (i = 0; i < spoken_n; i++)
+        if (strstr(spoken[i], "Lecture")) found = TRUE;
+    CHECK(found);
+}
+
+/* Fiches (Cardfile) : titre de la fiche de devant, dessiné dans CARD au-dessus de sa
+   zone de texte, dit au focus puis à chaque changement de fiche avec la ligne. */
+static void test_cardfile(void)
+{
+    HWND app, card, edit;
+    HDC dc;
+    char out[TXT * 2];
+    int i;
+    BOOL found;
+
+    boot();
+    app = sim_create(0, "Cardfile", "Répertoire - (Sans titre)", 0, 0, 0, 440, 330);
+    card = sim_create(app, "Card", "", 0, 4, 40, 434, 323);
+    sim_win[card].id = 205;
+    edit = sim_create(card, "Edit", "", ES_MULTILINE, 17, 146, 338, 311);
+    sim_win[edit].id = 200;
+    dc = EpGetDC(card);
+    EpExtTextOut(dc, 10, 70, 0, NULL, "Albert", 6, NULL);  /* fiche de derrière */
+    EpExtTextOut(dc, 10, 88, 0, NULL, "Martin", 6, NULL);  /* fiche de devant */
+    describe(edit, out);
+    CHECK_STR(out, "Martin, zone de texte, vide");
+    sim_active = app;
+    sim_focus = edit;
+    run(1000);
+    ap_reset();
+    EpExtTextOut(dc, 10, 88, 0, NULL, "Albert", 6, NULL);  /* Page suivante */
+    EpExtTextOut(dc, 10, 70, 0, NULL, "Martin", 6, NULL);
+    run(1000);
+    found = FALSE;
+    for (i = 0; i < spoken_n; i++)
+        if (!strcmp(spoken[i], "Albert, vide")) found = TRUE;
+    CHECK(found);
+}
+
+/* Table de caractères : la grille annonce le caractère d'après la barre d'état */
+static void test_charmap(void)
+{
+    HWND app, grid;
+    HDC dc;
+    char out[TXT * 2];
+
+    boot();
+    app = sim_create(0, "MyDlgClass", "Table de Caractères", 0, 0, 0, 620, 250);
+    grid = sim_create(app, "CharGridWClass", "", 0, 20, 90, 520, 220);
+    dc = EpGetDC(app);
+    EpExtTextOut(dc, 450, 232, 0, NULL, "Combinaison:!", 13, NULL);
+    describe(grid, out);
+    CHECK_STR(out, "grille de caractères, point d'exclamation");
+    EpExtTextOut(dc, 450, 232, 0, NULL, "Combinaison:Alt+0233", 20, NULL);
+    describe(grid, out);
+    CHECK_STR(out, "grille de caractères, é, Alt+0233");
+    sim_active = app;
+    sim_focus = grid;
+    run(1000);
+    ap_reset();
+    EpExtTextOut(dc, 450, 232, 0, NULL, "Combinaison:A", 13, NULL);
+    run(1000);
+    CHECK(spoken_n == 1 && !strcmp(spoken[0], "A"));
+}
+
+/* Aide de Windows : première ligne d'une rubrique, lien choisi par Tab, défilement,
+   dire tout page par page sans répéter la rangée de recouvrement, fin. */
+static void test_winhelp(void)
+{
+    static const char *lines[] = {
+        "Index de l'Aide", "Le Panneau de configuration", "Description du Panneau",
+        "Changement de la date", "Gestion du son", "Polices", "Ports", "Imprimantes",
+        "Clavier", "Souris", "Fin de la rubrique"
+    };
+    int i, k, n;
+
+    boot();
+    hp.doc = sim_create(0, "MS_WINDOC", "Aide du Panneau de configuration", 0, 0, 0, 420, 160);
+    hp.topic = sim_create(hp.doc, "MS_WINTOPIC", "", 0, 10, 40, 410, 40 + 16 * H_ROWS);
+    hp.dc = EpGetDC(hp.topic);
+    memcpy(hp.lines, lines, sizeof(lines));
+    hp.n = 11;
+    hp_draw();
+    sim_active = sim_focus = hp.doc;
+    ap_reset();
+    run(5000);
+    CHECK(spoken_n == 2 && !strcmp(spoken[0], "Aide du Panneau de configuration") &&
+          !strcmp(spoken[1], "Index de l'Aide"));
+    ap_reset();
+    key(VK_TAB);
+    run(3000);
+    CHECK(spoken_n == 1 && !strcmp(spoken[0], "Description du Panneau, lien"));
+    ap_reset();
+    key(VK_TAB);
+    run(3000);
+    CHECK(spoken_n == 1 && !strcmp(spoken[0], "Changement de la date, lien"));
+    ap_reset();
+    key(VK_DOWN);                       /* une rangée apparaît en bas */
+    run(3000);
+    CHECK(spoken_n == 1 && !strcmp(spoken[0], "Ports"));
+
+    hp.top = 0;
+    hp_draw();
+    run(3000);
+    ap_reset();
+    insert_cmd(VK_DOWN);
+    run(30000);
+    n = 0;
+    for (i = 0; i < spoken_n; i++)
+        for (k = 0; k < 11; k++)
+            if (!strcmp(spoken[i], lines[k]) && k == n) n++;
+    CHECK(n == 11);                     /* toutes les rangées, dans l'ordre */
+    CHECK(spoken_n == 11);              /* chacune une fois */
+    CHECK(!sa.on);                      /* fin de la rubrique */
+}
+
+/* Gestionnaire de liaisons : volet actif d'après son sous-titre en surbrillance
+   (texte égal à celui de la fenêtre, sans barre de titre), dit une seule fois */
+static void test_packager(void)
+{
+    HWND app, sub1, sub2;
+    HDC d1, d2;
+    char out[TXT * 2];
+    const char *role;
+
+    boot();
+    app = sim_create(0, "AppClass", "Gestionnaire de liaisons - Ensemble", 0, 0, 0, 520, 200);
+    sim_create(app, "PaneClass", "", 0, 0, 40, 240, 190);
+    sim_create(app, "PaneClass", "", 0, 240, 40, 520, 190);
+    sub1 = sim_create(app, "SubtitleClass", "--Apparence--", 0, 0, 20, 240, 38);
+    sub2 = sim_create(app, "SubtitleClass", "--Contenu--", 0, 240, 20, 520, 38);
+    d1 = EpGetDC(sub1);
+    d2 = EpGetDC(sub2);
+    EpExtTextOut(d1, 0, 0, 0, NULL, "--Apparence--", 13, NULL);
+    sim_dc[d2].bk = GetSysColor(COLOR_HIGHLIGHT);
+    EpExtTextOut(d2, 0, 0, 0, NULL, "--Contenu--", 11, NULL);
+    sim_dc[d2].bk = RGB(255, 255, 255);
+    CHECK(custom_value(app, out, &role));
+    CHECK_STR(out, "Contenu, volet, vide");
+    sim_active = sim_focus = app;
+    run(3000);
+    ap_reset();
+    EpExtTextOut(d2, 0, 0, 0, NULL, "--Contenu--", 11, NULL);       /* Tab */
+    sim_dc[d1].bk = GetSysColor(COLOR_HIGHLIGHT);
+    EpExtTextOut(d1, 0, 0, 0, NULL, "--Apparence--", 13, NULL);
+    sim_dc[d1].bk = RGB(255, 255, 255);
+    run(3000);
+    CHECK(spoken_n == 1 && !strcmp(spoken[0], "Apparence, volet, vide"));
+}
+
+/* Microsoft Mail : boîte Sdi dont le texte est dessiné dans sa fille (lu à
+   l'ouverture), champ « Window » nommé par le libellé dessiné à sa gauche */
+static void test_mail(void)
+{
+    HWND dlg, form, field;
+    HDC dc;
+    char out[TXT * 2];
+    int i;
+    BOOL found = FALSE;
+
+    boot();
+    dlg = sim_create(0, "Sdi", "Bienvenue dans Microsoft Mail", 0, 0, 0, 480, 300);
+    form = sim_create(dlg, "Window", "", 0, 0, 20, 480, 300);
+    field = sim_create(form, "Window", "", 0, 150, 60, 400, 76);
+    dc = EpGetDC(form);
+    EpExtTextOut(dc, 100, 4, 0, NULL, "Avant que vous puissiez utiliser Mail,", 38, NULL);
+    EpExtTextOut(dc, 10, 40, 0, NULL, "Mot de passe:", 13, NULL);
+    EpExtTextOut(EpGetDC(field), 2, 0, 0, NULL, "PASSWORD", 8, NULL);
+    describe(field, out);
+    CHECK_STR(out, "Mot de passe:, zone d'édition, PASSWORD");
+    sim_active = dlg;
+    sim_focus = field;
+    ap_reset();
+    run(8000);
+    for (i = 0; i < spoken_n; i++)
+        if (strstr(spoken[i], "Avant que vous puissiez")) found = TRUE;
+    CHECK(found);
+}
+
 int main(void)
 {
     { int f = failures; test_disabled_controls(); if (failures > f) dump("test_disabled_controls"); }
@@ -1370,6 +1790,13 @@ int main(void)
     { int f = failures; test_settings(); if (failures > f) dump("test_settings"); }
     { int f = failures; test_echo_and_signs(); if (failures > f) dump("test_echo_and_signs"); }
     { int f = failures; test_status_bar(); if (failures > f) dump("test_status_bar"); }
+    { int f = failures; test_generic_windows(); if (failures > f) dump("test_generic_windows"); }
+    { int f = failures; test_sound_recorder(); if (failures > f) dump("test_sound_recorder"); }
+    { int f = failures; test_cardfile(); if (failures > f) dump("test_cardfile"); }
+    { int f = failures; test_charmap(); if (failures > f) dump("test_charmap"); }
+    { int f = failures; test_winhelp(); if (failures > f) dump("test_winhelp"); }
+    { int f = failures; test_packager(); if (failures > f) dump("test_packager"); }
+    { int f = failures; test_mail(); if (failures > f) dump("test_mail"); }
     test_value_bounds();
     test_braille_modal_handoff();
     { int f = failures; test_braille_selection(); if (failures > f) dump("test_braille_selection"); }

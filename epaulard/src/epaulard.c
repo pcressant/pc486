@@ -24,6 +24,11 @@
  */
 #include <windows.h>
 #include <string.h>
+#ifdef EP_NATIVE_TEST
+#include <time.h>
+#else
+#include <dos.h>
+#endif
 #include "epaulard.h"
 #include "braille.h"
 
@@ -36,6 +41,7 @@
 #define TIMER_MS   7            /* clic de routage : remettre ensuite le pointeur */
 #define TIMER_MENU 8            /* titre de menu : attendre la fin de la rafale */
 #define TIMER_TAB  9            /* Ctrl+Tab dans une boîte de Word : page affichée */
+#define TIMER_LB   10           /* liste dessinée annoncée avant d'être peinte */
 #define POLL_MS    100
 #define SA_MS      50
 #define TXT        256
@@ -55,6 +61,7 @@ static DWORD focus_tick;        /* heure de la dernière annonce du focus */
 static char focus_said[TXT * 2];/* texte de cette annonce (pour ne pas la répéter) */
 static POINT last_caret;        /* curseur texte (écran) dans une fenêtre non standard */
 static BOOL line_key;           /* navigation verticale, même si l'écran défile */
+static UINT last_vk;            /* dernière touche transmise au programme */
 static DWORD line_key_tick;
 static BOOL word_key;           /* Ctrl+Gauche ou Ctrl+Droite : lire le mot */
 static DWORD caret_settle;      /* curseur ramené après un dire tout (heure), à attendre */
@@ -385,6 +392,12 @@ static void clean_label(char *s, char **accel)
         *d++ = *p;
     }
     *d = 0;
+    /* « Palette de couleurs >> » : flèches de décor, pas « supérieur supérieur » */
+    while (d - s >= 2 && (_fstrncmp(d - 2, ">>", 2) == 0 || _fstrncmp(d - 2, "<<", 2) == 0 ||
+                          d[-1] == ' ')) {
+        d -= d[-1] == ' ' ? 1 : 2;
+        *d = 0;
+    }
 }
 
 static void class_of(HWND h, char *cls, int n)
@@ -424,6 +437,15 @@ static void caret_screen(HWND h, POINT *pt)
         return;
     GetCaretPos(pt);
     ClientToScreen(h, pt);
+}
+
+/* Texte sans lettre ni chiffre (« / », « : » entre les champs de Date/Heure) */
+static BOOL no_word(const char *s)
+{
+    for (; *s; s++)
+        if (IsCharAlphaNumeric(*s))
+            return FALSE;
+    return TRUE;
 }
 
 static BOOL ends_colon(const char *s)
@@ -499,6 +521,42 @@ static BOOL is_sdm(HWND h)
     return _fstrncmp(cls, "bosa_sdm", 8) == 0 || _fstrncmp(cls, "sa_sdm", 6) == 0;
 }
 
+/* Convention des boîtes de dialogue : le libellé précède son contrôle dans l'ordre
+   des fenêtres (c'est lui qui porte le raccourci), éventuellement après des textes
+   intermédiaires (« Longue », « Courte » aux extrémités d'un curseur du Clavier).
+   La géométrie, ensuite, peut désigner un texte plus proche mais étranger
+   (« Bienvenue… » au-dessus de « Quel est votre nom? » dans la Dame de Pique). */
+static BOOL label_zorder(HWND h, char *out, int n)
+{
+    HWND p = GetWindow(h, GW_HWNDPREV);
+    long st;
+    out[0] = 0;
+    /* zone juste après un bouton radio ou une case qui la règle :
+       « Inactivité (secs) [2] » de 386 étendu */
+    if (p && is_class(p, "BUTTON") && is_class(h, "EDIT") && has_style(p, WS_VISIBLE) &&
+        ((st = GetWindowLong(p, GWL_STYLE) & 0x0F) == BS_RADIOBUTTON ||
+         st == BS_AUTORADIOBUTTON || st == BS_CHECKBOX || st == BS_AUTOCHECKBOX)) {
+        GetWindowText(p, out, n);
+        clean_label(out, NULL);
+        if (out[0])
+            return TRUE;
+    }
+    for (p = GetWindow(h, GW_HWNDPREV); p && is_class(p, "STATIC") &&
+         (GetWindowLong(p, GWL_STYLE) & 0x0F) <= SS_RIGHT; p = GetWindow(p, GW_HWNDPREV)) {
+        if (!has_style(p, WS_VISIBLE) || GetWindowTextLength(p) == 0)
+            continue;
+        GetWindowText(p, out, n);
+        if (no_word(out))
+            break;                      /* séparateur : pas un libellé */
+        if (ends_colon(out) || _fstrchr(out, '&') || _fstrchr(out, '?')) {
+            clean_label(out, NULL);
+            return TRUE;
+        }
+        out[0] = 0;
+    }
+    return FALSE;
+}
+
 /* Libellé d'un contrôle sans texte propre : le texte statique le plus proche
    au-dessus de lui (colonnes qui se chevauchent) ou à sa gauche (même hauteur). */
 static void label_before(HWND h, char *out, int n)
@@ -508,12 +566,17 @@ static void label_before(HWND h, char *out, int n)
     long d, best_d = 0x7fffffffL;
 
     out[0] = 0;
+    if (label_zorder(h, out, n))
+        return;
     GetWindowRect(h, &rc);
     for (p = GetWindow(GetParent(h), GW_CHILD); p; p = GetWindow(p, GW_HWNDNEXT)) {
         if (p == h || !has_style(p, WS_VISIBLE) || !is_class(p, "STATIC") ||
             (GetWindowLong(p, GWL_STYLE) & 0x0F) > SS_RIGHT ||
-            GetWindowTextLength(p) == 0)
+            GetWindowTextLength(p) == 0 || GetWindowTextLength(p) > TXT - 1)
             continue;
+        GetWindowText(p, out, n);
+        if (no_word(out))
+            continue;                   /* « / » entre deux champs */
         GetWindowRect(p, &r);
         if (r.bottom <= rc.top + 4 && r.left < rc.right && r.right > rc.left)
             d = (long) (rc.top - r.bottom) * 2 + (r.left > rc.left ? r.left - rc.left : 0);
@@ -526,6 +589,7 @@ static void label_before(HWND h, char *out, int n)
             best = p;
         }
     }
+    out[0] = 0;
     if (best) {
         GetWindowText(best, out, n);
         clean_label(out, NULL);
@@ -579,10 +643,17 @@ static int edit_line(HWND h, char *out, int n)
     return line;
 }
 
+/* Zone de plusieurs lignes : style, et hauteur de deux lignes au moins (les champs
+   de Date/Heure sont ES_MULTILINE pour centrer un seul nombre) */
 static BOOL is_multiline(HWND h)
 {
-    return (GetWindowLong(h, GWL_STYLE) & ES_MULTILINE) != 0;
+    RECT r;
+    if (!(GetWindowLong(h, GWL_STYLE) & ES_MULTILINE))
+        return FALSE;
+    GetWindowRect(h, &r);
+    return r.bottom - r.top >= 28;
 }
+
 
 /* Texte d'une zone d'édition entre les positions a (incluse) et b (exclue) ;
    lignes séparées par une espace. */
@@ -1015,6 +1086,8 @@ static BOOL osm_item(HWND h, int i, char *out)
     return EpOsmRect(h, a.x, a.y, b.x, b.y, out, TXT) > 0;
 }
 
+static BOOL item_unknown;        /* describe_value() n'a trouvé que « élément n » */
+
 /* Valeur seule (ce qui change pendant qu'on manipule le contrôle) */
 static void describe_value(HWND h, char *out)
 {
@@ -1041,9 +1114,17 @@ static void describe_value(HWND h, char *out)
             edit_line(h, out, TXT);
         else
             GetWindowText(h, out, TXT);
+        if (!out[0] && !is_multiline(h))
+            EpOsmWindow(h, out, TXT);   /* (Bureau : « Délai », texte non rendu) */
+        if (out[0] && !out[1] && sign_name(out[0]))
+            lstrcpy(out, sign_name(out[0]));    /* « ; » : séparateur de listes */
         if (!out[0])
             lstrcpy(out, "vide");
     } else if (lstrcmp(cls, "LISTBOX") == 0) {
+        if (SendMessage(h, LB_GETCOUNT, 0, 0L) <= 0) {
+            lstrcpy(out, "vide");       /* (sinon « élément 1 » : curseur à 0) */
+            return;
+        }
         i = (int) SendMessage(h, LB_GETCURSEL, 0, 0L);
         if (i < 0)
             i = (int) SendMessage(h, LB_GETCARETINDEX, 0, 0L);
@@ -1057,17 +1138,329 @@ static void describe_value(HWND h, char *out)
                 append_keep(out, "sélectionné", TXT);
         } else if (i < 0)
             lstrcpy(out, "aucun élément");
-        else if (!osm_item(h, i, out))
+        else if (!osm_item(h, i, out)) {
             wsprintf(out, "élément %d", i + 1);
+            item_unknown = TRUE;        /* pas encore dessiné : relu par TIMER_LB */
+        }
     } else if (lstrcmp(cls, "COMBOBOX") == 0) {
+        /* liste dessinée par le programme : ce qu'elle affiche (le texte de l'élément
+           porte parfois des données : « Standard Microsoft=C0C0C0,FFFFFF... ») */
+        if ((style & (CBS_OWNERDRAWFIXED | CBS_OWNERDRAWVARIABLE)) &&
+            EpOsmWindow(h, out, TXT) > 0)
+            return;
         i = (int) SendMessage(h, CB_GETCURSEL, 0, 0L);
         if (i >= 0 && (length = SendMessage(h, CB_GETLBTEXTLEN, i, 0L)) >= 0 && length < TXT)
             SendMessage(h, CB_GETLBTEXT, i, (LPARAM) (LPSTR) out);
         else
             GetWindowText(h, out, TXT);
     } else if (lstrcmp(cls, "SCROLLBAR") == 0) {
-        wsprintf(out, "%d", GetScrollPos(h, SB_CTL));
+        int lo, hi, pos = GetScrollPos(h, SB_CTL);
+        GetScrollRange(h, SB_CTL, &lo, &hi);
+        if (hi > lo)                    /* graduation propre au programme : en pour cent */
+            wsprintf(out, "%d %%", (int) ((long) (pos - lo) * 100 / (hi - lo)));
+        else
+            wsprintf(out, "%d", pos);
     }
+}
+
+/* Boutons dessinés de l'Enregistreur de sons et du Diffuseur de médias (classe
+   SBUTTON) : leur texte est un nom interne anglais précédé de « # ». */
+static void media_button_name(char *name)
+{
+    static const char *names[] = {
+        "#Rewind", "Retour rapide", "#Forward", "Avance rapide", "#Play", "Lecture",
+        "#Stop", "Arrêt", "#Record", "Enregistrement", "#Pause", "Pause",
+        "#Eject", "Éjecter", NULL
+    };
+    int i;
+    if (name[0] != '#')
+        return;
+    for (i = 0; names[i]; i += 2)
+        if (lstrcmpi(name, names[i]) == 0) {
+            lstrcpy(name, names[i + 1]);
+            return;
+        }
+    lstrcpy(name, name + 1);
+}
+
+/* Texte d'un contrôle enfant de la fenêtre active, d'après son identifiant */
+static BOOL child_text(HWND parent, int id, char *out, int n)
+{
+    HWND c = GetDlgItem(parent, id);
+    out[0] = 0;
+    if (c)
+        GetWindowText(c, out, n);
+    return out[0] != 0;
+}
+
+static HWND top_level(HWND h);
+
+/* Ligne de la barre d'état dessinée en bas de la fenêtre top (vide sinon) */
+static BOOL status_line(HWND top, char *out, int n)
+{
+    RECT rc;
+    POINT pt;
+    int col;
+    out[0] = 0;
+    if (!top)
+        return FALSE;
+    GetWindowRect(top, &rc);
+    pt.x = rc.left + 4;
+    pt.y = rc.bottom - 6;
+    if (!EpOsmReviewLine(top, &pt, 2, out, n, &col) || rc.bottom - pt.y >= 32)
+        out[0] = 0;
+    return out[0] != 0;
+}
+
+/* Nom d'un caractère dit seul : signe nommé, « majuscule » selon le réglage */
+static void char_name(char c, char *out)
+{
+    const char *name = sign_name(c);
+    if (name)
+        lstrcpy(out, name);
+    else if (cfg[CFG_CAPS] && IsCharUpper(c))
+        wsprintf(out, "majuscule %c", c);
+    else {
+        out[0] = c;
+        out[1] = 0;
+    }
+}
+
+/* Table de caractères : le caractère choisi dans la grille, d'après la barre d'état
+   (« Combinaison:! », « Combinaison:Alt+0233 », « Combinaison:Espace »). */
+static BOOL charmap_value(HWND h, char *out)
+{
+    char line[TXT * 2], *p, *k;
+    int code;
+    if (!status_line(top_level(h), line, sizeof(line)) ||
+        (p = _fstrstr(line, "Combinaison")) == NULL || (p = _fstrchr(p, ':')) == NULL)
+        return FALSE;
+    for (p++; *p == ' '; p++)
+        ;
+    k = p;
+    if (_fstrncmp(k, "Alt+", 4) == 0) {
+        for (code = 0, k += 4; *k >= '0' && *k <= '9'; k++)
+            code = code * 10 + *k - '0';
+        char_name((char) code, out);
+        append(out, p);
+    } else if (lstrlen(k) == 1 || (lstrlen(k) == 5 && _fstrncmp(k, "Maj+", 4) == 0)) {
+        char_name(k[lstrlen(k) - 1], out);
+    } else if (*k)
+        lstrcpyn(out, k, TXT);      /* Espace */
+    else
+        return FALSE;
+    return TRUE;
+}
+
+/* Fiches (Cardfile), mode Fiche : ligne de titre de la fiche de devant, dessinée
+   dans la fenêtre CARD (205) juste au-dessus de sa zone de texte (200). */
+static HWND card_edit(HWND app)
+{
+    HWND card = GetDlgItem(app, 205);
+    return card ? GetDlgItem(card, 200) : (HWND) 0;
+}
+
+static BOOL card_title(HWND app, char *out, int n)
+{
+    HWND card = GetDlgItem(app, 205), edit = card_edit(app);
+    RECT r;
+    out[0] = 0;
+    if (!is_class(app, "CARDFILE") || !card || !edit || !IsWindowVisible(edit))
+        return FALSE;
+    GetWindowRect(edit, &r);
+    if (!EpOsmRect(card, r.left, r.top - 20, r.right, r.top, out, n))
+        EpOsmRect(app, r.left, r.top - 20, r.right, r.top, out, n);
+    if (!out[0])
+        lstrcpyn(out, "sans titre", n);
+    return TRUE;
+}
+
+/* Heure de l'horloge du PC, pour l'Horloge de Windows (aiguilles dessinées) */
+static void clock_value(char *out)
+{
+    int h, m;
+#ifdef EP_NATIVE_TEST
+    time_t t = time(NULL);
+    struct tm *tm = localtime(&t);
+    h = tm->tm_hour;
+    m = tm->tm_min;
+#else
+    struct dostime_t t;
+    _dos_gettime(&t);
+    h = t.hour;
+    m = t.minute;
+#endif
+    wsprintf(out, "%d heure%s %02d", h, h > 1 ? "s" : "", m);
+}
+
+/* Aide de Windows (WinHelp) : le focus reste sur MS_WINDOC ; le texte est dessiné dans
+   la rubrique MS_WINTOPIC, qui défile, sous la zone fixe MS_WINNSR (titre de la
+   rubrique dans certains fichiers d'aide). Pas de curseur : Tab choisit un lien en
+   l'inversant. */
+static BOOL is_help(HWND h)
+{
+    return is_class(h, "MS_WINDOC") || is_class(h, "MS_WINTOPIC_SECONDARY");
+}
+
+static HWND help_part(HWND doc, const char *cls)
+{
+    HWND c;
+    for (c = GetWindow(doc, GW_CHILD); c; c = GetWindow(c, GW_HWNDNEXT))
+        if (is_class(c, cls) && IsWindowVisible(c))
+            return c;
+    return NULL;
+}
+
+/* Première rangée du texte (zone fixe comprise), ou dernière visible de la rubrique ;
+   *y : son ordonnée à l'écran */
+static BOOL help_row(HWND doc, BOOL last, char *out, int n, int *y)
+{
+    HWND nsr = help_part(doc, "MS_WINNSR"), topic = help_part(doc, "MS_WINTOPIC");
+    RECT r;
+    POINT pt;
+    int col;
+    out[0] = 0;
+    if (!topic)
+        return FALSE;
+    GetWindowRect(last || !nsr ? topic : nsr, &r);
+    pt.x = r.left + 2;
+    pt.y = last ? r.bottom : r.top - 1;
+    if (!EpOsmReviewLine(doc, &pt, last ? -1 : 1, out, n, &col))
+        return FALSE;
+    if (y)
+        *y = pt.y;
+    return TRUE;
+}
+
+/* Gestionnaire de liaisons (Packager) : le volet actif a son sous-titre
+   (« --Contenu-- ») en couleurs de sélection ; son contenu est sous lui. */
+static BOOL packager_value(HWND app, char *out)
+{
+    HWND c, p;
+    char t[TXT], v[TXT];
+    RECT r, pr;
+    int i;
+    for (c = GetWindow(app, GW_CHILD); c; c = GetWindow(c, GW_HWNDNEXT)) {
+        if (!is_class(c, "SUBTITLECLASS") || !EpOsmHilite(c, t, sizeof(t)))
+            continue;
+        GetWindowText(c, t, sizeof(t));
+        for (i = 0; t[i] == '-'; i++)
+            ;
+        lstrcpy(out, t + i);
+        for (i = lstrlen(out); i > 0 && out[i - 1] == '-'; i--)
+            out[i - 1] = 0;
+        append(out, "volet");
+        GetWindowRect(c, &r);
+        for (p = GetWindow(app, GW_CHILD); p; p = GetWindow(p, GW_HWNDNEXT)) {
+            GetWindowRect(p, &pr);
+            if (is_class(p, "PANECLASS") && pr.left <= r.left + 4 && pr.right >= r.right - 4) {
+                append(out, EpOsmWindow(p, v, sizeof(v)) ? v : "vide");
+                break;
+            }
+        }
+        return TRUE;
+    }
+    return FALSE;
+}
+
+/* Contrôle dessiné reconnu : sa valeur (rôle dans *role). FALSE : contrôle ordinaire. */
+static BOOL custom_value(HWND h, char *out, const char **role)
+{
+    out[0] = 0;
+    if (is_help(h)) {
+        /* lien choisi par Tab : le texte inversé */
+        *role = NULL;
+        if (EpOsmSelection(h, out, TXT - 8))
+            lstrcat(out, ", lien");
+        return TRUE;
+    }
+    if (is_class(h, "APPCLASS") && GetWindow(h, GW_CHILD) &&
+        is_class(GetWindow(h, GW_CHILD), "PANECLASS")) {
+        *role = NULL;
+        if (!packager_value(h, out))
+            out[0] = 0;
+        return TRUE;
+    }
+    if (is_class(h, "CHARGRIDWCLASS")) {
+        *role = "grille de caractères";
+        if (!charmap_value(h, out))
+            lstrcpy(out, "aucun caractère");
+        return TRUE;
+    }
+    return FALSE;
+}
+
+/* Unité écrite après une zone de saisie (« Minutes ») : texte statique suivant, court,
+   sans raccourci ni deux-points (ce serait le libellé du contrôle suivant) */
+static void edit_unit(HWND h, char *val)
+{
+    HWND n = GetWindow(h, GW_HWNDNEXT);
+    char unit[24];
+    if (is_multiline(h) || !n || !is_class(n, "STATIC") || !has_style(n, WS_VISIBLE) ||
+        GetWindowTextLength(n) == 0 || GetWindowTextLength(n) >= (int) sizeof(unit))
+        return;
+    GetWindowText(n, unit, sizeof(unit));
+    if (_fstrchr(unit, '&') || _fstrchr(unit, ':') || no_word(unit) ||
+        lstrlen(val) + lstrlen(unit) + 2 >= TXT)
+        return;
+    lstrcat(val, " ");
+    lstrcat(val, unit);
+}
+
+/* Panneau de configuration, Date/Heure : champs 701 à 703 (heure) et 704 à 706 (date,
+   dans l'ordre du format court de WIN.INI, de gauche à droite) */
+static BOOL datetime_name(HWND h, char *out)
+{
+    static const char *hms[] = { "heures", "minutes", "secondes" };
+    int id = GetWindowWord(h, GWW_ID), rank = 0, i;
+    char fmt[24], *f;
+    RECT r, o;
+    HWND d = GetParent(h);
+    if (id < 701 || id > 706 || !GetDlgItem(d, 711) || !is_class(GetDlgItem(d, 711), "CPARROW"))
+        return FALSE;
+    if (id <= 703) {
+        lstrcpy(out, hms[id - 701]);
+        return TRUE;
+    }
+    GetWindowRect(h, &r);
+    for (i = 704; i <= 706; i++)
+        if (i != id && GetDlgItem(d, i)) {
+            GetWindowRect(GetDlgItem(d, i), &o);
+            if (o.left < r.left)
+                rank++;
+        }
+    GetProfileString("intl", "sShortDate", "dd/MM/yyyy", fmt, sizeof(fmt));
+    for (f = fmt; *f; f++) {
+        if (*f != 'd' && *f != 'M' && *f != 'y')
+            continue;
+        if (rank-- == 0) {
+            lstrcpy(out, *f == 'd' ? "jour" : *f == 'M' ? "mois" : "année");
+            return TRUE;
+        }
+        while (f[1] == *f)
+            f++;
+    }
+    return FALSE;
+}
+
+/* Cadre de groupe (BUTTON BS_GROUPBOX) qui entoure le contrôle h */
+static BOOL group_of(HWND h, char *out, int n)
+{
+    HWND c;
+    RECT rc, r;
+    out[0] = 0;
+    GetWindowRect(h, &rc);
+    for (c = GetWindow(GetParent(h), GW_CHILD); c; c = GetWindow(c, GW_HWNDNEXT)) {
+        if (!is_class(c, "BUTTON") || (GetWindowLong(c, GWL_STYLE) & 0x0F) != BS_GROUPBOX)
+            continue;
+        GetWindowRect(c, &r);
+        if (rc.left >= r.left && rc.right <= r.right && rc.top >= r.top && rc.bottom <= r.bottom) {
+            GetWindowText(c, out, n);
+            clean_label(out, NULL);
+            return out[0] != 0;
+        }
+    }
+    return FALSE;
 }
 
 /* Nom + rôle + valeur */
@@ -1096,8 +1489,11 @@ static void describe(HWND h, char *out)
             role = "bouton";
         }
     } else if (lstrcmp(cls, "EDIT") == 0) {
-        label_before(h, name, sizeof(name));
+        if ((h != card_edit(top_level(h)) || !card_title(top_level(h), name, sizeof(name))) &&
+            !datetime_name(h, name))
+            label_before(h, name, sizeof(name));
         role = is_multiline(h) ? "zone de texte" : "zone d'édition";
+        edit_unit(h, val);              /* « 2 Minutes », « 75 Pixels » */
     } else if (lstrcmp(cls, "LISTBOX") == 0) {
         label_before(h, name, sizeof(name));
         role = "liste";
@@ -1106,8 +1502,42 @@ static void describe(HWND h, char *out)
         role = "liste déroulante";
     } else if (lstrcmp(cls, "SCROLLBAR") == 0) {
         role = "barre de défilement";
+        /* son libellé, sinon son cadre (Souris : « Vitesse du double-clic ») */
+        if (!label_zorder(h, name, sizeof(name)) && !group_of(h, name, sizeof(name)))
+            label_before(h, name, sizeof(name));
+        if (is_class(GetParent(h), "SOUNDREC")) {
+            /* Enregistreur de sons : la position du son, plutôt que la graduation */
+            lstrcpy(name, "Position");
+            role = "curseur";
+            child_text(GetParent(h), 201, val, sizeof(val));
+        }
+    } else if (custom_value(h, val, &role)) {
+        ;
+    } else if (lstrcmp(cls, "SBUTTON") == 0) {
+        media_button_name(name);
+        role = "bouton";
+    } else if (_fstrstr(cls, "BUTTON") && name[0]) {
+        role = "bouton";                /* MSW_WN_GRBUTTON de Microsoft Undelete... */
+    } else if (lstrcmp(cls, "SSCROLLBAR") == 0) {
+        role = "curseur de position";
     } else if (lstrcmp(cls, "MDICLIENT") == 0) {
         name[0] = 0;
+    } else if (lstrcmp(cls, "WINDOW") == 0 && (is_class(top_level(h), "SDI") ||
+                                               is_class(top_level(h), "MS MAIL APPFRAME"))) {
+        /* champ des formulaires de Microsoft Mail : libellé dessiné à sa gauche
+           (« Mot de passe: ») ; sans libellé, c'est un bouton (rectangle de focus) */
+        RECT rc;
+        GetWindowRect(h, &rc);
+        if (label_left(GetParent(h), &rc, name, sizeof(name))) {
+            clean_label(name, NULL);
+            role = "zone d'édition";
+            if (!EpOsmWindow(h, val, sizeof(val)))
+                lstrcpy(val, "vide");
+        } else if (rc.bottom - rc.top > 60 && !EpOsmFocusRect(h, &rc)) {
+            role = "zone de texte";     /* texte du message, sans libellé */
+            if (!EpOsmWindow(h, val, sizeof(val)))
+                lstrcpy(val, "vide");
+        }
     } else if (lstrcmp(cls, "OPUSFEDT") == 0) {
         /* zone de saisie des boîtes de dialogue de Word : libellé dessiné à côté */
         RECT rc;
@@ -1128,9 +1558,19 @@ static void describe(HWND h, char *out)
 
 /* -------------------------------------------------------------- scrutation */
 
+static char custom_said[TXT];   /* valeur du contrôle reconnu annoncée en dernier */
+
+static char last_etext[TXT];     /* zone de saisie d'une ligne : texte (flèches de réglage) */
+
 static void remember_value(HWND h)
 {
     char cls[32];
+    const char *role;
+    last_etext[0] = 0;
+    if (is_class(h, "EDIT") && !is_multiline(h) && !(GetWindowLong(h, GWL_STYLE) & ES_PASSWORD))
+        GetWindowText(h, last_etext, sizeof(last_etext));
+    if (!custom_value(h, custom_said, &role))
+        custom_said[0] = 0;
     class_of(h, cls, sizeof(cls));
     last_sel = last_line = last_check = -2;
     last_esel = 0;
@@ -1159,8 +1599,9 @@ static void dialog_text(HWND dlg, char *out)
     /* Seulement pour les boîtes de message : dans un formulaire (zones d'édition,
        listes), les textes statiques sont des libellés, dits avec leur contrôle. */
     for (c = GetWindow(dlg, GW_CHILD); c; c = GetWindow(c, GW_HWNDNEXT))
-        if (is_class(c, "EDIT") || is_class(c, "LISTBOX") || is_class(c, "COMBOBOX"))
-            return;
+        if (is_class(c, "EDIT") || is_class(c, "LISTBOX") || is_class(c, "COMBOBOX") ||
+            is_class(c, "SCROLLBAR"))
+            return;                     /* (Souris : « Lente », « Rapide » des curseurs) */
     for (c = GetWindow(dlg, GW_CHILD); c; c = GetWindow(c, GW_HWNDNEXT)) {
         if (!is_class(c, "STATIC") || !has_style(c, WS_VISIBLE) ||
             (GetWindowLong(c, GWL_STYLE) & 0x0F) > SS_RIGHT)
@@ -1184,6 +1625,7 @@ static HWND top_level(HWND h)
 /* Boîte de Word qui vient de s'ouvrir : son texte (message, astuce) sera lu quand
    elle aura fini de se dessiner, avant l'élément qui a le focus. */
 static HWND dlg_hwnd;
+static HWND dlg_src;            /* fenêtre où ce texte est dessiné, si autre (Mail) */
 static BOOL dlg_pending;
 
 static BOOL is_sdm_page(HWND h);
@@ -1207,6 +1649,29 @@ static BOOL has_child_class(HWND h, const char *cls)
     return FALSE;
 }
 
+static HWND grp_dlg;            /* cadre de groupe annoncé, et sa boîte */
+static char grp_said[TXT];
+static BOOL group_of(HWND h, char *out, int n);
+
+static HWND status_hwnd;        /* voir status_poll() */
+static char status_said[TXT];
+
+/* Fenêtre de document MDI qui contient h (Gestionnaire de fichiers, Sysedit) */
+static HWND last_mdi;
+
+static HWND mdi_child(HWND h)
+{
+    HWND p;
+    for (; h; h = p) {
+        p = GetParent(h);
+        if (!p || !(GetWindowLong(h, GWL_STYLE) & WS_CHILD))
+            return NULL;
+        if (is_class(p, "MDICLIENT"))
+            return h;
+    }
+    return NULL;
+}
+
 static void announce_focus(BOOL cut)
 {
     char out[TXT * 2], title[TXT];
@@ -1221,8 +1686,24 @@ static void announce_focus(BOOL cut)
         new_active = FALSE;
         GetWindowText(act, title, sizeof(title));
         append(out, title);
-        if (is_class(act, "#32770"))    /* boîte de dialogue */
-            dialog_text(act, out);
+        if (is_class(act, "#32770") || has_child_class(act, "STATIC"))
+            dialog_text(act, out);      /* boîte de dialogue, même d'une autre classe */
+        else if (is_class(act, "SDI") && GetWindow(act, GW_CHILD)) {
+            /* boîte de Microsoft Mail : texte dessiné dans sa fenêtre fille */
+            dlg_hwnd = act;
+            dlg_src = GetWindow(act, GW_CHILD);
+            dlg_pending = TRUE;
+            SetTimer(hwnd_main, TIMER_DLG, 350, NULL);
+        } else if (is_class(act, "MS_WINNOTE")) {
+            /* définition affichée par l'Aide : lue quand elle est dessinée */
+            dlg_hwnd = act;
+            dlg_pending = TRUE;
+            SetTimer(hwnd_main, TIMER_DLG, 350, NULL);
+        } else if (is_class(act, "CLOCK")) {
+            char t[32];
+            clock_value(t);
+            append(out, t);
+        }
         else if (is_sdm(act) && !has_child_class(act, "OPUSFEDT") && !has_page(act)) {
             /* boîte de Word sans zone de saisie (message, astuce) */
             dlg_hwnd = act;
@@ -1232,7 +1713,38 @@ static void announce_focus(BOOL cut)
     }
     if (foc && foc != act) {
         char d[TXT * 2];
+        HWND m = mdi_child(foc);
+        /* Autre fenêtre de document (Ctrl+F6) : son titre, puis le focus */
+        if (m && m != last_mdi && m != foc && !IsZoomed(m)) {
+            GetWindowText(m, title, sizeof(title));
+            append(out, title);
+        }
+        last_mdi = m;
+        item_unknown = FALSE;
         describe(foc, d);
+        {
+            /* entrée dans un autre cadre de groupe : son nom d'abord (les quatre
+               boutons « Modifier » d'International) */
+            char g[TXT];
+            if (act != grp_dlg)
+                grp_said[0] = 0;
+            grp_dlg = act;
+            if (!is_standard(foc) || !group_of(foc, g, sizeof(g)))
+                g[0] = 0;
+            if (lstrcmp(g, grp_said) != 0) {
+                lstrcpy(grp_said, g);
+                if (g[0] && _fstrncmp(d, g, lstrlen(g)) != 0)
+                    append(out, g);
+            }
+        }
+        if (item_unknown)               /* fenêtre qui vient de s'ouvrir */
+            SetTimer(hwnd_main, TIMER_LB, 400, NULL);
+        if (foc == card_edit(act)) {
+            /* fiche ajoutée : son titre peut être dessiné après cette annonce ;
+               status_poll() dira le bon s'il diffère */
+            card_title(act, status_said, sizeof(status_said));
+            status_hwnd = act;
+        }
         append(out, d);
     } else if (!out[0] && act && !is_sdm(act)) {
         /* (boîte de Word : l'élément qui a le focus est annoncé par son rectangle) */
@@ -1266,9 +1778,31 @@ static void check_value(void)
     char cls[32], out[TXT];
     int sel = last_sel, line = last_line, check = last_check;
     DWORD esel = last_esel;
+    static char etext[TXT];
 
     if (!h || !IsWindow(h) || is_sdm(h))
         return;             /* (boîte de Word : suivie par son rectangle de focus) */
+    {
+        const char *role;
+        if (is_help(h) && line_key) {
+            /* défilement : la ligne apparue (en bas avec Bas, sinon en haut) */
+            if (GetTickCount() - line_key_tick < 300)
+                return;
+            line_key = FALSE;
+            help_row(h, last_vk == VK_DOWN, out, TXT, NULL);
+            say(out[0] ? out : "vide", TRUE);
+            custom_value(h, custom_said, &role);
+            return;
+        }
+        if (custom_value(h, out, &role)) {
+            if (lstrcmp(out, custom_said) != 0) {
+                lstrcpy(custom_said, out);
+                if (out[0])
+                    say(out, TRUE);
+            }
+            return;
+        }
+    }
     if (!is_standard(h)) {
         /* fenêtre dessinée par le programme : suivre le curseur texte dans le modèle
            hors écran (ligne si on change de ligne, sinon caractère) */
@@ -1340,10 +1874,20 @@ static void check_value(void)
         word_key = FALSE;
         return;
     }
+    lstrcpy(etext, last_etext);
     remember_value(h);
     class_of(h, cls, sizeof(cls));
 
     if (lstrcmp(cls, "EDIT") == 0) {
+        if (!is_multiline(h) && lstrcmp(etext, last_etext) != 0 &&
+            (last_vk == VK_UP || last_vk == VK_DOWN || last_vk == VK_PRIOR || last_vk == VK_NEXT) &&
+            !(GetWindowLong(h, GWL_STYLE) & ES_PASSWORD)) {
+            /* valeur changée sans frappe : flèches de réglage (Bureau, Date/Heure) */
+            describe_value(h, out);
+            edit_unit(h, out);
+            say(out, TRUE);
+            return;
+        }
         if (typed) {                    /* le caractère tapé a déjà été dit */
             typed = FALSE;
             return;
@@ -1386,6 +1930,125 @@ static void check_value(void)
 
 static BOOL sa_active(void);
 
+/* État affiché par un programme hors du contrôle qui a le focus, annoncé quand il
+   change : « Lecture », « Arrêté » de l'Enregistreur de sons ; titre de la fiche. */
+
+static void status_poll(void)
+{
+    HWND act = GetActiveWindow();
+    char buf[TXT], line[TXT];
+
+    if (is_class(act, "SOUNDREC") && child_text(act, 200, buf, sizeof(buf))) {
+        if (act == status_hwnd && lstrcmp(buf, status_said) != 0)
+            say(buf, FALSE);
+    } else if (is_help(act) && GetFocus() == act && help_row(act, FALSE, buf, sizeof(buf), NULL)) {
+        /* autre rubrique (lien suivi, Index, Précédent) : sa première ligne. Pas
+           pour un défilement (touche de déplacement) ni pendant le dire tout. */
+        if (lstrcmp(buf, status_said) != 0 && !sa_active() &&
+            (act != status_hwnd || !(last_vk >= VK_PRIOR && last_vk <= VK_DOWN) ||
+             GetTickCount() - line_key_tick > 1500))
+            say(buf, act == status_hwnd);
+    } else if (GetFocus() && GetFocus() == card_edit(act) && card_title(act, buf, sizeof(buf))) {
+        /* autre fiche (Page suivante, Rechercher) : son titre et sa ligne courante */
+        if (act == status_hwnd && lstrcmp(buf, status_said) != 0) {
+            lstrcpy(line, buf);
+            edit_line(GetFocus(), buf, sizeof(buf));
+            append(line, buf[0] ? buf : "vide");
+            say(line, TRUE);
+            remember_value(GetFocus());
+            card_title(act, buf, sizeof(buf));
+        }
+    } else {
+        status_hwnd = NULL;
+        return;
+    }
+    status_hwnd = act;
+    lstrcpy(status_said, buf);
+}
+
+/* Zones dont le texte arrive de lui-même et doit être lu dès qu'il est affiché : données
+   reçues par Terminal (DC_TERM), écrans du Didacticiel (TUTCLIENT). On compare les
+   rangées visibles (empreintes) une fois l'affichage stable ; les nouvelles sont dites. */
+#define AUTO_ROWS 40
+static HWND auto_hwnd;
+static DWORD auto_sig, auto_tick;
+static DWORD auto_rows[AUTO_ROWS];
+static int auto_n;
+static DWORD key_tick;          /* dernière touche transmise au programme */
+
+static HWND auto_scope(HWND act)
+{
+    HWND c;
+    for (c = GetWindow(act, GW_CHILD); c; c = GetWindow(c, GW_HWNDNEXT))
+        if ((is_class(c, "DC_TERM") || is_class(c, "TUTCLIENT")) && IsWindowVisible(c))
+            return c;
+    return NULL;
+}
+
+static DWORD row_hash(const char *s)
+{
+    DWORD h = 5381;
+    for (; *s; s++)
+        h = h * 33 + (BYTE) *s;
+    return h;
+}
+
+static void auto_poll(void)
+{
+    HWND h = auto_scope(GetActiveWindow());
+    static char row[TXT * 2], said[1024];
+    DWORD rows[AUTO_ROWS], sig;
+    RECT r;
+    POINT pt;
+    int n = 0, i, k, col;
+    BOOL first = h != auto_hwnd, term = is_class(h, "DC_TERM");
+
+    if (!h) {
+        auto_hwnd = NULL;
+        return;
+    }
+    sig = EpOsmSignature(h);
+    if (first || sig != auto_sig) {     /* attendre la fin du dessin */
+        auto_sig = sig;
+        auto_tick = GetTickCount();
+        if (!first)
+            return;
+    } else if (auto_tick == 0 || GetTickCount() - auto_tick < 400)
+        return;
+    auto_tick = 0;
+    if (!term) {
+        /* Didacticiel : la colonne de texte principale (pas la fausse fenêtre de
+           démonstration à côté), quand elle change */
+        auto_hwnd = h;
+        if (EpOsmMainText(h, said, sizeof(said)) && row_hash(said) != auto_rows[0])
+            say(said, FALSE);
+        auto_rows[0] = row_hash(said);
+        return;
+    }
+    GetWindowRect(h, &r);
+    pt.x = r.left + 2;
+    pt.y = r.top - 1;
+    said[0] = 0;
+    while (n < AUTO_ROWS && EpOsmReviewLine(h, &pt, 1, row, sizeof(row), &col) &&
+           pt.y < r.bottom) {
+        rows[n] = row_hash(row);
+        for (i = 0, k = 0; i < auto_n && !k; i++)
+            k = auto_rows[i] == rows[n];
+        if (!k && (!first || !term) && lstrlen(said) + lstrlen(row) + 2 < (int) sizeof(said)) {
+            if (said[0])
+                lstrcat(said, " ");     /* (lignes d'un même paragraphe : pas de virgule) */
+            lstrcat(said, row);
+        }
+        n++;
+    }
+    memcpy(auto_rows, rows, n * sizeof(DWORD));
+    auto_n = n;
+    auto_hwnd = h;
+    /* écho de la frappe (Terminal) : déjà dit caractère par caractère */
+    if (said[0] && (!term || GetTickCount() - key_tick > 700))
+        say(said, FALSE);
+}
+
 static void poll(void)
 {
     com_read();                         /* marques en retard d'une lecture arrêtée */
@@ -1398,8 +2061,12 @@ static void poll(void)
         return;
     if (GetFocus() != last_focus || GetActiveWindow() != last_active)
         announce_focus(TRUE);
-    else if (!is_class(GetActiveWindow(), "SCICALC"))
-        check_value();
+    else {
+        auto_poll();
+        status_poll();              /* (avant check_value : fiche changée) */
+        if (!is_class(GetActiveWindow(), "SCICALC"))
+            check_value();
+    }
     calc_poll();
 }
 
@@ -1497,6 +2164,11 @@ static void on_hilite(void)
 
     if (!h || !IsWindow(h) || in_menu || !foc || is_standard(foc) || sa_active())
         return;
+    {
+        const char *role;
+        if (custom_value(foc, buf, &role))
+            return;     /* contrôle reconnu : check_value() dit sa valeur */
+    }
     {   /* fenêtre active, ou liste surgissante qui lui appartient ; listes
            déroulantes des boîtes de Word (classe _sdm_…, sans propriétaire) */
         HWND t = top_level(h), act = GetActiveWindow();
@@ -1586,6 +2258,18 @@ static BOOL sdm_combo(HWND h, const RECT *r)
                       &w, &ht, &xs, &ys) && w <= 9 && ht <= 10;
 }
 
+/* Rectangle de focus qui n'occupe qu'une rangée d'une fenêtre bien plus haute, hors
+   des boîtes de Word : élément d'une liste dessinée (Microsoft Mail) */
+static BOOL list_row(HWND h, const RECT *r)
+{
+    RECT w;
+    if (is_sdm(h))
+        return FALSE;
+    GetWindowRect(h, &w);
+    return r->bottom - r->top < 30 && w.bottom - w.top > 3 * (r->bottom - r->top) &&
+           r->right - r->left > (w.right - w.left) / 2;
+}
+
 static void on_focusrect(void)
 {
     HWND h = frect_hwnd, c;
@@ -1598,7 +2282,7 @@ static void on_focusrect(void)
        l'élément ; son rectangle de focus le ferait redire avec « bouton ». */
     if (!h || !IsWindow(h) || in_menu || sa_active() || cfg_on || tab_waiting ||
         GetFocus() != h ||
-        is_standard(h) ||
+        is_standard(h) || custom_value(h, text, &role) ||
         top_level(h) != GetActiveWindow() || (dlg_pending && h == dlg_hwnd))
         return;
     kind = EpOsmFocusRect(h, &r);
@@ -1669,6 +2353,9 @@ static void on_focusrect(void)
     } else if (sdm_combo(h, &r)) {
         append(out, label);
         append(out, "liste déroulante");
+        append(out, text[0] ? text : "vide");
+    } else if (list_row(h, &r)) {
+        /* rangée d'une liste dessinée (dossiers et messages de Mail) : l'élément seul */
         append(out, text[0] ? text : "vide");
     } else {
         if (!text[0])
@@ -1744,17 +2431,32 @@ static void on_tabpage(void)
     }
 }
 
+/* Colonne de libellés d'un formulaire (« Nom: Boîte aux lettres: Mot de passe: ») :
+   chacun sera dit avec son champ */
+static BOOL labels_only(const char *s)
+{
+    int n = 0;
+    for (; *s; s++)
+        if (*s == ':')
+            n++;
+    return n >= 3;
+}
+
 static void on_dialog_text(void)
 {
     static char big[1024];
     char title[TXT];
     HWND h = dlg_hwnd;
 
+    HWND src = dlg_src && IsWindow(dlg_src) ? dlg_src : h;
+
     dlg_pending = FALSE;
+    dlg_src = NULL;
     if (!h || !IsWindow(h) || GetActiveWindow() != h || in_menu)
         return;
     GetWindowText(h, title, sizeof(title));
-    if (EpOsmMainText(h, big, sizeof(big)) && lstrcmp(big, title) != 0) {
+    if (EpOsmMainText(src, big, sizeof(big)) && lstrcmp(big, title) != 0 &&
+        !(src != h && labels_only(big))) {
         say(big, FALSE);
         focus_tick = GetTickCount();    /* l'élément qui a le focus suit, sans couper */
     }
@@ -1810,19 +2512,8 @@ static void read_window(void)
 /* Barre d'état : la rangée de texte au bas de la fenêtre active */
 static void say_status(void)
 {
-    HWND act = GetActiveWindow();
-    RECT rc;
-    POINT pt;
     char buf[TXT * 2];
-    int col;
-
-    if (!act)
-        return;
-    GetWindowRect(act, &rc);
-    pt.x = rc.left + 4;
-    pt.y = rc.bottom - 6;
-    if (EpOsmReviewLine(act, &pt, 2, buf, sizeof(buf), &col) && buf[0] &&
-        rc.bottom - pt.y < 32)
+    if (status_line(GetActiveWindow(), buf, sizeof(buf)))
         say(buf, TRUE);
     else
         say("pas de barre d'état", TRUE);
@@ -2428,7 +3119,7 @@ typedef struct {
 
 static struct {
     BOOL on;
-    int kind;                   /* 1 : EDIT, 2 : texte dessiné */
+    int kind;                   /* 1 : EDIT, 2 : texte dessiné, 3 : Aide (par page) */
     HWND hwnd;
     char seq;                   /* dernière marque attribuée */
     SALINE q[SA_AHEAD];         /* lignes envoyées, q[0] en cours de lecture */
@@ -2442,6 +3133,8 @@ static struct {
     DWORD sig;                  /* texte affiché avant cette descente */
     int moves;                  /* descentes depuis la dernière ligne envoyée */
     int blanks;                 /* lignes vides traversées d'affilée */
+    int y;                      /* Aide (3) : ordonnée de la dernière rangée envoyée */
+    char last[TXT];             /* ... et son texte, à retrouver après Page suivante */
 } sa;
 
 /* Touches envoyées au programme par la lecture continue : à ne pas prendre pour une
@@ -2535,6 +3228,8 @@ static void sa_stop(BOOL cut)
     KillTimer(hwnd_main, TIMER_SA);
     if (cut)
         silence();
+    if (sa.kind == 3 && IsWindow(sa.hwnd))   /* page défilée par la lecture : pas une */
+        help_row(sa.hwnd, FALSE, status_said, sizeof(status_said), NULL);  /* autre rubrique */
     /* le curseur a bougé : ne pas relire la ligne où la lecture s'est arrêtée */
     line_key = FALSE;
     if (last_focus && IsWindow(last_focus)) {
@@ -2577,13 +3272,66 @@ static void sa_move(void)
     sa_key(VK_HOME, 0x47);
 }
 
+/* Aide : rangée suivant sa.y dans la rubrique visible ; FALSE en bas de la fenêtre */
+static BOOL sa_help_next(char *text)
+{
+    HWND topic = help_part(sa.hwnd, "MS_WINTOPIC");
+    RECT r;
+    POINT pt;
+    int col;
+    if (!topic)
+        return FALSE;
+    GetWindowRect(topic, &r);
+    pt.x = r.left + 2;
+    pt.y = sa.y;
+    if (!EpOsmReviewLine(sa.hwnd, &pt, 1, text, TXT * 2, &col) || pt.y >= r.bottom)
+        return FALSE;
+    sa.y = pt.y;
+    return TRUE;
+}
+
+/* Aide : page suivante affichée ; reprendre après la dernière rangée lue si elle est
+   restée visible (recouvrement), sinon au haut de la rubrique */
+static void sa_help_resume(void)
+{
+    HWND topic = help_part(sa.hwnd, "MS_WINTOPIC");
+    char text[TXT * 2];
+    RECT r;
+    int top;
+    if (!topic) {
+        sa.eof = TRUE;
+        return;
+    }
+    GetWindowRect(topic, &r);
+    top = sa.y = r.top - 1;
+    if (sa.last[0])
+        while (sa_help_next(text))
+            if (lstrcmp(text, sa.last) == 0)
+                return;                 /* sa.y : cette rangée */
+    sa.y = top;
+}
+
 /* Envoyer d'avance les lignes suivantes, jusqu'à SA_AHEAD */
 static void sa_fill(void)
 {
     char text[TXT * 2];
     if (!sa.on)
         return;
-    if (sa.kind == 1) {
+    if (sa.kind == 3) {
+        while (sa.n < SA_AHEAD && !sa.eof && !sa.moving) {
+            if (sa_help_next(text)) {
+                lstrcpyn(sa.last, text, sizeof(sa.last));
+                if (!sa_blank(text))
+                    sa_push(text, 0, 0);
+            } else {
+                /* bas de la fenêtre : page suivante */
+                sa.moving = TRUE;
+                sa.move_tick = GetTickCount();
+                sa.sig = EpOsmSignature(sa.hwnd);
+                sa_key(VK_NEXT, 0x51);
+            }
+        }
+    } else if (sa.kind == 1) {
         while (sa.n < SA_AHEAD && !sa.eof) {
             if (!sa_edit_text(sa.line, text, sizeof(text))) {
                 sa.eof = TRUE;
@@ -2614,6 +3362,20 @@ static void sa_arrived(void)
     BOOL moved;
     DWORD dt = GetTickCount() - sa.move_tick;
 
+    if (sa.kind == 3) {
+        /* Aide : attendre que la page soit redessinée ; inchangée, c'est la fin */
+        if (EpOsmSignature(sa.hwnd) == sa.sig) {
+            if (dt >= 700)
+                sa_end();
+            return;
+        }
+        if (dt < 300)
+            return;
+        sa.moving = FALSE;
+        sa_help_resume();
+        sa_fill();
+        return;
+    }
     caret_screen(sa.hwnd, &pt);
     moved = pt.x != sa.caret.x || pt.y != sa.caret.y;
     /* Laisser le programme traiter les touches. Si le curseur reste en place et que
@@ -2704,6 +3466,23 @@ static void sa_start(void)
     memset(&sa, 0, sizeof(sa));
     if (!h)
         return;
+    if (is_help(h)) {
+        /* Aide : de la première rangée de la page affichée, puis page par page */
+        HWND part = help_part(h, "MS_WINNSR");
+        RECT r;
+        if (!help_row(h, FALSE, text, sizeof(text), NULL))
+            return;
+        GetWindowRect(part ? part : help_part(h, "MS_WINTOPIC"), &r);
+        sa.kind = 3;
+        sa.hwnd = h;
+        sa.on = TRUE;
+        silence();
+        sa.y = r.top - 1;               /* au-dessus de la première rangée */
+        sa_fill();
+        if (sa.on)
+            SetTimer(hwnd_main, TIMER_SA, SA_MS, NULL);
+        return;
+    }
     if (is_class(h, "EDIT") && !(GetWindowLong(h, GWL_STYLE) & ES_PASSWORD))
         sa.kind = 1;
     else if (!is_standard(h))
@@ -2728,6 +3507,7 @@ static void sa_start(void)
 static void on_command(WPARAM vk, LPARAM lp)
 {
     char buf[TXT];
+    const char *role;
 
     /* lp bit 0 : Maj */
     if (vk == VK_UP && (lp & 1)) {
@@ -2748,7 +3528,12 @@ static void on_command(WPARAM vk, LPARAM lp)
         sa_start();
         break;
     case VK_UP:
-        if (is_sdm(last_focus)) {
+        if (is_class(GetActiveWindow(), "CLOCK")) {
+            clock_value(buf);
+            say(buf, TRUE);
+        } else if (last_focus && custom_value(last_focus, buf, &role) && buf[0]) {
+            say(buf, TRUE);             /* lien de l'Aide, caractère choisi, volet */
+        } else if (is_sdm(last_focus)) {
             frect_hwnd = last_focus;    /* boîte de Word : relire l'élément */
             SetRectEmpty(&frect_said);
             on_focusrect();
@@ -2783,6 +3568,33 @@ static void on_command(WPARAM vk, LPARAM lp)
         review_to_mouse();
         break;
     case 'D':                           /* débogage : focus, classe, curseur texte */
+        if (lp & 1) {                   /* avec Maj : fenêtres de la fenêtre active */
+            HWND c, a = GetFocus() ? top_level(GetFocus()) : GetActiveWindow();
+            char cls[32], txt[40];
+            int n = 0, depth = 1;
+            class_of(a, cls, sizeof(cls));
+            wsprintf(buf, "fenêtre %x %s, actif %x.", (UINT) a, (LPSTR) cls,
+                     (UINT) GetActiveWindow());
+            say(buf, TRUE);
+            for (c = GetWindow(a, GW_CHILD); c && n < 40; n++) {
+                class_of(c, cls, sizeof(cls));
+                GetWindowText(c, txt, sizeof(txt));
+                wsprintf(buf, "%d: %x %s id %d style %lx %s.", depth, (UINT) c, (LPSTR) cls,
+                         GetWindowWord(c, GWW_ID), GetWindowLong(c, GWL_STYLE), (LPSTR) txt);
+                say(buf, FALSE);
+                if (GetWindow(c, GW_CHILD)) {
+                    c = GetWindow(c, GW_CHILD);
+                    depth++;
+                } else {
+                    while (c && !GetWindow(c, GW_HWNDNEXT) && c != a) {
+                        c = GetParent(c);
+                        depth--;
+                    }
+                    c = (c && c != a) ? GetWindow(c, GW_HWNDNEXT) : (HWND) 0;
+                }
+            }
+            break;
+        }
         {
             HWND f = GetFocus();
             char cls[32];
@@ -2793,6 +3605,12 @@ static void on_command(WPARAM vk, LPARAM lp)
                      (UINT) f, (LPSTR) cls, pt.x, pt.y, (UINT) GetActiveWindow(),
                      last_caret.x, last_caret.y, in_menu);
             say(buf, TRUE);
+            for (f = GetParent(f); f; f = GetParent(f)) {     /* parents et propriétaires */
+                GetClassName(f, cls, sizeof(cls));
+                wsprintf(buf, "parent %x %s style %lx", (UINT) f, (LPSTR) cls,
+                         GetWindowLong(f, GWL_STYLE));
+                say(buf, FALSE);
+            }
         }
         break;
     case 'O':
@@ -2999,6 +3817,16 @@ LRESULT CALLBACK __export MainProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             on_menu_title();
         else if (wp == TIMER_TAB)
             on_tabpage();
+        else if (wp == TIMER_LB) {
+            char v[TXT];
+            KillTimer(h, TIMER_LB);
+            item_unknown = FALSE;
+            if (GetFocus() == last_focus && last_focus && !in_menu) {
+                describe_value(last_focus, v);
+                if (!item_unknown)
+                    say(v, FALSE);
+            }
+        }
         else {
             poll();
             if (br_enabled()) braille_poll();
@@ -3095,7 +3923,7 @@ LRESULT CALLBACK __export MainProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         /* touches envoyées par la lecture continue elle-même */
         if (own_keys > 0 && GetTickCount() - own_tick > 3000)
             own_keys = 0;               /* jamais revues : ne plus les attendre */
-        if (own_keys > 0 && (wp == VK_DOWN || wp == VK_UP || wp == VK_HOME)) {
+        if (own_keys > 0 && (wp == VK_DOWN || wp == VK_UP || wp == VK_HOME || wp == VK_NEXT)) {
             own_keys--;
             return 0;
         }
@@ -3107,6 +3935,8 @@ LRESULT CALLBACK __export MainProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             else
                 sa_stop(TRUE);
         }
+        last_vk = wp;
+        key_tick = GetTickCount();
         if (wp == VK_UP || wp == VK_DOWN || wp == VK_PRIOR || wp == VK_NEXT ||
             ((wp == VK_HOME || wp == VK_END) && (lp & EPK_CTRL))) {
             line_key = TRUE;

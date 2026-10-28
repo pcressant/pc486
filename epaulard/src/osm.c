@@ -302,6 +302,38 @@ void osm_reap(void)
     patch_reap(&p_ddc);
 }
 
+/* Fenêtre détruite (crochet CBT) : oublier ce qu'elle affichait. Windows redonne
+   aussitôt son identifiant à une nouvelle fenêtre, qui hériterait sinon de ces textes
+   (« Ligne de commande: » de la boîte Exécuter lu dans le glossaire de l'Aide). */
+/* (les contrôles d'une boîte détruite ne passent pas tous par le crochet : on oublie
+   aussi les fenêtres filles, qui existent encore à cet instant) */
+static BOOL gone(HWND h, HWND destroyed)
+{
+    return h && (h == destroyed || IsChild(destroyed, h));
+}
+
+void osm_destroyed(HWND hwnd)
+{
+    int i;
+    if (!osm || !hwnd)
+        return;
+    for (i = 0; i < OSM_N; i++)
+        if (gone(osm[i].hwnd, hwnd))
+            osm[i].hwnd = 0;
+    for (i = 0; i < INV_N; i++)
+        if (gone(inv[i].hwnd, hwnd))
+            inv[i].hwnd = 0;
+    for (i = 0; i < FR_N; i++)
+        if (gone(frect[i].hwnd, hwnd))
+            frect[i].hwnd = 0;
+    for (i = 0; i < GL_N; i++)
+        if (gone(glyph[i].hwnd, hwnd))
+            glyph[i].hwnd = 0;
+    for (i = 0; i < DCMAP_N; i++)
+        if (gone(dcmap[i].hwnd, hwnd))
+            dcmap[i].hdc = 0, dcmap[i].hwnd = 0;
+}
+
 /* ------------------------------------------------------------ enregistrement */
 
 static void forget_rect(HWND hwnd, int x, int y, int w, int h)
@@ -531,7 +563,8 @@ static BOOL is_highlight(HDC hdc, HWND hwnd, int sx, int sy, LPCSTR s, int n)
     /* barre de titre d'une fenêtre enfant (groupe du Gestionnaire de programmes) :
        même couleurs, mais c'est le titre de la fenêtre qui se trouve là */
     w = WindowFromPoint(pt);
-    if (w && n < OSM_TXT) {
+    if (w && n < OSM_TXT && (GetWindowLong(w, GWL_STYLE) & WS_CAPTION) == WS_CAPTION) {
+        /* (pas un sous-titre sans barre : « --Contenu-- » du Gestionnaire de liaisons) */
         GetWindowText(w, title, sizeof(title));
         if (lstrlen(title) == n && _fstrncmp(title, s, n) == 0)
             return FALSE;
@@ -1711,11 +1744,31 @@ int FAR PASCAL __export EpOsmWindow(HWND top, LPSTR out, int max)
    la zone client de hwnd sont regroupés en colonnes (morceaux qui se chevauchent
    horizontalement) ; on garde la colonne la plus fournie, de haut en bas. La colonne
    des boutons, à côté, est laissée de côté. Renvoie le nombre de morceaux. */
+/* Largeur d'un morceau pour le regroupement en colonnes : jamais nulle (lettrine du
+   Didacticiel, dans une police dont les largeurs ne sont pas connues) */
+static int main_w(int i)
+{
+    return osm[i].w > 0 ? osm[i].w : osm[i].h / 2 + 1;
+}
+
+/* Ordre de lecture : a avant b s'il est franchement au-dessus, ou sur la même rangée
+   (centres proches : lettre en gras décalée de quelques points) et à gauche */
+static BOOL main_before(int a, int b)
+{
+    int ca = osm[a].y + osm[a].h / 2, cb = osm[b].y + osm[b].h / 2;
+    int tol = min(osm[a].h, osm[b].h) / 2;
+    if (ca < cb - tol)
+        return TRUE;
+    if (ca > cb + tol)
+        return FALSE;
+    return osm[a].x < osm[b].x;
+}
+
 int FAR PASCAL __export EpOsmMainText(HWND hwnd, LPSTR out, int max)
 {
     static BYTE col[OSM_N];
     static int total[OSM_N];
-    int i, j, best = -1, n = 0, len = 0, changed;
+    int i, j, best = -1, n = 0, len = 0, changed, prev = -1;
     POINT org;
     RECT rc;
 
@@ -1741,7 +1794,7 @@ int FAR PASCAL __export EpOsmMainText(HWND hwnd, LPSTR out, int max)
                 continue;
             for (j = 0; j < OSM_N; j++)
                 if (total[j] >= 0 && total[j] != total[i] &&
-                    osm[i].x < osm[j].x + osm[j].w && osm[j].x < osm[i].x + osm[i].w) {
+                    osm[i].x < osm[j].x + main_w(j) && osm[j].x < osm[i].x + main_w(i)) {
                     int m = min(total[i], total[j]);
                     changed |= total[i] != m || total[j] != m;
                     total[i] = total[j] = m;
@@ -1763,14 +1816,15 @@ int FAR PASCAL __export EpOsmMainText(HWND hwnd, LPSTR out, int max)
     for (;;) {                          /* de haut en bas, puis de gauche à droite */
         int k = -1;
         for (i = 0; i < OSM_N; i++)
-            if (total[i] == best && (k < 0 || osm[i].y < osm[k].y ||
-                                     (osm[i].y == osm[k].y && osm[i].x < osm[k].x)))
+            if (total[i] == best && (k < 0 || main_before(i, k)))
                 k = i;
         if (k < 0 || len >= max - 2)
             break;
         total[k] = -1;
-        if (len)
+        /* lettrine (Didacticiel) : grande initiale suivie du reste du mot */
+        if (len && !(prev >= 0 && osm[prev].t[1] == 0 && osm[prev].h > osm[k].h * 3 / 2))
             out[len++] = ' ';
+        prev = k;
         lstrcpyn(out + len, osm[k].t, max - len);
         len = lstrlen(out);
         n++;

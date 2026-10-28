@@ -332,6 +332,13 @@ Préférer `scripts/pc486-dev` aux préfixes de variables, que les règles ne co
   dans un bitmap : le rectangle de focus y est noté puis reporté au BitBlt (`mfr`).
   Boîte Options : contrôles dans une page enfant `sa_sdm_…` (focus), traitée comme
   `bosa_sdm_…` par `is_sdm` et par `EpBeginPaint`, sinon ses libellés s'effacent.
+- Modèle hors écran : les textes d'une fenêtre détruite et de ses filles sont purgés
+  au crochet CBT `HCBT_DESTROYWND` (`osm_destroyed`). Windows réutilise aussitôt les
+  identifiants : sans purge, une fenêtre neuve « contient » le texte d'une ancienne.
+- Programmes sans contrôles standard (Aide, Fiches, Mail, Terminal, Didacticiel…) :
+  voir `docs/programmes-windows.md` ; Inser+Maj+D énonce l'arbre des fenêtres (classes,
+  numéros, styles) pour reconnaître un programme inconnu dans `apolo-emu.log`.
+  `is_multiline` exige `ES_MULTILINE` **et** plus d'une ligne de haut.
 - Menu des réglages : la DLL donne toutes les touches à l'EXE (`EpCfgMode`) ; elle
   rend le clavier seule après 70 s ou si l'EXE disparaît. Préserver ce garde-fou.
 - Write et Word sélectionnent en inversant (DSTINVERT) chaque morceau ajouté ou retiré ;
