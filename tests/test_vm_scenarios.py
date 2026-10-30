@@ -12,7 +12,9 @@ synthèse simulée d'Apolo-emu (15 caractères par seconde) et une fausse plage 
 Vérifié : icônes du Gestionnaire de programmes sans « vide » ; dire tout de
 LISEZMOI.WRI sans pause ni arrêt prématuré, retour du curseur après Ctrl, arrêt en fin
 de document ; sélection de Write en points 7-8 ; en-tête de Word suivi par la parole
-et la plage ; calculatrice (résultats, erreur, relecture et braille).
+et la plage ; calculatrice (résultats, erreur, relecture et braille) ; invite MS-DOS
+(Épaudos à jour copié aussi) : braille relayé en plein écran et en fenêtre, délai de
+chaque frappe, routage.
 """
 import os
 from pathlib import Path
@@ -60,6 +62,7 @@ class FakeBaum(threading.Thread):
         self.path = path
         self.frames = []
         self.stop = False
+        self.sock = None
 
     def decode(self, cells):
         text = ''.join(self.marked.get(c, '?') if c & 0xc0 == 0xc0 else
@@ -75,6 +78,7 @@ class FakeBaum(threading.Thread):
                 break
             except OSError:
                 time.sleep(0.5)
+        self.sock = s
         with s:
             self.listen(s)
 
@@ -119,6 +123,10 @@ class FakeBaum(threading.Thread):
     def last(self):
         return self.frames[-1] if self.frames else ('', '')
 
+    def send(self, data):
+        if self.sock:
+            self.sock.send(data)
+
 
 def main_vm_busy():
     out = subprocess.run(['ps', '-eo', 'args'], capture_output=True, text=True).stdout
@@ -143,6 +151,10 @@ class WindowsScenarios(unittest.TestCase):
         build = ROOT / 'epaulard/build'
         subprocess.run(['mcopy', '-o', '-i', img, str(build / 'EPAULARD.EXE'),
                         str(build / 'EPAUHOOK.DLL'), '::/EPAULARD/'], check=True)
+        # Épaudos (chargé avant WIN par AUTOEXEC.BAT) : lit l'invite MS-DOS sous Windows
+        subprocess.run([str(ROOT / 'epaudos/build.sh')], check=True, capture_output=True)
+        subprocess.run(['mcopy', '-o', '-i', img, str(ROOT / 'epaudos/build/EPAUDOS.COM'),
+                        '::/EPAUDOS.COM'], check=True)
         # Word doit ouvrir un vrai document, sans dépendre des fichiers privés de C:.
         with tempfile.TemporaryDirectory(prefix='pc486-word-') as tmp:
             document = Path(tmp) / 'EPTEST.RTF'
@@ -259,6 +271,29 @@ class WindowsScenarios(unittest.TestCase):
                 return
             time.sleep(0.1)
         self.fail(f'braille {prefix!r} attendu, reçu : {self.baum.last()}')
+
+    def wait_braille_has(self, text, timeout=15):
+        """Texte (sans casse : majuscules en point 7) quelque part sur la plage."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if text.lower() in self.baum.last()[0].lower():
+                return
+            time.sleep(0.1)
+        self.fail(f'braille {text!r} attendu, reçu : {self.baum.last()}')
+
+    def typing_delays(self, prefix, text):
+        """Délai de chaque frappe jusqu'à la plage (fluidité : moins de 0,6 s, lancement
+        de vmctl compris ; Épaudos 55 ms, relais d'Épaulard 55 ms, trame à 19 200 bauds)."""
+        delays = []
+        for i, k in enumerate(text):
+            want = (prefix + text[:i + 1]).lower()
+            t = time.time()
+            self.key(k)
+            while want not in self.baum.last()[0].lower() and time.time() - t < 5:
+                time.sleep(0.02)
+            delays.append(round(time.time() - t, 2))
+        print(f'délais frappe -> plage : {delays}', file=sys.stderr)
+        return delays
 
     def run_program(self, command):
         self.key('alt')
@@ -493,6 +528,50 @@ class WindowsScenarios(unittest.TestCase):
         n = self.mark()
         self.key('insert-up')
         self.assertEqual(self.wait_speech(r'.', n, 10), 'Abc')
+
+    def test_5_dos_prompt_braille(self):
+        """Invite MS-DOS : la plage suit Épaudos (relayé par Épaulard), en plein écran
+        puis en fenêtre ; ses touches lui reviennent ; EXIT rend la plage à Épaulard."""
+        # (Word du scénario précédent : fermé sans enregistrer)
+        for _ in range(4):
+            n = self.mark()
+            self.key('insert-t')
+            if 'Gestionnaire de programmes' in self.wait_speech(r'.', n, 10):
+                break
+            self.key('alt-f4')
+            time.sleep(3)
+            if 'Enregistrer' in ' '.join(self.speech()[n:]):
+                self.key('n')
+                time.sleep(3)
+        n = self.mark()
+        self.run_program('command')
+        self.wait_speech(r'paudos pr', n, 60)
+        self.wait_braille_has('WINDOWS>', 20)
+        self.assertLess(max(self.typing_delays('WINDOWS>', 'ver')), 0.6)
+        # routage sur la 1re cellule : Épaudos lit le caractère (revue)
+        n = self.mark()
+        self.baum.send(b'\x1b\x27\x01')
+        self.wait_speech(r'^[cC]$', n, 10)
+        self.key('esc')
+        time.sleep(1)
+        # en fenêtre : Alt+Entrée
+        self.key('alt-ret')
+        time.sleep(6)
+        # (écran virtuel haché juste après Alt+Entrée, fenêtre comprise : la plage
+        # suit ce qui est affiché ; le texte tapé ensuite s'affiche normalement)
+        self.key('e')
+        self.wait_braille_has('e', 20)
+        self.assertLess(max(self.typing_delays('e', 'cho')), 0.6)
+        self.type(' fenetre')
+        self.wait_braille_has('echo fenetre', 20)
+        self.key('ret')
+        time.sleep(2)
+        self.type('exit')
+        self.key('ret')
+        deadline = time.time() + 30
+        while time.time() < deadline and 'WINDOWS>' in self.baum.last()[0].upper():
+            time.sleep(0.5)
+        self.assertNotIn('WINDOWS>', self.baum.last()[0].upper())
 
 
 if __name__ == '__main__':

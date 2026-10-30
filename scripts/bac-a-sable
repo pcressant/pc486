@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""Bac à sable : installe des applications Windows sur une copie de C:, jamais sur
+vm/win311.img, pour relever ce qu'Épaulard lit de leur installateur et d'elles-mêmes.
+
+  scripts/bac-a-sable preparer [--depuis IMAGE]   copie un disque arrêté (défaut
+                                                   vm/win311.img) dans work/bac/
+  scripts/bac-a-sable installer PRODUIT SUPPORT   installe PRODUIT depuis SUPPORT (dossier
+                                                   ou ZIP local), Épaulard chargé
+  scripts/bac-a-sable maj                          compile puis copie Épaulard, Épaudos et AUTOEXEC.BAT
+                                                   dans le bac à sable (VM arrêtée)
+  scripts/bac-a-sable produits                     liste des produits connus
+
+Image de travail : work/bac/win311.img (PC486_BAC_DISK pour une autre copie). Les
+journaux (écrans, COM1 : ce qu'Épaulard a envoyé à la synthèse) restent dans
+work/bac/journaux/. Ensuite : PC486_DEV_DISK=work/bac/win311.img scripts/pc486-dev …
+"""
+import argparse
+import fcntl
+import os
+from pathlib import Path
+import shutil
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'scripts'))
+import installation as inst  # noqa: E402
+
+BAC = ROOT / 'work' / 'bac'
+DISK = Path(os.environ.get('PC486_BAC_DISK', BAC / 'win311.img'))
+MAIN = (ROOT / 'vm' / 'win311.img').resolve()
+
+
+def locked(disk):
+    """Verrou partagé avec scripts/pc486 ; refus si un émulateur a l'image ouverte."""
+    handle = open(str(disk) + '.pc486.lock', 'a+b')
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise inst.InstallError(f'image utilisée par une VM ou une installation : {disk}') from None
+    inst.load_script('with_disk_lock', 'with-disk-lock.py').check_open(disk)
+    return handle
+
+
+def prepare(args):
+    source = (args.depuis or MAIN).resolve()
+    if DISK.resolve() == MAIN:
+        raise inst.InstallError('refus : le bac à sable ne doit pas être vm/win311.img')
+    if DISK.exists() and not args.remplacer:
+        raise inst.InstallError(f'{DISK} existe déjà (--remplacer pour l’écraser)')
+    DISK.parent.mkdir(parents=True, exist_ok=True)
+    lock = locked(source)
+    try:
+        tmp = DISK.with_suffix('.tmp')
+        shutil.copyfile(source, tmp)
+        os.replace(tmp, DISK)
+    finally:
+        lock.close()
+    print(f'bac à sable prêt : {DISK} (copie de {source})')
+
+
+def install(args):
+    disk = DISK.resolve()
+    if disk == MAIN:
+        raise inst.InstallError('refus : le bac à sable ne doit pas être vm/win311.img')
+    if not disk.exists():
+        raise inst.InstallError(f'bac à sable absent : {disk} (scripts/bac-a-sable preparer)')
+    product = inst.ACME.get(args.produit)
+    if product is None:
+        raise inst.InstallError(f'produit inconnu : {args.produit}')
+    inst.ICOUNT = args.icount
+    logs = BAC / 'journaux'
+    logs.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=f'{product.key}-', dir=logs))
+    lock = locked(disk)
+    try:
+        media = inst.collect_product(product, args.support, stage / 'supports')
+        inst.validate_acme(product, media)
+        binaries = ROOT / 'epaulard/build'
+        if not args.sans_compilation:
+            inst.run(ROOT / 'epaulard/build.sh')
+        image = inst.disk_partition(disk)
+        if inst.mexists(image, product.program):
+            # (ACME refuse de réinstaller en mode /Q : « ne peut mettre à jour »)
+            raise inst.InstallError(f'{product.title} est déjà installé dans {disk}')
+        # Fichiers de démarrage et WIN.INI d'origine : rendus après l'installation, et
+        # WIN.INI tel quel si elle échoue (sans INSTAUTO ni section [pc486]).
+        boot = {n: inst.run('mtype', '-i', image, '::/' + n) for n in ('CONFIG.SYS', 'AUTOEXEC.BAT')}
+        win_ini = inst.run('mtype', '-i', image, '::/WINDOWS/WIN.INI').decode('cp1252')
+        inst.stage_acme(stage, image, product, media, args.name, args.company, binaries)
+        print(f'{product.title} : installation sans dialogue, Épaulard chargé', flush=True)
+        done = False
+        try:
+            text = inst.install_acme(stage, disk, image, product, args.timeout, voice=True)
+            inst.write_win_ini(stage, image, text)
+            inst.configure_product(stage, image, product, args.name)
+            done = True
+        finally:
+            for name, data in boot.items():
+                inst.write_dos_file(stage, image, name, data)
+            if not done:
+                inst.write_win_ini(stage, image, win_ini)
+                for name in ('INSTAUTO.EXE', 'INSTAUTO.LOG'):
+                    if inst.mexists(image, name):
+                        inst.run('mdel', '-i', image, '::/' + name)
+        print(f'{product.title} installé dans {disk}\njournaux : {stage}')
+    finally:
+        lock.close()
+
+
+def update(args):
+    """Binaires fraîchement compilés vers C:\\EPAULARD et C:\\EPAUDOS.COM du bac à sable."""
+    disk = DISK.resolve()
+    if disk == MAIN or not disk.exists():
+        raise inst.InstallError(f'bac à sable absent ou interdit : {disk}')
+    lock = locked(disk)
+    try:
+        inst.run(ROOT / 'epaulard/build.sh')
+        inst.run(ROOT / 'epaudos/build.sh')
+        image = inst.disk_partition(disk)
+        for name in ('EPAULARD.EXE', 'EPAUHOOK.DLL'):
+            inst.run('mcopy', '-o', '-i', image, ROOT / 'epaulard/build' / name, '::/EPAULARD/' + name)
+        inst.run('mcopy', '-o', '-i', image, ROOT / 'epaudos/build/EPAUDOS.COM', '::/EPAUDOS.COM')
+        inst.run('mcopy', '-o', '-t', '-i', image, ROOT / 'dos/AUTOEXEC.BAT', '::/AUTOEXEC.BAT')
+    finally:
+        lock.close()
+    print(f'Épaulard et Épaudos mis à jour dans {disk}')
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog='scripts/bac-a-sable', description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest='cmd', required=True)
+    s = sub.add_parser('preparer', help='copier un disque arrêté dans le bac à sable')
+    s.add_argument('--depuis', type=Path, help='image source arrêtée (défaut vm/win311.img)')
+    s.add_argument('--remplacer', action='store_true', help='écraser le bac à sable existant')
+    s = sub.add_parser('installer', help='installer un produit dans le bac à sable')
+    s.add_argument('produit', choices=sorted(inst.ACME))
+    s.add_argument('support', type=Path, help='dossier ou ZIP local des disquettes')
+    s.add_argument('--name', type=inst.user_text, default='Utilisateur')
+    s.add_argument('--company', type=inst.user_text, default='')
+    s.add_argument('--icount', type=inst.icount_option, default='off')
+    s.add_argument('--timeout', type=int, default=1800)
+    s.add_argument('--sans-compilation', action='store_true',
+                   help='utiliser epaulard/build tel quel (INSTAUTO.EXE compris)')
+    sub.add_parser('maj', help='copier Épaulard et Épaudos compilés')
+    sub.add_parser('produits', help='produits connus')
+    args = p.parse_args(argv)
+    try:
+        if args.cmd == 'preparer':
+            prepare(args)
+        elif args.cmd == 'installer':
+            install(args)
+        elif args.cmd == 'maj':
+            update(args)
+        else:
+            for key, product in sorted(inst.ACME.items()):
+                print(f'{key:10} {product.title} ({product.disks} disquettes)')
+        return 0
+    except (inst.InstallError, OSError, RuntimeError) as exc:
+        print(f'bac-a-sable : {exc}', file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

@@ -21,3 +21,8 @@ void BRAPI br_pan(int direction);
 void BRAPI br_select(int from, int to);
 int BRAPI br_key(void);
 int BRAPI br_offset(void);
+int BRAPI br_width(void);
+/* Invite MS-DOS : la plage est à Épaudos (cellules, touches en trames Baum) */
+void BRAPI br_relay(BOOL on);
+void BRAPI br_cells(const BYTE FAR *cells, int n);
+int BRAPI br_relay_read(BYTE FAR *out, int max);

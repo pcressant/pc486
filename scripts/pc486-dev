@@ -17,6 +17,8 @@ export PC486_LOGS="${PC486_DEV_LOGS:-$ROOT/work/dev/logs}"
 export PC486_DISK="${PC486_DEV_DISK:-$ROOT/work/dev/win311.img}"
 export PC486_GATEWAY_OPTS="${PC486_DEV_GATEWAY_OPTS:---backend simulated}"
 export PC486_TRANSFERT=
+# Courrier local de --reseau : jamais celui de la VM principale (vm/reseau).
+export PC486_RESEAU_DATA="${PC486_DEV_RESEAU_DATA:-$ROOT/work/dev/reseau}"
 # Pas de plage réelle : com3.sock reste libre pour un faux Baum (--braille).
 export PC486_BRAILLE_CMD="${PC486_DEV_BRAILLE_CMD:-$(type -P true)}"
 
@@ -40,7 +42,7 @@ case "$cmd" in
         exec python3 "$ROOT/scripts/vmctl.py" "$@" ;;
     env)
         for v in PC486_RUN PC486_LOGS PC486_DISK PC486_GATEWAY_OPTS \
-                 PC486_TRANSFERT PC486_BRAILLE_CMD; do
+                 PC486_TRANSFERT PC486_BRAILLE_CMD PC486_RESEAU_DATA; do
             printf 'export %s=%q\n' "$v" "${!v}"
         done ;;
     *)

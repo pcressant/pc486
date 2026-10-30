@@ -14,7 +14,9 @@ epaulard-test.c  lecteur complet face à une fausse Apollo II et une fausse plag
                  d'état, sélection en points 7-8. Calculatrice : valeurs, signes,
                  résultat inchangé, erreurs, afficheur scientifique et braille,
                  mémoire, bases, unités, Inv/Hyp, parcours/activation des boutons,
-                 bilan braille et contrôles désactivés.
+                 bilan braille et contrôles désactivés. Grille d'Excel (cellule, formule,
+                 feuille, repeint découpé, gras après Ctrl+G, Suppr), invite MS-DOS
+                 relayée vers Épaudos, jauge et focus répété des installateurs ACME.
 Run: python3 -m unittest tests.test_epaulard -v
 """
 from pathlib import Path
@@ -33,6 +35,18 @@ class EpaulardBenchTests(unittest.TestCase):
     def test_screen_reader_scenarios(self):
         self.assertIn('tous les scénarios réussis',
                       native.build_and_run('epaulard-test.c', timeout=300))
+
+
+class ModuleListTests(unittest.TestCase):
+    def test_bench_includes_every_built_module(self):
+        """build.sh compile modules.lst ; le banc doit inclure exactement les mêmes."""
+        root = Path(__file__).resolve().parents[1]
+        built = [l.strip() for l in (root / 'epaulard/src/modules.lst').read_text().splitlines()
+                 if l.strip() and not l.startswith('#')]
+        bench = [l.split('/')[-1].rstrip('"').removesuffix('.c')
+                 for l in (root / 'tests/win16/epaulard-modules.h').read_text().splitlines()
+                 if l.startswith('#include')]
+        self.assertEqual(bench, built)
 
 
 if __name__ == '__main__':

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="utf-8"><title>Page d'essai du mode navigation</title></head>
+<body>
+<header><p>En-tête du site d'essai : <a href="http://pc486/">Accueil pc486</a></p></header>
+<nav><ul><li><a href="#titres">Titres</a></li><li><a href="#tableaux">Tableaux</a></li>
+<li><a href="#formulaire">Formulaire</a></li></ul></nav>
+<main>
+<h1>Page d'essai du mode navigation</h1>
+<p>Cette page sert à vérifier le mode navigation d'Épaulard : titres, liens, listes,
+tableaux, formulaires. Les caractères accentués s'écrivent ainsi : é è ê à ç ù ï ô œ « guillemets ».</p>
+
+<h2 id="titres">Titres et paragraphes</h2>
+<p>Premier paragraphe, avec un <a href="http://pc486/">lien déjà visité</a> et un
+<a href="http://pc486/jamais-visite">lien jamais visité</a> au milieu de la phrase.</p>
+<h3>Sous-titre de niveau trois</h3>
+<p>Deuxième paragraphe, assez long pour être coupé en plusieurs lignes par le tampon :
+l'éléphant écrivait à l'œil nu une lettre à sa sœur, qui habitait près de la forêt,
+au-delà des collines où l'été durait plus longtemps qu'ailleurs.</p>
+<h4>Niveau quatre</h4>
+<p>Troisième paragraphe.</p>
+<blockquote><p>Une citation : « Le plus grand voyageur est celui qui a su faire une
+fois le tour de lui-même. »</p></blockquote>
+<hr>
+
+<h2>Listes</h2>
+<ul>
+<li>Fruits
+  <ul><li>Pomme</li><li>Poire</li><li>Cerise</li></ul>
+</li>
+<li>Légumes</li>
+<li>Céréales</li>
+</ul>
+<ol><li>Premier</li><li>Deuxième</li></ol>
+
+<h2 id="tableaux">Tableaux</h2>
+<table border="1">
+<caption>Températures de la semaine</caption>
+<tr><th>Jour</th><th>Matin</th><th>Soir</th></tr>
+<tr><th>Lundi</th><td>12</td><td>18</td></tr>
+<tr><th>Mardi</th><td></td><td>17</td></tr>
+<tr><th>Mercredi</th><td colspan="2">pluie toute la journée</td></tr>
+<tr><th rowspan="2">Jeudi</th><td>10</td><td>15</td></tr>
+<tr><td>11</td><td>16</td></tr>
+</table>
+<p><img src="soleil.png" alt="Soleil sur la colline"></p>
+
+<h2 id="formulaire">Formulaire</h2>
+<form action="http://pc486/essai" method="get">
+<p><label for="nom">Nom :</label> <input type="text" id="nom" name="nom" value="Dupont"></p>
+<p><label for="mdp">Mot de passe :</label> <input type="password" id="mdp" name="mdp"></p>
+<p><input type="checkbox" id="lettre" name="lettre" checked> <label for="lettre">Recevoir la lettre</label>
+<input type="checkbox" id="pub" name="pub"> <label for="pub">Recevoir les offres</label></p>
+<p>Couleur préférée :
+<input type="radio" id="rouge" name="couleur" value="rouge"> <label for="rouge">Rouge</label>
+<input type="radio" id="vert" name="couleur" value="vert" checked> <label for="vert">Vert</label>
+<input type="radio" id="bleu" name="couleur" value="bleu"> <label for="bleu">Bleu</label></p>
+<p><label for="ville">Ville :</label>
+<select id="ville" name="ville"><option>Paris</option><option selected>Lyon</option><option>Marseille</option></select></p>
+<p><label for="note">Remarque :</label><br><textarea id="note" name="note" rows="3" cols="40">Texte initial</textarea></p>
+<p><input type="submit" value="Envoyer"> <input type="reset" value="Effacer"></p>
+</form>
+
+<h2>Suite de la page</h2>
+<p>Paragraphe 1 de remplissage, pour que la page dépasse la hauteur de la fenêtre.</p>
+<p>Paragraphe 2 de remplissage, pour que la page dépasse la hauteur de la fenêtre.</p>
+<p>Paragraphe 3 de remplissage, pour que la page dépasse la hauteur de la fenêtre.</p>
+<p>Paragraphe 4 de remplissage, pour que la page dépasse la hauteur de la fenêtre.</p>
+<p>Paragraphe 5 de remplissage, pour que la page dépasse la hauteur de la fenêtre.</p>
+<p>Paragraphe 6 de remplissage, pour que la page dépasse la hauteur de la fenêtre.</p>
+<p>Paragraphe 7 de remplissage, pour que la page dépasse la hauteur de la fenêtre.</p>
+<p>Paragraphe 8 de remplissage, pour que la page dépasse la hauteur de la fenêtre.</p>
+<h2>Fin de la page</h2>
+<p>Dernier paragraphe : <a href="http://pc486/essai">recharger cette page</a>.</p>
+</main>
+<footer><p>Pied de page de l'essai.</p></footer>
+</body>
+</html>

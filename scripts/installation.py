@@ -10,6 +10,7 @@ import argparse
 from contextlib import contextmanager, suppress
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -24,6 +25,7 @@ import unicodedata
 import zipfile
 
 from vmctl import FR, Qmp, type_text
+import options_vm
 
 ROOT = Path(__file__).resolve().parents[1]
 FLOPPY_SIZE = 1474560
@@ -67,8 +69,13 @@ def media_number(name):
     return int(m[1]) if m else None
 
 
-def collect_media(source, count, target):
-    """Importe uniquement DISK1..N ; les noms internes d'un ZIP ne sont jamais extraits."""
+def size_names(sizes):
+    return ' ou '.join({FLOPPY_SIZE: '1,44 Mo', 1228800: '1,2 Mo'}.get(n, f'{n} octets') for n in sizes)
+
+
+def collect_media(source, count, target, sizes=(FLOPPY_SIZE,)):
+    """Importe uniquement DISK1..N ; les noms internes d'un ZIP ne sont jamais extraits.
+    sizes : tailles d'image admises (1,44 Mo, ou 1,2 Mo pour des disquettes 5,25")."""
     source = source.resolve()
     found = {}
     target.mkdir()
@@ -76,8 +83,8 @@ def collect_media(source, count, target):
     def put(number, data):
         if number in found:
             raise InstallError(f'support ambigu : plusieurs disquettes {number} dans {source}')
-        if len(data) != FLOPPY_SIZE:
-            raise InstallError(f'disquette {number} : image brute 1,44 Mo attendue')
+        if len(data) not in sizes:
+            raise InstallError(f'disquette {number} : image brute {size_names(sizes)} attendue')
         p = target / f'disk{number}.img'
         p.write_bytes(data)
         found[number] = p
@@ -86,16 +93,16 @@ def collect_media(source, count, target):
         for path in sorted(source.rglob('*')):
             n = media_number(path.name)
             if path.is_file() and n is not None and 1 <= n <= count:
-                if path.stat().st_size != FLOPPY_SIZE:
-                    raise InstallError(f'image 1,44 Mo attendue : {path}')
+                if path.stat().st_size not in sizes:
+                    raise InstallError(f'image {size_names(sizes)} attendue : {path}')
                 put(n, path.read_bytes())
     elif source.is_file() and zipfile.is_zipfile(source):
         with zipfile.ZipFile(source) as z:
             for entry in z.infolist():
                 n = media_number(entry.filename)
                 if not entry.is_dir() and n is not None and 1 <= n <= count:
-                    if entry.file_size != FLOPPY_SIZE:
-                        raise InstallError(f'image 1,44 Mo attendue dans {source} : {entry.filename}')
+                    if entry.file_size not in sizes:
+                        raise InstallError(f'image {size_names(sizes)} attendue dans {source} : {entry.filename}')
                     put(n, z.read(entry))
     else:
         raise InstallError(f'dossier ou archive ZIP locale introuvable : {source}')
@@ -127,13 +134,6 @@ def validate_suppl(path):
         raise InstallError(f'disque supplémentaire de MS-DOS 6.22 attendu : {path}')
     for name in ('720ID01.BAT', 'SD6COPY.BAT', 'CHOICE.COM', 'EXPAND.EXE', 'GET_FUNC.COM'):
         run('mtype', '-i', path, '::/' + name)
-
-
-def validate_word(media):
-    stf = run('mtype', '-i', media[0], '::/INSTALL.STF')
-    if b'WINWORD.EXE' not in stf or b'6.0.0.3015(1036)' not in stf:
-        raise InstallError('supports de Word 6.0c français attendus (INSTALL.STF)')
-    run('mtype', '-i', media[0], '::/INSTALL.EXE')
 
 
 def disk_partition(path):
@@ -230,10 +230,11 @@ SETUP_CODEPAGE = ('MODE CON CODEPAGE PREPARE=((850) C:\\DOS\\EGA.CPI)\n'
                   'MODE CON CODEPAGE SELECT=850\nKEYB FR,,C:\\DOS\\KEYBOARD.SYS\n')
 
 
-def final_boot_files(word_dos=False):
+def final_boot_files(word_dos=False, cdrom=False, reseau=False):
     """CONFIG.SYS et AUTOEXEC.BAT de la VM de référence (modèles de dos/) :
     1 = DOS avec Épaudos (défaut après 10 s), 2 = Windows avec Épaulard.
-    Avec Word pour DOS, C:\\WORD s'ajoute au PATH, seul changement demandé par INIT."""
+    Avec Word pour DOS, C:\\WORD s'ajoute au PATH, seul changement demandé par INIT.
+    Options --cdrom et --reseau : lignes de options_vm.boot_files, sinon aucune."""
     config, autoexec = ((ROOT / 'dos' / name).read_bytes().decode('cp850').replace('\r\n', '\n')
                         for name in ('CONFIG.SYS', 'AUTOEXEC.BAT'))
     path = 'PATH C:\\WINDOWS;C:\\DOS\n'
@@ -241,6 +242,7 @@ def final_boot_files(word_dos=False):
         raise InstallError('modèles dos/CONFIG.SYS ou dos/AUTOEXEC.BAT inattendus')
     if word_dos:
         autoexec = autoexec.replace(path, path[:-1] + ';C:\\WORD\n')
+    config, autoexec = options_vm.boot_files(config, autoexec, cdrom, reseau)
     return tuple(t.replace('\n', '\r\n').encode('cp850') for t in (config, autoexec))
 
 
@@ -284,7 +286,7 @@ def icount_option(value):
 
 class Machine:
     """Une seule image privée ; le processus QEMU reste enfant de l'installateur."""
-    def __init__(self, stage, disk, phase, floppy=None, voice=False, boot=None):
+    def __init__(self, stage, disk, phase, floppy=None, voice=False, boot=None, nic=False, icount=None):
         self.stage, self.phase = stage, phase
         self.runtime = tempfile.TemporaryDirectory(prefix='pc486-install-')
         self.socket = Path(self.runtime.name) / 'qmp.sock'
@@ -292,16 +294,21 @@ class Machine:
         self.log = (stage / f'{phase}-qemu.log').open('wb')
         filearg = str(disk).replace(',', ',,')
         cmd = ['qemu-system-i386', '-machine', 'pc,accel=tcg,hpet=off', '-rtc', 'base=localtime', '-cpu', '486', '-m', '16',
-               *([] if ICOUNT == 'off' else ['-icount', f'shift={ICOUNT},sleep=on,align=on']),
+               *([] if (icount or ICOUNT) == 'off' else ['-icount', f'shift={icount or ICOUNT},sleep=on,align=on']),
                '-drive', f'file={filearg},format=raw,if=ide,index=0',
                '-boot', 'order=' + (boot or ('a' if floppy else 'c')), '-vga', 'cirrus',
-               '-display', 'none', '-nic', 'none', '-audiodev', 'none,id=snd0',
+               '-display', 'none', '-audiodev', 'none,id=snd0',
+               # Carte NE2000 de --reseau, sans aucune destination joignable (restrict=on).
+               *(['-netdev', 'user,id=lan,restrict=on,ipv6=off,net=10.0.2.0/24,host=10.0.2.254',
+                  '-device', 'ne2k_isa,netdev=lan,iobase=0x300,irq=10'] if nic else ['-nic', 'none']),
                '-device', 'sb16,audiodev=snd0,iobase=0x220,irq=5,dma=1,dma16=5',
                '-device', 'adlib,audiodev=snd0',
                # COM3 de la plage Baum, comme scripts/pc486, sans plage branchée.
                '-chardev', 'null,id=com3', '-device', 'isa-serial,chardev=com3,index=2,iobase=0x3e8,irq=9',
                '-serial', f'file:{self.voice}' if voice else 'null',
-               '-qmp', f'unix:{self.socket},server=on,wait=off']
+               '-qmp', f'unix:{self.socket},server=on,wait=off',
+               # Second moniteur pour observer sans gêner l'installateur (captures).
+               '-qmp', f'unix:{Path(self.runtime.name) / "observe.sock"},server=on,wait=off']
         if floppy:
             cmd += ['-drive', f'file={str(floppy).replace(",", ",,")},format=raw,if=floppy,index=0']
         self.proc = None
@@ -503,15 +510,326 @@ def remove_section(text, section):
     return newline.join(out) + newline
 
 
-def stage_word(stage, image, media, name, company, binaries):
-    """Supports dans C:\\INSTALL\\DISKn, comme l'installation manuelle de référence."""
-    run('mmd', '-i', image, '::/INSTALL')
+class Acme:
+    """Produit Microsoft installé par ACME sans dialogue (/Q1 /N), par INSTAUTO.EXE.
+    key : option de scripts/installer ; folder : sources sous C:\\INSTALL (vide : à la
+    racine, comme la VM de référence de Word) ; disks, sizes : disquettes attendues ;
+    signature : (fichier de la disquette 1, octets qu'il doit contenir) ;
+    program : exécutable installé, vérifié à la fin. quiet : options sans dialogue
+    d'ACME ; sinon l'installateur pose ses questions (Lotus). merge : toutes les
+    disquettes dans un même dossier (Lotus : fichiers témoins DISK1..N, aucune demande
+    de disquette). answers : réponses jouées par INSTAUTO aux boîtes de l'installateur,
+    (début du titre, touches) dans l'ordre ; {NOM} et {SOCIETE} sont remplacés.
+    archive : dossier d'installation dans un ZIP (Netscape) au lieu de disquettes ;
+    setup : programme lancé dans le dossier de la disquette 1. settings : réglages
+    écrits après l'installation, (fichier INI de C:, section, clé, valeur) ; {NOM}
+    remplacé. files : fichiers texte créés ensuite, (chemin sur C:, texte)."""
+    def __init__(self, key, title, folder, disks, sizes, signature, program, marker,
+                 quiet=True, merge=False, answers=(), archive=None, setup='INSTALL.EXE',
+                 settings=(), files=()):
+        self.key, self.title, self.folder, self.disks = key, title, folder, disks
+        self.sizes, self.signature, self.program, self.marker = sizes, signature, program, marker
+        self.quiet, self.merge, self.answers = quiet, merge, answers
+        self.archive, self.setup, self.settings, self.files = archive, setup, settings, files
+
+    def source(self, n):
+        if self.merge:
+            return '/'.join(p for p in ('INSTALL', self.folder) if p)
+        return '/'.join(p for p in ('INSTALL', self.folder, f'DISK{n}') if p)
+
+
+# Netscape 4 (Communicator) lit au démarrage NETSCAPE.CFG, à côté de NETSCAPE.EXE ;
+# pref() n'y est défini que sur l'objet PrefConfig (essayé dans 4.08 16 bits). Fichier :
+# octets décalés de 7, première ligne « // » suivie du MD5 (clé fixe, NUL compris, puis
+# le reste du fichier) ; un fichier dont l'empreinte ne correspond pas est refusé. Ce
+# schéma est celui de pref_VerifyLockFile (prefapi.c, sources de Mozilla de 1998).
+NETSCAPE_CFG_KEY = b'VonGloda5652TX75235ISBN\0'
+
+
+def netscape_cfg(lines):
+    """NETSCAPE.CFG valide contenant ces lignes JavaScript (pref…)."""
+    rest = ('\r' + ''.join(line + '\r\n' for line in lines)).encode('cp1252')
+    digest = hashlib.md5(NETSCAPE_CFG_KEY + rest).digest()
+    head = ('// ' + ' '.join(f'{b:02x}' for b in digest) + '\n').encode('ascii')
+    assert len(head) == 51
+    return bytes((b + 7) & 255 for b in head + rest)
+
+
+def js_string(value):
+    return '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
+
+
+# Réglages communs à tous les profils de Communicator, créés ensuite par l'utilisateur
+# (assistant du premier lancement) : valeurs par défaut (pref), modifiables, jamais
+# imposées (lockPref).
+COMMUNICATOR_PREFS = (
+    ('network.proxy.type', 1), ('network.proxy.http', '10.0.2.2'),
+    ('network.proxy.http_port', 8080), ('network.proxy.ftp', '10.0.2.2'),
+    ('network.proxy.ftp_port', 8080), ('browser.startup.homepage', 'http://pc486/'),
+    ('browser.startup.page', 1), ('network.hosts.pop_server', '10.0.2.2'),
+    ('network.hosts.smtp_server', '10.0.2.2'), ('mail.pop_name', 'pc486'),
+    ('mail.server_type', 0), ('security.warn_submit_insecure', False),
+    ('security.warn_entering_secure', False), ('security.warn_leaving_secure', False),
+    ('general.always_load_images', False),
+)
+
+
+def communicator_cfg():
+    lines = []
+    for name, value in COMMUNICATOR_PREFS:
+        v = ('true' if value else 'false') if isinstance(value, bool) else \
+            str(value) if isinstance(value, int) else js_string(value)
+        lines.append(f'PrefConfig.pref({js_string(name)}, {v});')
+    return netscape_cfg(lines)
+
+
+NETSCAPE_BOOKMARKS = '''<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<TITLE>Signets</TITLE>
+<H1>Signets</H1>
+<DL><p>
+    <DT><A HREF="http://pc486/">Accueil pc486</A>
+    <DT><A HREF="http://lite.duckduckgo.com/lite/">DuckDuckGo (version légère)</A>
+    <DT><A HREF="http://fr.wikipedia.org/">Wikipédia en français</A>
+</DL><p>
+'''
+
+SIZES_35 = (FLOPPY_SIZE,)
+SIZES_525 = (1228800,)
+ACME = {
+    'word': Acme('word', 'Word 6.0c', '', 11, SIZES_35,
+                 ('INSTALL.STF', (b'WINWORD.EXE', b'6.0.0.3015(1036)')), 'WINWORD/WINWORD.EXE', WORD_MARKER),
+    # Excel 5.0c français (CD Select, disquettes 5,25") : ACME avec cabinets EXCEL*.CAB.
+    'excel': Acme('excel', 'Excel 5.0c', 'EXCEL', 11, SIZES_525,
+                  ('INSTALL.LST', (b'Installation de Microsoft Excel', b'Excel1.cab')), 'EXCEL/EXCEL.EXE',
+                  'PC486_EXCEL_OK'),
+    # Excel 5.0 français, disquettes 3,5", fichiers compressés _ (même ACME que Word).
+    'excel50': Acme('excel50', 'Excel 5.0', 'EXCEL', 10, SIZES_35,
+                    ('INSTALL.LST', (b'Installation de Microsoft Excel 5.0',)), 'EXCEL/EXCEL.EXE',
+                    'PC486_EXCEL_OK'),
+    'access': Acme('access', 'Access 2.0', 'ACCESS', 10, SIZES_525 + SIZES_35,
+                   ('INSTALL.LST', (b'Installation de Microsoft Access 2.0',)), 'ACCESS/MSACCESS.EXE',
+                   'PC486_ACCESS_OK'),
+    # Ami Pro 3.01 français : installateur Lotus (INSTALL.INS), questions à l'écran.
+    'amipro': Acme('amipro', 'Ami Pro 3.01', 'AMIPRO', 8, SIZES_35,
+                   ('LOTUS.INS', (b'AMISPELL.EXE',)), 'AMIPRO/AMIPRO.EXE', 'PC486_AMIPRO_OK',
+                   quiet=False, merge=True, answers=(
+                       ('Bienvenue dans le programme Install', '{ENTREE}'),
+                       ('Nom de la soci', '{SOCIETE}{ENTREE}'),     # société obligatoire
+                       ('Nom et initiales', '{NOM}{ENTREE}'),       # initiales déduites
+                       ('Menu principal', '{ENTREE}'),              # ordinateur monoposte
+                       ("Type d'installation", '{ENTREE}'),         # installation complète
+                       ('Installation sous Windows', '{ENTREE}'),   # Windows, pas NewWave
+                       ("Répertoire d'installation", '{ENTREE}'),   # C:\AMIPRO
+                       ("Installation d'Ami Pro", '{ENTREE}'),      # « terminée »
+                       ('Menu principal', '{TAB}{TAB}{TAB}{ENTREE}'),  # Quitter
+                   )),
+    # Netscape Navigator 3.01 français (16 bits) : InstallShield 3, dossier N16FR31 du ZIP.
+    # Réglages : services de l'hôte de « pc486 start --reseau » (docs/reseau.md).
+    'netscape': Acme('netscape', 'Netscape Navigator 3.01', 'NETSCAPE', 1, (),
+                     ('SETUP.INI', (b'nsfrfr16.dll',)), 'NETSCAPE/NETSCAPE.EXE',
+                     'PC486_NETSCAPE_OK', quiet=False, merge=True, archive='N16FR31',
+                     setup='SETUP.EXE', answers=(
+                         ('Bienvenue', '{ENTREE}'),
+                         ('Netscape Navigator Chemin de destination', '{ENTREE}'),  # C:\NETSCAPE
+                         ('Sélectionner un dossier', '{ENTREE}'),     # groupe Netscape Navigator 3.0
+                         ('Lisez-moi', '{ESPACE}{ENTREE}'),          # sans ouvrir LISEZMOI
+                         ('Question', '{TAB}{ENTREE}'),              # site Setup de Netscape : Non
+                     ), settings=tuple(('NETSCAPE/NETSCAPE.INI',) + s for s in (
+                         ('Main', 'Home Page', 'http://pc486/'),
+                         ('Proxy Information', 'Proxy Type', '1'),       # manuel
+                         ('Proxy Information', 'HTTP_Proxy', '10.0.2.2'),
+                         ('Proxy Information', 'Http_ProxyPort', '8080'),
+                         ('Services', 'SMTP_Server', '10.0.2.2'),
+                         ('Services', 'POP_Server', '10.0.2.2'),
+                         ('Mail', 'POP Name', 'pc486'),
+                         ('User', 'User_Name', '{NOM}'),
+                         ('User', 'User_Addr', 'utilisateur@pc486'),
+                         # Tout passe en HTTP par le proxy : sinon une alerte à chaque formulaire
+                         ('Security', 'Warn Insecure Forms', 'no'),
+                     )), files=(
+                         # Sans fichier de signets, alerte au premier lancement
+                         ('NETSCAPE/BOOKMARK.HTM', NETSCAPE_BOOKMARKS),
+                     )),
+    # Netscape Communicator 4.08 français (16 bits) : auto-extracteur InstallShield.
+    'communicator': Acme('communicator', 'Netscape Communicator 4.08', 'COMMUNIC', 1, (),
+                         ('CC16F408.EXE', (b"EXE d'auto-extraction d'InstallShield",)),
+                         'NETSCAPE/COMM/PROGRAM/NETSCAPE.EXE', 'PC486_COMMUNICATOR_OK', quiet=False,
+                         merge=True, archive='cc16f408', setup='CC16F408.EXE', answers=(
+                             # dans l'ordre des boîtes : créer C:\Netscape\Comm (Oui),
+                             # Vidéo pour Windows absent (OK), LISEZMOI (Non), fin (OK),
+                             # redémarrage plus tard (INSTAUTO quitte Windows)
+                             ("Programme d'installation de Netscape Communicator", '{ENTREE}'),
+                             ('Contrat de licence', '{ENTREE}'),
+                             ("Type d'installation", '{ENTREE}'), ('Question', '{ENTREE}'),
+                             ('Informations', '{ENTREE}'),
+                             ('Sélectionner le dossier de programme', '{ENTREE}'),
+                             ('Commencer à copier', '{ENTREE}'), ('Question', '{TAB}{ENTREE}'),
+                             ('Informations', '{ENTREE}'),
+                             ('Redémarrer Windows', '{BAS}{ENTREE}')),
+                         files=(('NETSCAPE/COMM/PROGRAM/NETSCAPE.CFG', communicator_cfg()),
+                                # signets copiés dans chaque nouveau profil
+                                ('NETSCAPE/COMM/PROGRAM/DEFAULTS/BOOKMARK.HTM', NETSCAPE_BOOKMARKS))),
+    # Eudora Light 3.06 (anglais, Win16 et Win32) : auto-extracteur InstallShield à la
+    # racine du ZIP.
+    'eudora': Acme('eudora', 'Eudora Light 3.06', 'EUDORA', 1, (),
+                   ('EUL306.EXE', (b'Eudora.ini', b'win16.z')), 'EUDORA/EUDORA.EXE',
+                   'PC486_EUDORA_OK', quiet=False, merge=True, archive='/', setup='EUL306.EXE',
+                   answers=(('InstallShield Self-extracting EXE', '{ENTREE}'), ('Welcome', '{ENTREE}'),
+                            ('Software License Agreement', '{ENTREE}'),
+                            ('Choose Destination Location', '{ENTREE}'),
+                            ('Start Copying Files', '{ENTREE}'),
+                            ('Question', '{TAB}{ENTREE}')),          # README : Non
+                   # boîte locale de « --reseau » ; pas de serveur ACAP
+                   settings=tuple(('EUDORA/EUDORA.INI', 'Settings', k, v) for k, v in (
+                       ('UseACAPServer', '0'), ('POPAccount', 'pc486@10.0.2.2'),
+                       ('SMTPServer', '10.0.2.2'), ('RealName', '{NOM}'),
+                       ('ReturnAddress', 'utilisateur@pc486')))),
+}
+
+
+def validate_acme(product, media):
+    name, needles = product.signature
+    if product.archive:
+        folder = media[0]
+        data = (folder / name).read_bytes() if (folder / name).is_file() else b''
+        setup = (folder / product.setup).read_bytes()[:2] if (folder / product.setup).is_file() else b''
+    else:
+        data = run('mtype', '-i', media[0], '::/' + name)
+        setup = run('mtype', '-i', media[0], '::/' + product.setup)[:2]
+    if not all(n in data for n in needles):
+        raise InstallError(f'supports de {product.title} français attendus ({name})')
+    if setup != b'MZ':
+        raise InstallError(f'{product.setup} de {product.title} absent')
+
+
+SHORT_NAME = re.compile(r'[A-Z0-9_$~!#%&\-]{1,8}(\.[A-Z0-9_$~!#%&\-]{1,3})?')
+
+
+def collect_archive(source, target, folder):
+    """Dossier d'installation d'un ZIP (ou d'un dossier local) : seuls les fichiers placés
+    directement dans `folder` (« / » : la racine), aux noms DOS 8.3, sont copiés dans
+    target ; aucun autre chemin du ZIP n'est utilisé."""
+    source = source.resolve()
+    folder = folder.strip('/')
+    target.mkdir(parents=True)
+    files = {}
+    if source.is_dir():
+        base = source / folder if folder and (source / folder).is_dir() else source
+        entries = [(p.name, p.read_bytes) for p in base.iterdir() if p.is_file()]
+    elif source.is_file() and zipfile.is_zipfile(source):
+        z = zipfile.ZipFile(source)
+        entries = []
+        for e in z.infolist():
+            parent, _, name = e.filename.replace('\\', '/').rpartition('/')
+            if not e.is_dir() and parent.casefold() == folder.casefold():
+                entries.append((name, lambda e=e: z.read(e)))
+    else:
+        raise InstallError(f'dossier ou archive ZIP locale introuvable : {source}')
+    for name, read in entries:
+        upper = name.upper()
+        if SHORT_NAME.fullmatch(upper) and upper not in files:
+            files[upper] = read()
+    if not files:
+        raise InstallError(f'dossier {folder} absent de {source}')
+    for name, data in files.items():
+        (target / name).write_bytes(data)
+    return [target]
+
+
+def validate_word(media):
+    validate_acme(ACME['word'], media)
+
+
+def collect_acme(source, target, keys):
+    """Supports d'un produit ACME, sous l'une de ses formes (Excel : 5.0c en 1,2 Mo
+    avec cabinets, ou 5.0 en 1,44 Mo). Renvoie (produit, disquettes)."""
+    errors = []
+    target.mkdir(exist_ok=True)
+    for key in keys:
+        product = ACME[key]
+        folder = target / product.key
+        try:
+            media = collect_product(product, source, folder)
+            validate_acme(product, media)
+            return product, media
+        except InstallError as exc:
+            errors.append(f'{product.title} : {exc}')
+            shutil.rmtree(folder, ignore_errors=True)
+    raise InstallError('supports non reconnus — ' + ' ; '.join(errors))
+
+
+def collect_product(product, source, target):
+    if product.archive:
+        return collect_archive(source, target, product.archive)
+    return collect_media(source, product.disks, target, product.sizes)
+
+
+ACCESS_Y2K = {'MSABC200.DLL': 'WINDOWS/SYSTEM', 'MSAJU200.DLL': 'ACCESS'}
+
+
+def collect_access_y2k(source, target):
+    """Correctif de l'an 2000 d'Access 2.0 (ACC2DATE) : deux DLL, d'un dossier ou d'un
+    ZIP, éventuellement dans ACC2DATE.EXE (ZIP autoextractible, jamais exécuté). Seuls
+    ces deux noms sont lus."""
+    source = source.resolve()
+    target.mkdir()
+    found = {}
+
+    def scan(z, depth=0):
+        for entry in z.infolist():
+            name = entry.filename.replace('\\', '/').rsplit('/', 1)[-1].upper()
+            if entry.is_dir():
+                continue
+            if name in ACCESS_Y2K:
+                found[name] = z.read(entry)
+            elif name.endswith('.EXE') and depth == 0 and entry.file_size < 4 * 1024 * 1024:
+                data = io.BytesIO(z.read(entry))
+                if zipfile.is_zipfile(data):
+                    with zipfile.ZipFile(data) as inner:
+                        scan(inner, 1)
+
+    if source.is_dir():
+        for path in source.rglob('*'):
+            if path.is_file() and path.name.upper() in ACCESS_Y2K:
+                found[path.name.upper()] = path.read_bytes()
+            elif path.is_file() and path.suffix.upper() == '.EXE' and zipfile.is_zipfile(path):
+                with zipfile.ZipFile(path) as z:
+                    scan(z, 1)
+    elif source.is_file() and zipfile.is_zipfile(source):
+        with zipfile.ZipFile(source) as z:
+            scan(z)
+    else:
+        raise InstallError(f'dossier ou archive ZIP locale introuvable : {source}')
+    missing = sorted(set(ACCESS_Y2K) - found.keys())
+    if missing:
+        raise InstallError(f'correctif de l’an 2000 incomplet, absent : {", ".join(missing)}')
+    out = []
+    for name, data in sorted(found.items()):
+        if data[:2] != b'MZ':
+            raise InstallError(f'{name} n’est pas une DLL')
+        (target / name).write_bytes(data)
+        out.append(target / name)
+    return out
+
+
+def stage_acme(stage, image, product, media, name, company, binaries, extra_load=True):
+    """Supports dans C:\\INSTALL[\\dossier]\\DISKn ; INSTAUTO.EXE lance ACME au démarrage
+    de Windows puis quitte Windows. extra_load : garder les autres programmes de load=
+    (Épaulard dans un bac à sable), sinon load= ne contient qu'INSTAUTO."""
+    if not mexists(image, 'INSTALL/'):
+        run('mmd', '-i', image, '::/INSTALL')
+    if product.folder and not mexists(image, f'INSTALL/{product.folder}/'):
+        run('mmd', '-i', image, f'::/INSTALL/{product.folder}')
     for i, floppy in enumerate(media, 1):
-        dest = stage / f'word-disk{i}'
-        dest.mkdir()
-        run('mcopy', '-i', floppy, '::/*', dest)
-        run('mmd', '-i', image, f'::/INSTALL/DISK{i}')
-        run('mcopy', '-o', '-i', image, *sorted(dest.iterdir()), f'::/INSTALL/DISK{i}/')
+        dest = stage / f'{product.key}-disk{i}'
+        if product.archive:
+            shutil.copytree(floppy, dest)
+        else:
+            dest.mkdir()
+            run('mcopy', '-i', floppy, '::/*', dest)
+        if not mexists(image, product.source(i) + '/'):
+            run('mmd', '-i', image, '::/' + product.source(i))
+        run('mcopy', '-o', '-i', image, *sorted(dest.iterdir()), f'::/{product.source(i)}/')
     run('mcopy', '-o', '-i', image, binaries / 'INSTAUTO.EXE', '::/INSTAUTO.EXE')
     if not mexists(image, 'TEMP/'):
         run('mmd', '-i', image, '::/TEMP')
@@ -519,48 +837,109 @@ def stage_word(stage, image, media, name, company, binaries):
     win = stage / 'WIN.INI'
     text = run('mtype', '-i', image, '::/WINDOWS/WIN.INI').decode('cp1252')
     # Mode sans dialogue d'ACME : installation par défaut, nom et société fournis.
-    command = f'C:\\INSTALL\\DISK1\\INSTALL.EXE /Q1 /N "{name}"' + (f' /O "{company}"' if company else '')
-    text = ini.setting(text, 'windows', 'load', r'C:\INSTAUTO.EXE')
+    setup = '\\'.join(['C:'] + product.source(1).split('/') + [product.setup])
+    command = setup
+    if product.quiet:
+        command += f' /Q1 /N "{name}"' + (f' /O "{company}"' if company else '')
+    if extra_load:
+        text = epaulard_ini().edit_load(text, add=r'C:\INSTAUTO.EXE')
+    else:
+        text = ini.setting(text, 'windows', 'load', r'C:\INSTAUTO.EXE')
     text = ini.setting(text, 'pc486', 'commande', command)
     text = ini.setting(text, 'pc486', 'etat', '')
+    for i, (title, keys) in enumerate(product.answers, 1):
+        keys = keys.replace('{NOM}', name).replace('{SOCIETE}', company or name)
+        text = ini.setting(text, 'pc486', f'reponse{i}', f'{title}|{keys}')
     win.write_bytes(text.encode('cp1252'))
     run('mcopy', '-o', '-i', image, win, '::/WINDOWS/WIN.INI')
     write_dos_file(stage, image, 'CONFIG.SYS', SETUP_CONFIG)
     write_dos_file(stage, image, 'AUTOEXEC.BAT',
                    '@ECHO OFF\nPATH C:\\WINDOWS;C:\\DOS\nSET TEMP=C:\\TEMP\n' + SETUP_CODEPAGE +
-                   f'C:\nCD \\\nWIN\nECHO {WORD_MARKER}\n')
+                   f'C:\nCD \\\n{RESEAU_AUTO}WIN\nECHO {product.marker}\n')
 
 
-def install_word(stage, disk, image, timeout, name, company):
-    with machine(stage, disk, 'word') as m:
+# Disque déjà configuré pour le réseau (bac à sable) : sans carte, WfW se bloquerait.
+RESEAU_AUTO = 'IF EXIST C:\\WINDOWS\\RESEAU.EXE C:\\WINDOWS\\RESEAU.EXE AUTO\n'
+
+
+def stage_word(stage, image, media, name, company, binaries):
+    stage_acme(stage, image, ACME['word'], media, name, company, binaries, extra_load=False)
+
+
+def install_acme(stage, disk, image, product, timeout, voice=False):
+    """Démarre Windows jusqu'au retour au DOS ; INSTAUTO a quitté Windows après ACME.
+    Retourne le texte de WIN.INI, débarrassé de [pc486] et d'INSTAUTO."""
+    with machine(stage, disk, product.key, voice=voice) as m:
         start = time.monotonic()
         end, report = start + timeout, start + 60
         while time.monotonic() < end:
             if time.monotonic() >= report:
-                print(f'  Word : installation en cours ({int(time.monotonic() - start)} s)', flush=True)
+                print(f'  {product.title} : installation en cours ({int(time.monotonic() - start)} s)',
+                      flush=True)
                 report += 60
-            if WORD_MARKER in m.text():
+            if product.marker in m.text():
                 break
             time.sleep(2)
         else:
-            raise InstallError('délai dépassé pendant l’installation de Word ; capture conservée')
+            raise InstallError(f'délai dépassé pendant l’installation de {product.title} ; capture conservée')
     journal = subprocess.run(['mtype', '-i', image, '::/INSTAUTO.LOG'], capture_output=True).stdout
-    (stage / 'word-instauto.log').write_bytes(journal)
+    (stage / f'{product.key}-instauto.log').write_bytes(journal)
     text = run('mtype', '-i', image, '::/WINDOWS/WIN.INI').decode('cp1252')
     if 'etat=fini' not in text.replace(' ', '').lower():
-        raise InstallError('INSTAUTO n’a pas terminé ; voir word-instauto.log')
-    if not run('mtype', '-i', image, '::/WINWORD/WINWORD.EXE') or 'Word.Document.6' not in text:
-        raise InstallError('Word 6.0c non installé ; voir word-instauto.log et word-screen.png')
-    # Nom proposé par Word (Outils, Options), écrit seulement en mode interactif.
+        raise InstallError(f'INSTAUTO n’a pas terminé ; voir {product.key}-instauto.log')
+    exe = subprocess.run(['mtype', '-i', image, '::/' + product.program], capture_output=True).stdout
+    if exe[:2] != b'MZ':
+        raise InstallError(f'{product.title} non installé ; voir {product.key}-instauto.log '
+                           f'et {product.key}-screen.png')
+    text = epaulard_ini().edit_load(remove_section(text, 'pc486'), remove=(r'C:\INSTAUTO.EXE',))
+    run('mdel', '-i', image, '::/INSTAUTO.EXE', '::/INSTAUTO.LOG')
+    return text
+
+
+def configure_product(stage, image, product, name):
+    """Réglages d'un produit après son installation (fichiers INI de C:)."""
     ini = load_ini_editor()
-    text = ini.setting(ini.setting(remove_section(text, 'pc486'), 'MS User Info', 'DefName', name),
-                       'MS User Info', 'DefCompany', company)
-    # INSTAUTO.EXE est supprimé : le retirer de load= sans toucher aux autres programmes.
-    text = epaulard_ini().edit_load(text, remove=(r'C:\INSTAUTO.EXE',))
+    files = {}
+    for path, section, key, value in product.settings:
+        if path not in files:
+            files[path] = run('mtype', '-i', image, '::/' + path).decode('cp1252')
+        files[path] = ini.setting(files[path], section, key, value.replace('{NOM}', name))
+    files.update((path, text if isinstance(text, bytes) else text.replace('\n', '\r\n'))
+                 for path, text in product.files)
+    for path, text in files.items():
+        local = stage / f'{product.key}-{Path(path).name}'
+        local.write_bytes(text if isinstance(text, bytes) else text.encode('cp1252'))
+        run('mcopy', '-o', '-i', image, local, '::/' + path)
+
+
+def write_win_ini(stage, image, text):
     win = stage / 'WIN.INI'
     win.write_bytes(text.encode('cp1252'))
     run('mcopy', '-o', '-i', image, win, '::/WINDOWS/WIN.INI')
-    run('mdel', '-i', image, '::/INSTAUTO.EXE', '::/INSTAUTO.LOG')
+
+
+def install_office(stage, disk, image, product, media, timeout, name, company, binaries):
+    """Excel, Access (ACME par défaut), Ami Pro (réponses d'INSTAUTO), puis WIN.INI
+    rendu sans INSTAUTO."""
+    stage_acme(stage, image, product, media, name, company, binaries, extra_load=False)
+    write_win_ini(stage, image, install_acme(stage, disk, image, product, timeout))
+    configure_product(stage, image, product, name)
+
+
+def install_access_y2k(image, dlls):
+    for dll in dlls:
+        run('mcopy', '-o', '-i', image, dll, f'::/{ACCESS_Y2K[dll.name]}/{dll.name}')
+
+
+def install_word(stage, disk, image, timeout, name, company):
+    text = install_acme(stage, disk, image, ACME['word'], timeout)
+    if 'Word.Document.6' not in text:
+        raise InstallError('Word 6.0c non installé ; voir word-instauto.log et word-screen.png')
+    # Nom proposé par Word (Outils, Options), écrit seulement en mode interactif.
+    ini = load_ini_editor()
+    text = ini.setting(ini.setting(text, 'MS User Info', 'DefName', name),
+                       'MS User Info', 'DefCompany', company)
+    write_win_ini(stage, image, text)
 
 
 # Écrans d'INIT (Word 6.0 pour DOS, français), relevés le 27 octobre 2026.
@@ -899,7 +1278,7 @@ def epaulard_ini():
     return load_script('configure_epaulard', 'configure-epaulard.py')
 
 
-def configure(stage, image, binaries, braille, epaudos, word_dos=False):
+def configure(stage, image, binaries, braille, epaudos, word_dos=False, cdrom=False, reseau=False):
     ini = load_ini_editor()
     for name in ('WIN.INI', 'SYSTEM.INI'):
         p = stage / name
@@ -923,7 +1302,7 @@ def configure(stage, image, binaries, braille, epaudos, word_dos=False):
     # Réglages vocaux d'Épaulard de la VM de référence (débit 5, sans écho clavier).
     write_dos_file(stage, image, 'EPAULARD/EPAULARD.INI', (ROOT / 'dos/EPAULARD.INI').read_text(), 'cp1252')
     run('mdel', '-i', image, '::/PC486.SHH')     # réponses de Setup, plus utiles
-    config, autoexec = final_boot_files(word_dos)
+    config, autoexec = final_boot_files(word_dos, cdrom, reseau)
     write_dos_file(stage, image, 'CONFIG.SYS', config)
     write_dos_file(stage, image, 'AUTOEXEC.BAT', autoexec)
     required = ['IO.SYS', 'MSDOS.SYS', 'DOS/POWER.EXE', 'DOS/EMM386.EXE', 'WINDOWS/HIMEM.SYS',
@@ -944,6 +1323,67 @@ def configure(stage, image, binaries, braille, epaudos, word_dos=False):
     installed = run('mtype', '-i', image, '::/WINDOWS/SYSTEM.INI').decode('cp1252')
     if 'oemansi.bin=xlat850.bin' not in installed.lower():
         raise InstallError('Windows n’a pas été installé en page de code 850')
+
+
+def install_cdrom(stage, image, driver):
+    """UDVD2.SYS dans C:\\DOS ; les lignes de démarrage viennent de final_boot_files."""
+    local = stage / 'UDVD2.SYS'
+    local.write_bytes(driver)
+    run('mcopy', '-o', '-i', image, local, '::/DOS/UDVD2.SYS')
+    if not run('mtype', '-i', image, '::/DOS/MSCDEX.EXE'):
+        raise InstallError('MSCDEX.EXE absent de C:\\DOS')
+
+
+RESEAU_MARKER = 'PC486_RESEAU_OK'
+
+
+def install_reseau(stage, disk, image, tcp, reseau_exe, timeout):
+    """Réseau WfW : fichiers TCP/IP-32 copiés, fichiers WfW décompressés dans
+    l'invité, SYSTEM.INI et PROTOCOL.INI de l'installation réseau relevée."""
+    for folder, name in options_vm.TCP_FILES:
+        local = stage / ('tcp-' + name)
+        local.write_bytes(tcp[name])
+        run('mcopy', '-o', '-i', image, local, f'::/{folder}/{name}')
+    local = stage / 'tcp-OEM0.INF'
+    local.write_bytes(tcp['OEMSETUP.INF'])
+    run('mcopy', '-o', '-i', image, local, '::/WINDOWS/SYSTEM/OEM0.INF')
+    run('mcopy', '-o', '-i', image, reseau_exe, '::/WINDOWS/RESEAU.EXE')
+    for folder, name in options_vm.WFW_FILES:
+        if not mexists(image, f'{SOURCES}/{name[:-1]}_'):
+            raise InstallError(f'fichier réseau absent des sources Windows : {name[:-1]}_')
+    saved = {name: run('mtype', '-i', image, '::/' + name) for name in ('CONFIG.SYS', 'AUTOEXEC.BAT')}
+    write_dos_file(stage, image, 'CONFIG.SYS', SETUP_CONFIG)
+    write_dos_file(stage, image, 'AUTOEXEC.BAT', '@ECHO OFF\nPATH C:\\WINDOWS;C:\\DOS\n'
+                   + options_vm.expand_batch(SOURCES) + f'ECHO {RESEAU_MARKER}\n')
+    with machine(stage, disk, 'reseau') as m:
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if RESEAU_MARKER in m.text():
+                break
+            time.sleep(1)
+        else:
+            raise InstallError('décompression des fichiers réseau non terminée ; capture conservée')
+    for name, data in saved.items():
+        write_dos_file(stage, image, name, data)
+    for folder, name in options_vm.WFW_FILES:
+        if run('mtype', '-i', image, f'::/{folder}/{name}')[:4] == b'KWAJ' or \
+                not run('mtype', '-i', image, f'::/{folder}/{name}'):
+            raise InstallError(f'fichier réseau non décompressé : {name}')
+    ini = load_ini_editor()
+    system = stage / 'SYSTEM-reseau.INI'
+    text = run('mtype', '-i', image, '::/WINDOWS/SYSTEM.INI').decode('latin-1')
+    system.write_bytes(options_vm.configure_system(text, ini.setting).encode('latin-1'))
+    run('mcopy', '-o', '-i', image, system, '::/WINDOWS/SYSTEM.INI')
+    write_dos_file(stage, image, 'WINDOWS/PROTOCOL.INI', options_vm.PROTOCOL_INI)
+
+
+def check_reseau(image, on):
+    """Après démarrage : RESEAU.EXE a basculé SYSTEM.INI selon la carte présente."""
+    text = run('mtype', '-i', image, '::/WINDOWS/SYSTEM.INI').decode('latin-1')
+    winnet = options_vm.get(text, 'Network', 'winnet')
+    if (winnet == 'wfwnet/00025100') != on:
+        raise InstallError(f'RESEAU.EXE : réseau {"absent" if on else "laissé"} dans SYSTEM.INI '
+                           f'{"avec" if on else "sans"} carte (winnet={winnet})')
 
 
 def wait_prompt(m, end):
@@ -967,8 +1407,14 @@ def boot_menu(m, end, choice):
     raise InstallError('menu de démarrage non affiché')
 
 
-def verify_boot(stage, disk, timeout):
-    with machine(stage, disk, 'verification', voice=True) as m:
+# Les pilotes réseau de WfW (NE2000, TCP/IP-32) bloquent le démarrage de Windows
+# quand QEMU tourne à pleine vitesse (essai du 30 octobre 2026) ; au rythme de
+# l'usage (scripts/pc486, PC486_ICOUNT=7) et sous 86Box, ils démarrent.
+NIC_ICOUNT = '7'
+
+
+def verify_boot(stage, disk, timeout, nic=False, phase='verification'):
+    with machine(stage, disk, phase, voice=True, nic=nic, icount=NIC_ICOUNT if nic else None) as m:
         end = time.monotonic() + timeout
         boot_menu(m, end, '2')
         while time.monotonic() < end:
@@ -987,12 +1433,15 @@ def verify_boot(stage, disk, timeout):
             raise InstallError('retour au DOS non confirmé après fermeture de Windows')
 
 
-def verify_epaudos(stage, disk, timeout, word_dos=False):
+def verify_epaudos(stage, disk, timeout, word_dos=False, cdrom=False):
     with machine(stage, disk, 'epaudos', voice=True) as m:
         end = time.monotonic() + timeout
         boot_menu(m, end, '1')
         if not wait_prompt(m, end):
             raise InstallError('invite DOS absente après le chargement d’Épaudos')
+        # Lecteur de CD-ROM IDE vide de QEMU (maître secondaire) : MSCDEX lui donne E:.
+        if cdrom and 'Lecteur E: = gestionnaire PC486CD' not in m.text():
+            raise InstallError('MSCDEX n’a pas installé le lecteur E: ; écran conservé')
         while time.monotonic() < end:
             # « Épaudos prêt » en CP850 ; le É (0x90) n'est pas comparé.
             if m.voice.exists() and b'paudos pr' in m.voice.read_bytes():
@@ -1020,8 +1469,9 @@ def verify_epaudos(stage, disk, timeout, word_dos=False):
 
 
 def user_text(value):
-    if len(value) > 30 or any(c in value for c in '\r\n";') or any(ord(c) < 32 for c in value):
-        raise argparse.ArgumentTypeError('30 caractères au plus, sans guillemet, point-virgule ni retour à la ligne')
+    if len(value) > 30 or any(c in value for c in '\r\n";{}|') or any(ord(c) < 32 for c in value):
+        raise argparse.ArgumentTypeError('30 caractères au plus, sans guillemet, point-virgule, accolade, '
+                                         'barre verticale ni retour à la ligne')
     try:
         value.encode('cp1252')
     except UnicodeEncodeError:
@@ -1039,12 +1489,34 @@ def parser():
     p.add_argument('--company', type=user_text, default='', help='organisation, facultative')
     p.add_argument('--suppl', type=Path, help='image du disque supplémentaire de MS-DOS 6.22 (SUPPL.IMG)')
     p.add_argument('--word', type=Path, help='dossier ou ZIP local : Word 6.0c français, Disk01 à Disk11')
+    p.add_argument('--excel', type=Path, help='dossier ou ZIP local : Excel 5.0c français (11 disquettes '
+                   '1,2 Mo) ou Excel 5.0 français (10 disquettes 1,44 Mo)')
+    p.add_argument('--access', type=Path, help='dossier ou ZIP local : Access 2.0 français, 10 disquettes')
+    p.add_argument('--access-an2000', type=Path, help='dossier ou ZIP du correctif ACC2DATE '
+                   '(MSABC200.DLL, MSAJU200.DLL), appliqué après --access')
+    p.add_argument('--amipro', type=Path, help='dossier ou ZIP local : Ami Pro 3.01 français, 8 disquettes '
+                   '(installateur Lotus, réponses jouées par INSTAUTO)')
+    p.add_argument('--netscape', type=Path, help='ZIP local de Netscape Navigator 3.01 français 16 bits '
+                   '(dossier N16FR31) : réglé sur le proxy de « pc486 start --reseau »')
+    p.add_argument('--communicator', type=Path, help='ZIP local de Netscape Communicator 4.08 '
+                   'français 16 bits (netscc16fr408.zip) : proxy et courrier de « --reseau » '
+                   'par défaut ; profil créé par son assistant au premier lancement')
+    p.add_argument('--eudora', type=Path, help='ZIP local d’Eudora Light 3.06 (eul306.zip, anglais) : '
+                   'courrier local de « --reseau » (POP3 et SMTP 10.0.2.2)')
     p.add_argument('--word-dos', type=Path, help='dossier ou ZIP local : Word 6.0 pour DOS français, '
                    'disquettes SETUP_60, PROG_60, UTIL_60, FONT_60, PRINT_60, PRINT2_60')
+    p.add_argument('--cdrom', type=Path, help='UDVD2.SYS ou udvd2.zip (paquet FreeDOS) : lecteur de CD-ROM '
+                   'E: par MSCDEX, utilisé avec « pc486 start --cdrom »')
+    p.add_argument('--reseau', type=Path, help='tcp32b.zip (TCP/IP-32 3.11b) : carte NE2000 et TCP/IP de WfW, '
+                   'utilisés avec « pc486 start --reseau » ; sans carte, réseau retiré au démarrage')
     p.add_argument('--sans-braille', dest='braille', action='store_false',
                    help='ne pas configurer la plage Baum (par défaut : COM3, base 03E8, IRQ9)')
     p.add_argument('--braille', dest='braille', action='store_true', help=argparse.SUPPRESS)
-    p.add_argument('--binaries', type=Path, help='EPAULARD.EXE, EPAUHOOK.DLL, EPAUDOS.COM (et INSTAUTO.EXE pour --word) déjà compilés ; sinon compilation')
+    p.add_argument('--binaries', type=Path, help='EPAULARD.EXE, EPAUHOOK.DLL, EPAUDOS.COM (et INSTAUTO.EXE pour '
+                   '--word, --excel, --access, --amipro, --netscape, --communicator, --eudora, '
+                   'RESEAU.EXE pour '
+                   '--reseau) déjà compilés ; '
+                   'sinon compilation')
     p.add_argument('--check', action='store_true', help='vérifier les supports et prérequis, sans créer de disque')
     p.add_argument('--icount', type=icount_option, default=ICOUNT,
                    help="bridage du processeur QEMU : off (pleine vitesse) ou N, 2^N ns par instruction "
@@ -1062,8 +1534,13 @@ def prerequisites(args):
         raise InstallError('--timeout doit être au moins égal à 30 secondes')
     if not args.name.strip():
         raise InstallError('nom Windows vide')
+    if args.access_an2000 and not args.access:
+        raise InstallError('--access-an2000 demande --access')
     if args.binaries:
-        for name in ('EPAULARD.EXE', 'EPAUHOOK.DLL', 'EPAUDOS.COM') + (('INSTAUTO.EXE',) if args.word else ()):
+        acme = (args.word or args.excel or args.access or args.amipro or args.netscape or
+                args.communicator or args.eudora)
+        for name in ('EPAULARD.EXE', 'EPAUHOOK.DLL', 'EPAUDOS.COM') + (('INSTAUTO.EXE',) if acme else ()) \
+                + (('RESEAU.EXE',) if args.reseau else ()):
             if not (args.binaries / name).is_file():
                 raise InstallError(f'binaire absent : {args.binaries / name}')
     elif not Path(os.environ.get('WATCOM', ROOT / 'tools/watcom')).exists():
@@ -1100,11 +1577,29 @@ def main(argv=None):
         steps.append('Installation de Windows pour Workgroups 3.11')
         if args.word:
             steps.append('Installation de Word 6.0c (options par défaut)')
+        if args.excel:
+            steps.append('Installation d’Excel (options par défaut)')
+        if args.access:
+            steps.append('Installation d’Access 2.0 (options par défaut)')
+        if args.amipro:
+            steps.append('Installation d’Ami Pro 3.01 (installation complète)')
+        if args.netscape:
+            steps.append('Installation de Netscape Navigator 3.01 (proxy pc486)')
+        if args.communicator:
+            steps.append('Installation de Netscape Communicator 4.08 (proxy pc486)')
+        if args.eudora:
+            steps.append('Installation d’Eudora Light 3.06 (courrier local)')
         if args.word_dos:
             steps.append('Installation de Word 6.0 pour DOS (mode Texte)')
+        if args.cdrom:
+            steps.append('Lecteur de CD-ROM (UDVD2, MSCDEX)')
+        if args.reseau:
+            steps.append('Réseau de WfW : NE2000 et TCP/IP-32')
         steps += ['Épaulard, Épaudos, son et démarrage DOS',
-                  'Démarrage Windows/Épaulard et retour au DOS',
-                  'Démarrage DOS avec Épaudos']
+                  'Démarrage Windows/Épaulard et retour au DOS']
+        if args.reseau:
+            steps.append('Démarrage Windows/Épaulard avec la carte réseau')
+        steps.append('Démarrage DOS avec Épaudos')
         numbered = iter(enumerate(steps, 1))
 
         def step():
@@ -1123,11 +1618,45 @@ def main(argv=None):
             word = collect_media(args.word, 11, stage / 'word')
             validate_word(word)
             manifest['media']['word'] = [dict(name=p.name, sha256=digest(p)) for p in word]
+        excel = access = amipro = netscape = communicator = eudora = (None, None)
+        y2k = None
+        if args.excel:
+            excel = collect_acme(args.excel, stage / 'excel', ('excel', 'excel50'))
+            manifest['media'][excel[0].key] = [dict(name=p.name, sha256=digest(p)) for p in excel[1]]
+        if args.access:
+            access = collect_acme(args.access, stage / 'access', ('access',))
+            manifest['media']['access'] = [dict(name=p.name, sha256=digest(p)) for p in access[1]]
+        if args.amipro:
+            amipro = collect_acme(args.amipro, stage / 'amipro', ('amipro',))
+            manifest['media']['amipro'] = [dict(name=p.name, sha256=digest(p)) for p in amipro[1]]
+        if args.netscape:
+            netscape = collect_acme(args.netscape, stage / 'netscape', ('netscape',))
+            manifest['media']['netscape'] = [dict(name=args.netscape.name, sha256=digest(args.netscape))]
+        if args.communicator:
+            communicator = collect_acme(args.communicator, stage / 'communicator', ('communicator',))
+            manifest['media']['communicator'] = [dict(name=args.communicator.name,
+                                                       sha256=digest(args.communicator))]
+        if args.eudora:
+            eudora = collect_acme(args.eudora, stage / 'eudora', ('eudora',))
+            manifest['media']['eudora'] = [dict(name=args.eudora.name, sha256=digest(args.eudora))]
+        if args.access_an2000:
+            y2k = collect_access_y2k(args.access_an2000, stage / 'access-an2000')
+            manifest['media']['access-an2000'] = [dict(name=p.name, sha256=digest(p)) for p in y2k]
         word_dos = None
         if args.word_dos:
             word_dos = collect_word_dos(args.word_dos, stage / 'word-dos')
             validate_word_dos(word_dos)
             manifest['media']['word-dos'] = [dict(name=volume_label(p), sha256=digest(p)) for p in word_dos]
+        cd_driver = tcp = None
+        try:
+            if args.cdrom:
+                cd_driver = options_vm.udvd2(args.cdrom)
+                manifest['media']['cdrom'] = [dict(name=args.cdrom.name, sha256=digest(args.cdrom))]
+            if args.reseau:
+                tcp = options_vm.tcpip32(args.reseau)
+                manifest['media']['reseau'] = [dict(name=args.reseau.name, sha256=digest(args.reseau))]
+        except ValueError as e:
+            raise InstallError(str(e)) from None
         suppl = None
         if args.suppl:
             suppl = stage / 'suppl.img'
@@ -1141,9 +1670,12 @@ def main(argv=None):
             return 0
         binaries = args.binaries.resolve() if args.binaries else ROOT / 'epaulard/build'
         epaudos = binaries / 'EPAUDOS.COM' if args.binaries else ROOT / 'epaudos/build/EPAUDOS.COM'
+        reseau_exe = binaries / 'RESEAU.EXE' if args.binaries else ROOT / 'dos/build/RESEAU.EXE'
         if not args.binaries:
             run(ROOT / 'epaulard/build.sh')
             run(ROOT / 'epaudos/build.sh')
+            if args.reseau:
+                run(ROOT / 'dos/build.sh')
         disk = stage / 'installation.img'
         with disk.open('xb') as f:
             f.truncate(500 * 1024 * 1024)
@@ -1160,22 +1692,48 @@ def main(argv=None):
             step()
             stage_word(stage, image, word, args.name, args.company, binaries)
             install_word(stage, disk, image, args.timeout, args.name, args.company)
+        for product, media in (excel, access, amipro, netscape, communicator, eudora):
+            if product is None:
+                continue
+            step()
+            install_office(stage, disk, image, product, media, args.timeout, args.name, args.company,
+                           binaries)
+            if product.key == 'access' and y2k:
+                install_access_y2k(image, y2k)
         if word_dos:
             step()
             stage_word_dos(stage, image, word_dos)
             install_word_dos(stage, disk, image, args.timeout, args.name)
+        if cd_driver:
+            step()
+            install_cdrom(stage, image, cd_driver)
+        if tcp:
+            step()
+            install_reseau(stage, disk, image, tcp, reseau_exe, args.timeout)
         step()
-        configure(stage, image, binaries, args.braille, epaudos, bool(word_dos))
+        configure(stage, image, binaries, args.braille, epaudos, bool(word_dos), bool(cd_driver), bool(tcp))
         step()
         verify_boot(stage, disk, args.timeout)
+        if tcp:
+            check_reseau(image, False)
+            step()
+            verify_boot(stage, disk, args.timeout, nic=True, phase='verification-reseau')
+            check_reseau(image, True)
         verified = ['dos-setup', 'windows-setup', 'epaulard-com1', 'exit-to-dos']
+        if tcp:
+            verified.append('reseau-avec-et-sans-carte')
         if suppl:
             verified.insert(1, 'suppl-tools')
         if word:
             verified.insert(-2, 'word-setup')
+        for product, _ in (excel, access, amipro):
+            if product:
+                verified.insert(-2, f'{product.key}-setup')
         step()
-        verify_epaudos(stage, disk, args.timeout, bool(word_dos))
+        verify_epaudos(stage, disk, args.timeout, bool(word_dos), bool(cd_driver))
         verified.append('epaudos-com1')
+        if cd_driver:
+            verified.append('cdrom-mscdex')
         if word_dos:
             verified.insert(-3, 'word-dos-setup')
             verified.append('word-dos-epaudos')

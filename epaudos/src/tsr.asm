@@ -11,11 +11,11 @@ public _uart_out, _uart_in, _port_in, _port_out
 public _dos_open, _dos_create, _dos_read, _dos_write, _dos_close
 public _dos_psp, _dos_setpsp, _dos_free, _dos_print, _dos_vector
 public _dos_setvector, _mux, _keep, _bss_start
-public _dos_setfarvector, _dos_indos, _fail24
+public _dos_setfarvector, _dos_indos, _fail24, _cur_vm
 public _hw_lock, _hw_unlock
 extrn _resident_end:byte, stack_top:byte
 extrn _install:near, _timer:near, _idle:near, _ed_scan:near
-extrn _ed_windows:byte, _ed_cfg:byte, _ed_resume:byte
+extrn _ed_windows:byte, _ed_cfg:byte, _ed_resume:byte, _ed_box:byte
 extrn _uart_head:byte, _uart_tail:byte, _uart_buf:byte
 extrn _uart_rxhead:byte, _uart_rxtail:byte, _uart_rxbuf:byte
 
@@ -296,6 +296,15 @@ notcheck:
     mov bx,offset _ed_cfg
     iret
 notconfig:
+    ; ED02h : boîte aux lettres partagée avec Épaulard (dos.c, mode invité)
+    cmp ax,0ed02h
+    jne notbox
+    push cs
+    pop es
+    mov bx,offset _ed_box
+    mov ax,0edffh
+    iret
+notbox:
     cmp ax,1605h
     jne notstart
     mov cs:_ed_windows,1
@@ -550,6 +559,17 @@ _dos_indos proc near
     pop bx
     ret
 _dos_indos endp
+; Machine virtuelle courante de Windows en mode amélioré (INT 2Fh AX=1683h ;
+; 1 = machine système). Seulement appelée quand Windows est lancé.
+_cur_vm proc near
+    push bx
+    mov ax,1683h
+    xor bx,bx
+    int 2fh
+    mov ax,bx
+    pop bx
+    ret
+_cur_vm endp
 _fail24 proc far
     mov al,3
     iret

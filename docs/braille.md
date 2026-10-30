@@ -20,7 +20,9 @@ L'installation sauvegarde d'abord le disque dans `work/sauvegardes/win311-avant-
 puis copie EXE/DLL et configure les INI. Elle refuse l'installation si un
 processus QEMU ou 86Box est actif. Elle vise toujours `vm/win311.img`.
 Sélectionner **2**, Windows, dans le menu DOS. Sous DOS (choix 1), Épaudos utilise
-la même plage sur COM3 ; voir `docs/epaudos.md`.
+la même plage sur COM3 ; voir `docs/epaudos.md`. Sous Windows, dans une invite MS-DOS
+(plein écran ou fenêtre), la plage affiche aussi Épaudos, relayé par Épaulard ; voir
+[l'invite MS-DOS](invite-dos.md).
 
 Le port braille est **COM3, base 03E8, IRQ9**, à 19200 bauds, 8N1. COM1 reste
 réservé à Apollo et COM2 à la souris série de 86Box. Notre correctif 86Box remplace

@@ -12,6 +12,10 @@ autorise les dépendances non libres nécessaires à ces ROM et au compilateur.
 **Aucun support Microsoft ou Word n'est téléchargé ni inclus dans un
 paquet Nix.** Les disques restent dans la copie de travail et hors du magasin Nix.
 
+Le catalogue local des supports (`media/sources-medias.md` et son manifeste JSON,
+non versionnés) consigne leurs empreintes et jeux de disquettes ; il prépare un
+éventuel constructeur d'ISO privée. Aucune cible du flake n'en dépend.
+
 ## Développer
 
 ```sh

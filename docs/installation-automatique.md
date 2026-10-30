@@ -1,16 +1,17 @@
 # Installation neuve depuis des supports locaux
 
 `scripts/installer` crée un PC sous **MS-DOS 6.22 français** (clavier français,
-page de code 850) avec **Épaudos**, lecteur d'écran DOS du projet, et si on les
-fournit les **outils du disque supplémentaire**, puis **Windows pour
-Workgroups 3.11 français**, **Word 6.0c français** et **Épaulard**, et enfin
-**Word 6.0 pour DOS français** en mode Texte, lu par Épaudos. Avec `--suppl` et
-`--word`, le disque obtenu reproduit la VM de référence `vm/win311.img` à partir
-des seules sources du dépôt et des supports d'installation : aucune image
-existante n'est lue. Word pour DOS s'y ajoute avec `--word-dos`.
+page de code 850) avec **Épaudos**, lecteur d'écran DOS du projet, puis **Windows pour
+Workgroups 3.11 français** avec **Épaulard** et la plage braille Baum sur COM3.
+Selon les supports fournis, il ajoute les **outils du disque supplémentaire** de DOS,
+**Word 6.0c**, **Excel 5**, **Access 2.0**, **Ami Pro 3.01**, **Word 6.0 pour DOS**
+(mode Texte, lu par Épaudos), **Netscape Navigator 3.01**, **Communicator 4.08**,
+**Eudora Light 3.06**, le lecteur de CD-ROM et le réseau isolé (options ci-dessous).
+Le disque obtenu ne dépend que des sources du dépôt et des supports d'installation :
+aucune image existante n'est lue.
 
-Le code publié ne contient ni image Microsoft, ni Word, ni archive de ces
-logiciels, ni URL de téléchargement. L'installateur n'utilise pas le réseau.
+Le code publié ne contient ni image Microsoft ou d'un autre éditeur, ni archive de
+ces logiciels. L'installateur n'utilise pas le réseau et ne télécharge rien.
 
 ## Prérequis
 
@@ -64,7 +65,7 @@ leur lecture par mtools et les fichiers caractéristiques du profil. Elle ne cr�
 aucun disque et ne démarre pas QEMU. Des doublons ambigus ou une disquette absente
 font échouer la vérification.
 
-## Installer une machine identique à la VM de référence
+## Installer la machine de référence
 
 ```sh
 scripts/installer \
@@ -90,9 +91,18 @@ Options :
 | `--name`, `--company` | Utilisateur et organisation de Windows, 30 caractères au plus. |
 | `--suppl IMAGE` | Lance le `SETUP.BAT` d'origine du disque supplémentaire vers `C:\DOS` : tous les composants (AccessDOS, utilitaires clavier, DRVBOOT, outils de MS-DOS 5, fichiers réseau, MS-DOS Shell en VGA). |
 | `--word DOSSIER` | Installe Word 6.0c dans `C:\WINWORD` avec les options par défaut (WordArt, Graph, éditeur d'équations, convertisseurs et filtres, aide), sans clipart. Les supports restent dans `C:\INSTALL\DISK1` à `DISK11`, comme dans la VM de référence. |
+| `--excel DOSSIER` | Installe Excel dans `C:\EXCEL` avec les options par défaut. Deux supports sont reconnus, d'après leurs images : Excel 5.0c (11 disquettes 1,2 Mo, cabinets `EXCEL*.CAB`) ou Excel 5.0 (10 disquettes 1,44 Mo). Sources dans `C:\INSTALL\EXCEL\DISKn`. |
+| `--access DOSSIER` | Installe Access 2.0 dans `C:\ACCESS` (10 disquettes de 1,2 ou 1,44 Mo), sources dans `C:\INSTALL\ACCESS\DISKn`. |
+| `--access-an2000 DOSSIER` | Avec `--access` : correctif ACC2DATE de Microsoft. `MSABC200.DLL` va dans `C:\WINDOWS\SYSTEM`, `MSAJU200.DLL` dans `C:\ACCESS` ; les deux DLL sont lues dans le dossier, le ZIP ou l'`ACC2DATE.EXE` qu'il contient (ZIP autoextractible, jamais exécuté). |
+| `--amipro DOSSIER` | Installe Ami Pro 3.01 (installation complète, monoposte, Windows) dans `C:\AMIPRO`. Les 8 disquettes sont regroupées dans `C:\INSTALL\AMIPRO` : l'installateur Lotus, sans mode silencieux, ne demande aucune disquette ; ses boîtes reçoivent les réponses d'`INSTAUTO.EXE` (voir plus bas). |
+| `--netscape ZIP` | Installe Netscape Navigator 3.01 français 16 bits (dossier `N16FR31` du ZIP) dans `C:\NETSCAPE`, réglé pour `pc486 start --reseau` : proxy 10.0.2.2:8080, page d'accueil `http://pc486/`, courrier 10.0.2.2, signets pc486. Réponses d'`INSTAUTO.EXE`. |
+| `--communicator ZIP` | Installe Netscape Communicator 4.08 français 16 bits (`netscc16fr408.zip`, auto-extracteur InstallShield) dans `C:\NETSCAPE\COMM`. Les mêmes réglages sont écrits par défaut pour tout profil dans `NETSCAPE.CFG` (voir plus bas) ; le profil lui-même est créé par l'assistant de Communicator au premier lancement (lu par Épaulard). |
+| `--eudora ZIP` | Installe Eudora Light 3.06 (anglais, `eul306.zip`) dans `C:\EUDORA` : compte `pc486@10.0.2.2`, SMTP 10.0.2.2 (boîte locale de `--reseau`, mot de passe quelconque). Au premier lancement, Eudora ouvre ses Options, puis signale une table des matières de la boîte In à recréer (« Create new ») : fichiers livrés ainsi. |
 | `--word-dos DOSSIER` | Installe Word 6.0 pour DOS dans `C:\WORD` en mode Texte, sans gestionnaire d'imprimante ni de souris, avec le gestionnaire de clavier « pour résidents » ; ajoute `C:\WORD` au PATH. Les fichiers des disquettes restent dans `C:\INSTALL\WORDDOS` pour relancer `INIT` (imprimante, par exemple). |
+| `--cdrom FICHIER` | `UDVD2.SYS` ou le paquet `udvd2.zip` de FreeDOS (`media/udvd2/`) : pilote ATAPI dans `C:\DOS`, `MSCDEX` en E:. Sans lecteur (lancement sans `--cdrom`), UDVD2 ne se charge pas et MSCDEX est sauté. Voir [reseau.md](reseau.md). |
+| `--reseau FICHIER` | `tcp32b.zip` (TCP/IP-32 3.11b) : carte NE2000 (0x300, IRQ10) et TCP/IP de WfW, adresse 10.0.2.15. `RESEAU.EXE`, avant `WIN`, retire le réseau de SYSTEM.INI quand la carte manque. Vérifié en démarrant Windows sans puis avec carte. Voir [reseau.md](reseau.md). |
 | `--sans-braille` | Ne configure pas la plage. Par défaut, Épaulard utilise une plage Baum sur COM3, base 03E8, IRQ9 (`BraillePort=3`, ports de SYSTEM.INI), comme la VM de référence ; la plage n'est pas contactée pendant l'installation. `--braille`, ancienne option, reste accepté. |
-| `--binaries DOSSIER` | Utilise des binaires déjà compilés : `EPAULARD.EXE`, `EPAUHOOK.DLL`, `EPAUDOS.COM` (et `INSTAUTO.EXE` avec `--word`). Sinon `epaulard/build.sh` et `epaudos/build.sh` sont lancés. |
+| `--binaries DOSSIER` | Utilise des binaires déjà compilés : `EPAULARD.EXE`, `EPAUHOOK.DLL`, `EPAUDOS.COM` (et `INSTAUTO.EXE` avec `--word`, `--excel`, `--access`, `--amipro`, `--netscape`, `--communicator` ou `--eudora` ; `RESEAU.EXE` avec `--reseau`). Sinon `epaulard/build.sh` et `epaudos/build.sh` sont lancés. |
 | `--icount N` | Bridage du processeur QEMU : `off` (défaut, pleine vitesse, installation complète en 5 min environ) ou `N`, 2^N ns par instruction (`7`, environ 7,8 MIPS, comme `pc486 start --qemu`, plus de 20 min). |
 | `--timeout S` | Délai maximal par étape VM (défaut 1200 s). |
 
@@ -133,6 +143,26 @@ Les étapes s'affichent dans le terminal, numérotées selon les options :
    `load=` n'est modifié que par `scripts/configure-epaulard.py`, commun à
    l'installateur et à `epaulard/build.sh install` : les autres programmes sont
    conservés, sans doublon, et un nouveau passage ne change rien.
+   Avec `--excel`, `--access` : même méthode, sources dans `C:\INSTALL\EXCEL` ou
+   `C:\INSTALL\ACCESS`, journal `excel-instauto.log`, `access-instauto.log`.
+   Avec `--amipro` : l'installateur Lotus pose ses questions. `INSTAUTO.EXE` les
+   lit dans `[pc486]` de WIN.INI, `reponse1=Début du titre|touches`, `reponse2=…`,
+   et joue chacune quand une fenêtre de ce titre est restée active une seconde :
+   texte, `{TAB}`, `{ENTREE}`, `{ECHAP}`, `{ESPACE}`, `{BAS}`, une touche toutes les
+   250 ms à la fenêtre qui a le focus. Les réponses (accueil, société, nom, monoposte,
+   installation complète, Windows, `C:\AMIPRO`, fin, Quitter) sont dans
+   `ACME['amipro']` de `scripts/installation.py`. Une boîte inattendue arrête la
+   suite des réponses : l'étape échoue alors au délai, capture d'écran et journal
+   conservés. Netscape, Communicator et Eudora (InstallShield) suivent la même
+   méthode ; deux boîtes de même titre (« Question ») reçoivent chacune leur
+   réponse, dans l'ordre. Leurs réglages (INI, signets) sont écrits après
+   l'installation (`configure_product`).
+   Communicator : `NETSCAPE.CFG`, lu au démarrage, contient des
+   `PrefConfig.pref(…)` (valeurs par défaut, modifiables ; `pref` seul n'y est pas
+   défini). Le fichier est décalé de 7 octets et sa première ligne porte le MD5 d'une
+   clé fixe suivie du reste du fichier (`netscape_cfg`) : un fichier modifié sans
+   recalcul est refusé (« netscape.cfg n'est pas valide »). Le générateur reproduit
+   à l'octet près le fichier vide livré avec Communicator (test).
 5. Avec `--word-dos` : fichiers des six disquettes regroupés dans
    `C:\INSTALL\WORDDOS` (copie récursive, homonymes différents refusés, relecture
    de C: comparée aux disquettes), si bien qu'INIT ne demande aucun changement de
@@ -180,13 +210,21 @@ Le disque final est une image brute de **500 Mo**, compatible avec la géométri
   DISPLAY.SYS en page 850, POWER.EXE (processeur au repos), IFSHLP.SYS.
   Pas d'ANSI.SYS.
 - `AUTOEXEC.BAT` : SMARTDRV en lecture seule sur C:, page de code 850,
-  `KEYB FR`, `BLASTER=A220 I5 D1 H5 T6`, puis `C:\EPAUDOS.COM` ou `WIN` selon le menu.
+  `KEYB FR`, `BLASTER=A220 I5 D1 H5 T6`, puis `C:\EPAUDOS.COM`, suivi de `WIN`
+  pour le choix Windows : Épaudos dort sous Windows et lit l'invite MS-DOS avec
+  Épaulard ([invite MS-DOS](invite-dos.md)).
 - Braille : COM3 Baum (base 03E8, IRQ 9) configuré dans WIN.INI et SYSTEM.INI.
   Côté hôte, `nix run .#prepare` construit `tools/braille` et `scripts/pc486` lance
   alors la passerelle BrlAPI sans option ; voir [le guide braille](braille.md).
 - Windows : sources dans `C:\WININST`, Épaulard par `load=` dans WIN.INI,
   Sound Blaster 1.5 et AdLib (A220 I5), souris PS/2 ou série.
 - Word 6.0c dans `C:\WINWORD`, groupe Microsoft Office.
+- Avec `--excel`, `--access`, `--amipro` : Excel dans `C:\EXCEL`, Access dans
+  `C:\ACCESS` (groupe Microsoft Office), Ami Pro dans `C:\AMIPRO` (groupe
+  Applications Lotus).
+- Avec `--netscape`, `--communicator`, `--eudora` : groupes « Netscape Navigator
+  3.0 », « Netscape Communicator », « Eudora Light » ; à utiliser avec `--reseau` et
+  `pc486 start --reseau`.
 - Avec `--word-dos` : Word 6.0 pour DOS dans `C:\WORD`, lancé par `WORD` à l'invite
   du choix 1 ; `PATH C:\WINDOWS;C:\DOS;C:\WORD`.
 

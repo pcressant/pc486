@@ -22,63 +22,69 @@ licences et attributions des éléments tiers recensés dans `LICENSES/README.md
 
 ## But et état de référence
 
-Reconstituer un PC 486 accessible : MS-DOS 6.22 français avec **Épaudos**,
-Windows pour Workgroups 3.11 français avec **Épaulard**, lecteur d'écran du projet,
-et Word 6.0c français. L'hôte utilise Linux/Nix et une synthèse vocale moderne.
+Reconstituer un PC 486 accessible : MS-DOS 6.22 français avec **Épaudos**, lecteur
+d'écran DOS du projet, et Windows pour Workgroups 3.11 français avec **Épaulard**,
+lecteur d'écran Windows du projet. L'hôte utilise Linux/Nix et une synthèse vocale
+moderne.
 
 Chaîne vocale : Épaudos **ou** Épaulard → COM1 → socket Unix →
 Apolo-emu (Apollo II virtuel, `github:pcressant/apolo-emu`, entrée du flake) → Speech Dispatcher (SSIP)
-→ eSpeak NG.
+→ eSpeak NG. Braille : plage Baum virtuelle sur COM3 → BrlAPI → BRLTTY de l'hôte.
 86Box utilise un pseudo-terminal relié à la socket par socat ; QEMU fournit la socket.
 
-État documenté au 24 octobre 2026 : Windows et Word sont installés sur
-`vm/win311.img` ; Épaulard suit le texte, le curseur, les menus et plusieurs boîtes
-de Word, ainsi que le défilement de Write et la revue au pavé. Le dire tout utilise
-des accusés de fin de parole sur COM1. Ce n'est pas encore un lecteur d'écran complet.
+Le disque `vm/win311.img` n'est pas versionné : il se recrée depuis les supports
+locaux de `media/` par `scripts/installer` (voir `docs/installation-automatique.md` et
+le catalogue local `media/sources-medias.md`, non versionné). Vérifier sa présence et son contenu avant de
+supposer son état ; ne jamais le remplacer sans l'accord de l'utilisateur.
 
-Le 25 octobre 2026, la synthèse est passée à Apolo-emu : Épaulard (dont le dire tout
-par échos `@E`) a été essayé par l'utilisateur sous 86Box et fonctionne.
+Lecture validée par l'utilisateur sous 86Box : parole d'Épaulard et dire tout par
+échos `@E`, braille sur sa plage physique, braille de l'invite MS-DOS. Épaulard lit
+les contrôles standard, menus et boîtes, Write, Word 6.0c (`docs/word6-accessibilite.md`),
+Excel 5 et Access 2.0 (`docs/tableur.md`), Ami Pro, les programmes fournis avec
+Windows (`docs/programmes-windows.md`), l'invite MS-DOS par relais d'Épaudos
+(`docs/invite-dos.md`) et les pages de Netscape, avec un mode navigation comparable à
+NVDA (`docs/navigation-web.md`). Le CD-ROM et le réseau isolé sont facultatifs
+(`docs/reseau.md`). Ce n'est pas un lecteur d'écran complet : chaque guide liste ses
+limites.
 
-Le 27 octobre 2026, Sonolect a été retiré à la demande de l'utilisateur : le choix DOS
-du menu charge Épaudos (`C:\EPAUDOS.COM`), installé par `scripts/installer` ; il n'y a
-plus d'option `--sonolect` ni `pc486 start --test`. Les fichiers Sonolect restent sur
-`vm/win311.img` mais ne sont plus lancés. `docs/protocole-apollo.md` garde l'analyse
-du protocole de Sonolect.
-
-Le 25 octobre 2026, l'utilisateur a aussi confirmé le braille d'Épaulard sur sa
-plage physique sous 86Box, via COM3/Baum et BrlAPI. Voir `docs/braille.md` pour
-l'installation, les commandes et les limites de cette première version.
-
-La fin de `docs/installation-word6.md` décrit un état ancien de la lecture de Word. Pour la lecture
-de Word, consulter `docs/word6-accessibilite.md` et le code actuel. Ne pas réinstaller
-Windows ou Word sur la base de ces passages. Les images locales ne sont pas versionnées :
-vérifier leur présence et leur contenu avant de supposer leur état.
+Sonolect, l'ancien lecteur DOS, a été retiré : `docs/protocole-apollo.md` garde
+seulement l'analyse de son protocole.
 
 ## Carte du code
 
 | Besoin | Point d'entrée |
 | --- | --- |
 | Environnement Nix, préparation et lancement | `flake.nix`, `flake.lock` ; `docs/nix.md` |
-| Installation neuve (DOS, outils suppl., Épaudos, Windows, Word, Épaulard, braille) | `scripts/installer`, `scripts/installation.py` ; `docs/installation-automatique.md` |
+| Installation neuve (DOS, outils suppl., Épaudos, Windows, Word, Excel, Access, Ami Pro, Netscape, Communicator, Eudora, Épaulard, braille) | `scripts/installer`, `scripts/installation.py` (`ACME`, `stage_acme`, `install_acme`) ; `docs/installation-automatique.md` |
+| Bac à sable : installer un logiciel sur une copie, journal de ce qu'Épaulard dit | `scripts/bac-a-sable` ; `docs/bac-a-sable.md` |
 | Démarrage, arrêt, relais série, supervision, options VM | `scripts/pc486` (Bash) |
 | Essai QEMU muet isolé (copie de C:, work/dev/run, work/dev/logs) | `scripts/pc486-dev` |
 | Écran texte, touches, saisie, captures, disquettes QEMU | `scripts/vmctl.py` (QMP/HMP, Python) |
 | Échanges de fichiers via D: | `scripts/transfert` (mtools) |
 | Synthèse Apollo II (protocole, file vocale, SSIP, échos) | Apolo-emu (GitHub, `tools/apolo-emu` après `nix run .#prepare`), lancé par `gateway_start` dans `scripts/pc486` |
-| Annonces Windows, description des contrôles, revue, dire tout | `epaulard/src/epaulard.c` : `MainProc`, `describe`, `poll`, `on_review`, fonctions `sa_*` |
-| Calculatrice Windows : afficheurs standard/scientifique, résultats et erreurs | `epaulard.c` : `calc_*` ; `docs/calculatrice.md` |
-| Réglages Inser+E, `EPAULARD.INI`, ponctuation, écho par mots | `epaulard.c` : `cfg_*`, `voice_apply`, `punct_words`, `say_char`, `echo_char` ; `docs/reglages.md` |
+| Modules d'EPAULARD.EXE (liste compilée, déclarations communes) | `epaulard/src/modules.lst`, `ep.h` ; banc : `tests/win16/epaulard-modules.h` (même liste, vérifiée par un test) |
+| Cœur : focus, scrutation, menus, surbrillance, commandes Inser, jauges | `epaulard/src/epaulard.c` : `MainProc`, `poll`, `announce_focus`, `on_command`, `progress_poll` |
+| Description des contrôles, libellés | `controles.c` (`describe`), `outils.c` (`label_*`), `programmes.c` (Aide, Fiches, Horloge…) |
+| Boîtes SDM (Word, Excel), revue au pavé, souris, dire tout | `boites.c`, `revue.c` (`on_review`), `diretout.c` (`sa_*`) |
+| Calculatrice Windows : afficheurs standard/scientifique, résultats et erreurs | `calc.c` : `calc_*` ; `docs/calculatrice.md` |
+| Tableurs (Excel 5) : cellule, formule, feuille, plage, mise en forme ; grilles à éditeur (Access) ; profils | `tableur.c` (`sheet_*`, `grid_*`) ; `docs/tableur.md` |
+| Invite MS-DOS sous Windows : relais de la parole et du braille d'Épaudos | `dosbox.c` (`dos_spin`), `br_relay` (`braille.c`), `EpPassKeys` (`hook.c`) ; côté DOS `hw_guest`, `ed_box` (`dos.c`), INT 2Fh ED02h ; `docs/invite-dos.md` |
+| Réglages Inser+E, `EPAULARD.INI`, ponctuation, écho par mots | `reglages.c` (`cfg_*`), `parole.c` (`voice_apply`, `punct_words`, `say_char`, `echo_char`) ; `docs/reglages.md` |
 | Crochets globaux clavier/messages/focus et parole en boîte système modale | `epaulard/src/hook.c` |
 | Modèle hors écran, détournements GDI/USER, texte et curseur dessinés | `epaulard/src/osm.c` |
 | Contrat DLL/EXE et messages `EPM_*` | `epaulard/src/epaulard.h` |
-| Braille Baum Win16, traduction française et cellules | `epaulard/src/braille.c`, `brfr.h`, suivi dans `epaulard.c` |
+| Braille Baum Win16, traduction française et cellules | `epaulard/src/braille.c`, `brfr.h`, suivi dans `revue.c` |
 | Épaudos, lecteur DOS TSR : revue, attributs, Apollo/Baum et veille Windows | `epaudos/src/core.c`, `dos.c`, `tsr.asm` ; `docs/epaudos.md` |
 | Épaudos : boîtes de dialogue CUA en mode texte (Word DOS, EDIT, QBasic…) | `epaudos/src/dialog.c` (analyse pure), `dialog()` dans `core.c` |
 | Passerelle Baum/BrlAPI, focus et transports | `scripts/braille/`, `tools/braille.nix`, `docs/braille.md` |
-| Compilation et installation dans C: | `epaulard/build.sh` |
+| Compilation et installation dans C: ; installations ACME/Lotus sans intervention | `epaulard/build.sh` ; `epaulard/src/instauto.c` (INSTAUTO.EXE, réponses `[pc486] reponseN`) |
 | Réglages matériels et BIOS 486 | modèle `86box/86box.cfg` (copie générée `run/86box.cfg`), CMOS de référence `86box/nvr/hot433a_v451pg.nvr.ok` (Award, disques Auto) ; Setup du BIOS : `scripts/bios-86box`, `docs/bios-86box.md` |
 | Correctifs capture clavier Wayland/86Box | `tools/86box-pc486.patch`, `tools/86box.nix` |
 | Menu DOS et lancement Épaudos/Windows | `dos/CONFIG.SYS`, `dos/AUTOEXEC.BAT` |
+| CD-ROM et réseau isolé (facultatifs) : options de l'invité, `pc486 start --cdrom/--reseau` | `scripts/options_vm.py` (installateur et `scripts/options-vm`), `dos/src/reseau.c` (RESEAU.EXE, `dos/build.sh`) ; `docs/reseau.md` |
+| Services de l'hôte pour `--reseau` : proxy HTML 3.2, POP3/SMTP local, isolement de 86Box | `scripts/reseau/` (`proxy.py`, `html32.py`, `courrier.py`, `netns.py`) ; sonde Winsock `tests/win16/sonde.c` |
+| Navigateurs et courrier : pages de Netscape (lecture, Tab vers les champs), installation de Netscape 3, Communicator 4.08, Eudora | `page.c` (`EpPageView`, `EpPageTab`), `status_poll` (`epaulard.c`), `page_view`/`doc_area` (`programmes.c`) ; `ACME['netscape'|'communicator'|'eudora']`, `netscape_cfg` (`scripts/installation.py`) ; `docs/reseau.md` |
+| Mode navigation Web comme NVDA (curseur virtuel, H/K/T/X…, tableaux, mode formulaire) | `navweb.c` (`nav_key`, `nav_quick`, `nav_table`, `nav_focus`, `nav_poll`), `navnet.c` (DDE, Winsock), `EpNavMode` (`hook.c`), `EpPageReveal` (`page.c`) ; structure servie par le proxy : `scripts/reseau/tampon.py`, `/tampon` (`proxy.py`) ; `docs/navigation-web.md` |
 
 ## Commandes usuelles
 
@@ -98,8 +104,10 @@ scripts/pc486 stop                  # après fermeture de Windows et retour au D
 ```
 
 Menu DOS non vocalisé : **1** = DOS + Épaudos (défaut après 10 s) ; **2**, puis
-Entrée = Windows + Épaulard. Épaudos se met en veille pendant Windows et lui laisse
-COM1 et COM3 ; ne jamais le charger depuis une session DOS de Windows. Épaulard démarre par `load=` dans `C:\WINDOWS\WIN.INI`.
+Entrée = Windows + Épaulard, Épaudos chargé avant `WIN`. Épaudos se met en veille
+pendant Windows et lui laisse COM1 et COM3, sauf pour lire une fenêtre DOS active
+(mode invité, parole relayée par Épaulard) ; ne jamais le charger depuis une
+session DOS de Windows. Épaulard démarre par `load=` dans `C:\WINDOWS\WIN.INI`.
 
 `vmctl.py screen` et `wait` lisent la mémoire texte, pas le contenu graphique de
 Windows : utiliser `shot` et les journaux vocaux pour Windows. `key` prend des qcodes
@@ -115,7 +123,7 @@ QEMU et des combinaisons séparées par des tirets ; voir son aide/source pour l
   Ses copies de supports et images restent locales ;
   ne pas les ajouter à une publication. Ses VM n'attachent aucun D: commun.
   `dos/CONFIG.SYS` et `dos/AUTOEXEC.BAT` sont les fichiers de démarrage qu'il écrit
-  (identiques à la VM de référence) : les modifier change les nouvelles
+  (ceux de la machine de référence) : les modifier change les nouvelles
   installations. Les pilotes de Windows sont compressés en KWAJ, pas en SZDD : il
   les décompresse dans l'invité avec `C:\WINDOWS\EXPAND.EXE`. SNDBLST2.DRV lit la
   section `[sndblst.drv]` de SYSTEM.INI (pas seulement `[sndblst2.drv]`) : sans
@@ -168,6 +176,7 @@ Les commandes de reconstruction des outils sont dans le README et `tools/86box.n
 python3 -m unittest discover -s tests -v
 epaulard/build.sh                   # compilation seule, aucune écriture dans la VM
 epaudos/build.sh                    # TSR DOS, compilation seule
+dos/build.sh                        # RESEAU.EXE (bascule réseau de SYSTEM.INI)
 epaulard/build.sh install           # compilation + copie EXE/DLL + WIN.INI ; VM arrêtée
 ```
 
@@ -179,7 +188,7 @@ epaulard/build.sh install           # compilation + copie EXE/DLL + WIN.INI ; VM
 - Bash : `bash -n scripts/pc486 scripts/pc486-dev scripts/bios-86box scripts/transfert epaulard/build.sh` si ces scripts changent.
 - Épaulard : compiler avec Open Watcom ; les avertissements sont traités comme erreurs.
 - Bancs natifs (`tests/test_epaulard.py`, `tests/test_braille.py`) : les vrais `osm.c`,
-  `epaulard.c` et `braille.c` sont compilés pour Linux par le Watcom du projet
+  modules d'Épaulard et `braille.c` sont compilés pour Linux par le Watcom du projet
   (`tests/native.py`, macro `EP_NATIVE_TEST`) sur la simulation Win16
   `tests/win16/win16sim.h`, face à une fausse Apollo II (15 car./s, échos `@E`), une
   fausse plage Baum et de faux Write, Word, Bloc-notes et Gestionnaire de programmes.
@@ -195,8 +204,8 @@ epaulard/build.sh install           # compilation + copie EXE/DLL + WIN.INI ; VM
   curseur ou lecture, les lancer en plus des bancs.
 - Régression utile : Bloc-notes (EDIT standard), Write (défilement dans les deux sens),
   Word (document, menus, boîtes SDM), revue au pavé, Inser+Bas et interruption par Ctrl.
-  Les essais précis et leurs limites sont dans `docs/essais-write.md`,
-  `docs/revue-pave.md` et `docs/word6-accessibilite.md`.
+  Les essais précis et leurs limites sont dans `docs/revue-pave.md` et
+  `docs/word6-accessibilite.md`.
 
 Pour un essai muet QEMU sur une copie, utiliser `scripts/pc486-dev`. Il fixe
 `PC486_RUN=work/dev/run`, `PC486_LOGS=work/dev/logs`, `PC486_DISK=work/dev/win311.img`,
@@ -321,6 +330,10 @@ Préférer `scripts/pc486-dev` aux préfixes de variables, que les règles ne co
   dernière des `SA_AHEAD` lignes envoyées ; une interruption (Ctrl, Haut/Bas, commande)
   le ramène par Haut. La fin du document se voit à `EpOsmSignature` inchangée, pas à
   la seule ligne du curseur (plusieurs lignes vides défilent sous un curseur fixe).
+  Ces touches postées (`sa_key`) ne passent pas par le crochet clavier : elles sont
+  marquées `EPK_OWN` (ignorées par le crochet s'il les voyait), jamais comptées pour
+  être écartées au retour — un compteur avalait les vraies flèches de l'utilisateur.
+  Le banc (`sim_hw`) ne signale au faux crochet que les touches de `key()`.
 - Ne pas lire Ctrl ou Maj par `GetKeyState` dans l'EXE pour une touche reçue par
   `EPM_KEY` : elle est traitée après coup, touche souvent relâchée (Ctrl+Tab n'était
   jamais vu). Le crochet transmet leur état dans le lParam (`EPK_CTRL`, `EPK_SHIFT`).
@@ -335,6 +348,50 @@ Préférer `scripts/pc486-dev` aux préfixes de variables, que les règles ne co
 - Modèle hors écran : les textes d'une fenêtre détruite et de ses filles sont purgés
   au crochet CBT `HCBT_DESTROYWND` (`osm_destroyed`). Windows réutilise aussitôt les
   identifiants : sans purge, une fenêtre neuve « contient » le texte d'une ancienne.
+- Modèle hors écran et régions de découpage : un effacement (`PatBlt`, `ExtTextOut`
+  opaque, `BitBlt`) n'oublie que la partie visible (`clip_dp`, `GetClipBox`). Excel
+  repeint toute sa grille sous une région de deux cellules ; sans borne, ses
+  en-têtes disparaissaient. Excel change gras/italique sans redessiner le texte :
+  Inser+F fait repeindre la cellule avant de lire la police.
+- Effacement sous une région complexe (Excel efface une page de boîte sauf ses
+  boutons) : un texte n'est oublié que si son centre est visible (`vis_pt`,
+  `PtVisible`), pas seulement dans le rectangle englobant (`clip_dp`).
+- Tailles des tracés jugées en **points** (`rect_dp`), jamais en unités logiques :
+  Ami Pro dessine en twips, axe y vers le haut (curseur `PATINVERT` 33 × -280,
+  sélection `InvertRect` à hauteur négative). `PATINVERT` étroit = curseur ; d'un
+  point de haut = pointillé de focus. Largeurs de caractères : arrondi cumulé.
+- Excel sélectionne par `InvertRgn` (plage moins la cellule active) : détourné, une
+  région par fenêtre en OU exclusif (`rg_xor`), retranchée par `inv_clear`.
+- Texte retracé sur une partie d'une ligne notée (`cut_text`, `osm.c`) : mêmes
+  caractères au même endroit (Excel F2 retrace trois caractères autour du curseur),
+  le reste de la ligne est gardé ; texte différent, seul le début avant lui reste ;
+  tracé long au même début, il la remplace (« Combinaison:A » de la Table de
+  caractères). Mots lus (`say_word`) : lettres et chiffres, ou ponctuation à part.
+- Boutons dont le texte est le nom d'une image (`#bmpBlnkTbl` d'Access, `#Play` de
+  l'Enregistreur de sons) : libellé voisin (`picture_label`), sinon nom traduit.
+- Access recrée son éditeur de cellule (`OKTTBX`) à chaque cellule et dessine la
+  ligne active par lui : position suivie par grille, étiquette cherchée aussi dans
+  l'éditeur.
+- Rectangle de focus des boîtes SDM : jamais redit tant que le focus reste dans la
+  même fenêtre (`said_hwnd`) ; un même cadre retracé est un effacement en XOR.
+- Braille de l'invite MS-DOS : Épaulard relaie les **trames** d'Épaudos (cellules
+  `ESC 01`, sonde `ESC 15` répondue sur place), jamais les octets bruts ; touches et
+  routage rendus par `br_relay_read`. Fluidité : Épaudos émet à la fin du passage
+  qui prépare (`send`), `br_tick` écrit la trame dans l'appel qui la prépare, et
+  la boucle de messages d'Épaulard reste éveillée 4 s après une frappe DOS
+  (`dos_spin`) : en plein écran, la machine système endormie n'était reprise que
+  toutes les 0,5 à 1 s. Ne pas revenir à un `GetMessage` seul ni à une boucle
+  active permanente (cœur de l'hôte saturé).
+- Fenêtre DOS de Windows : classe `TTY` (majuscules, comparer sans casse). Ses
+  touches vont à la machine virtuelle sans passer par le crochet clavier, en
+  fenêtre comme en plein écran : Épaulard n'y a pas de commandes, Épaudos (mode
+  invité) les reçoit. Le relais suppose Épaudos chargé avant `WIN`.
+- Annonce de focus identique, sans touche depuis (ACME rend le focus à « Annuler »
+  à chaque fichier) : pas redite (`announce_focus`, quatre dernières annonces).
+  Toute touche réarme.
+- INSTAUTO : une boîte détruite et la suivante ont souvent le même handle ; la
+  réponse déjà jouée est repérée par handle **et** titre. Une fenêtre doit rester
+  active une seconde avant de recevoir une réponse.
 - Programmes sans contrôles standard (Aide, Fiches, Mail, Terminal, Didacticiel…) :
   voir `docs/programmes-windows.md` ; Inser+Maj+D énonce l'arbre des fenêtres (classes,
   numéros, styles) pour reconnaître un programme inconnu dans `apolo-emu.log`.
@@ -357,6 +414,57 @@ Préférer `scripts/pc486-dev` aux préfixes de variables, que les règles ne co
 - L'extension Apolo-emu `burst-interrupt` (activée par `scripts/pc486`) coupe la
   parole après 40 ms de silence, sauf si un écho `@E` est attendu. Ajoutée pour
   Sonolect, elle reste active : Épaulard a été validé avec elle.
+- Réseau (`--reseau`, `docs/reseau.md`) : la VM ne doit joindre que 10.0.2.2:8080/110/25.
+  QEMU : `restrict=on` + `guestfwd` vers les sockets Unix, jamais `hostfwd` ; libslirp
+  refuse un `guestfwd` sur l'adresse de l'hôte virtuel, d'où `host=10.0.2.254`. 86Box :
+  aucun correctif, `scripts/reseau/netns.py` (espace de noms utilisateur + réseau, relais
+  127.0.0.1:PORT) ; refuser de démarrer plutôt que démarrer sans isolement. Toute
+  évolution se vérifie par SONDE.EXE dans Windows, sous les deux émulateurs.
+- Pilotes réseau de WfW : Windows se bloque à leur chargement sous QEMU à pleine vitesse
+  (`PC486_ICOUNT=off`) ; il démarre au rythme normal et sous 86Box. L'installateur
+  vérifie donc le démarrage avec carte bridé (`NIC_ICOUNT`). Sans carte, WfW configuré
+  bloque sur « adaptateur MS$NE2CLONE » : RESEAU.EXE, avant `WIN`, bascule les lignes de
+  `[pc486.reseau]` ; ajouter toute nouvelle ligne réseau de SYSTEM.INI à `NET_SWITCHED`.
+- Débit vers la VM borné par les services (`scripts/reseau/debit.py`, `PC486_DEBIT`,
+  32 Ko/s) : sans limite, un téléchargement sature le 486 émulé et Windows ne lit plus
+  le clavier ; à 64 Ko/s, +165 ms par touche. Remesurer (`tests/test_reseau_vm.py`)
+  avant de relever le défaut. Une charge de test Win16 doit être pilotée par messages
+  (`WSAAsyncSelect`) : une boucle de lecture bloque le multitâche coopératif.
+- Pages de Netscape 3 et 4 : vue MFC `AFX:…` d'identifiant 0xE900, sans curseur
+  (`EpPageView`, `page.c` dans la DLL). Ses EDIT renvoient un WM_GETTEXT vide : texte
+  lu dans le modèle après dessin. Netscape 3 n'entre pas dans les champs au Tab : la
+  DLL l'intercepte (`EpPageTab`, ordre de lecture, défilement jusqu'au champ). Le
+  défilement de Netscape est mal suivi par le modèle : le dire tout force un
+  `InvalidateRect`. Puces « · » en Courier 46 px : décor (`deco`, `row_bounds` dans
+  `osm.c`), sinon elles étirent la rangée et une ligne est sautée. `sa_stop` ne note
+  `status_said` que pour l'Aide (sinon la page se relit en boucle).
+- Mode navigation (`navweb.c`) : la structure vient du proxy (`/tampon`), jamais du
+  modèle hors écran ; elle n'est acceptée que si son titre est dans celui de la
+  fenêtre (adresse par DDE). Champs : fenêtres filles de la vue triées par
+  identifiant, validées par classe/style (Communicator : boutons `BS_OWNERDRAW`, listes
+  sans `CBS_HASSTRINGS`, CB_GETLBTEXT rend une donnée). Activation par SetFocus +
+  Espace postés ; l'état est dit par `nav_timer`, la scrutation se tait (`nav_owns`).
+  Texte d'un champ affiché : modèle repeint si sa longueur diffère de
+  WM_GETTEXTLENGTH (Netscape ne retrace que la fin après une saisie). Après toute
+  modification de `html32.py`, `tampon.py`, `proxy.py` ou `essai.html`, régénérer
+  `tests/win16/navweb-essai.h` (`python3 tests/navweb_essai.py`). Dans le banc, les
+  statiques sont visibles d'un module à l'autre : préfixes `nav_`/`net_`.
+- Netscape 3 n'utilise le proxy qu'avec `Proxy Type=1` dans NETSCAPE.INI.
+  Communicator 4 : réglages communs dans `NETSCAPE.CFG` (`PrefConfig.pref`, empreinte
+  MD5 avec clé, `netscape_cfg`), jamais dans un profil lu d'une VM.
+- Assistant dont les pages sont des contrôles montrés/cachés dans une seule boîte
+  (profil de Communicator) : `dialog_text` ignore les contrôles cachés et
+  `dialog_page` (empreinte des STATIC visibles) déclenche la lecture de la nouvelle
+  page. `label_before` n'emprunte pas le libellé d'un autre champ (corps d'Eudora).
+- INSTAUTO joue ses réponses dans l'ordre : deux boîtes « Question » successives
+  reçoivent chacune la leur ; ne pas dédoublonner les titres.
+- 86Box réécrit sa configuration à l'arrêt et supprime ce qu'il ne reconnaît pas
+  (section en double, type de lecteur inconnu) : insérer les clés dans les sections du
+  modèle. CD-ROM : `cdrom_01_parameters = 1, atapi`, canal `1:0` (IDE secondaire de la
+  HOT-433A, sans contrôleur ajouté). NE2000 : `net_01_card = ne2k`, section
+  `[NE2000 Compatible #1]` (`base = 0300`, `irq = 10`).
+- QMP de QEMU : un seul client à la fois ; un banc qui garde une connexion `Qmp` ouverte
+  bloque `pc486 screen` et `vmctl` : tout faire par cette connexion.
 - Garder le bridage QEMU (`PC486_ICOUNT=7` par défaut) pour l'usage interactif : trop
   rapide, un programme Turbo Pascal échoue avec Runtime error 200 ; les boucles de bips
   restent imparfaites. `PC486_ICOUNT=off` le retire. L'installateur tourne sans
@@ -364,8 +472,8 @@ Préférer `scripts/pc486-dev` aux préfixes de variables, que les règles ne co
   bridé révèle un défaut lié au rythme (Épaudos ne lisait rien au lancement de Word
   pour DOS, dessiné en un passage), à corriger plutôt qu'à masquer en rebridant.
 - Conserver POWER.EXE sous DOS pour éviter la boucle active qui sature un cœur.
-- Les sessions DOS dans Windows ne sont lues ni par Épaulard ni par Épaudos (en
-  veille) : silence ne signifie pas blocage.
+- Session DOS de Windows silencieuse : ce n'est pas un blocage ; voir
+  `docs/diagnostic-dos.md` (Épaudos absent avant `WIN`, autre fenêtre active…).
 
 ## Diagnostic ciblé
 
@@ -373,7 +481,9 @@ Consulter `logs/apolo-emu.log` (texte prononcé, mutes, commandes inconnues),
 `logs/apollo-trace.log` (octets reçus RX et renvoyés TX), `logs/86box-supervisor.log`
 (cycle de vie), les fichiers de `run/` ou du `PC486_RUN` choisi. Sous QEMU :
 `PC486_TRACE_KEYS=1` active `logs/touches.log`, `PC486_TRACE=evenement` les traces QEMU.
-Inser+D donne le débogage d'Épaulard ; Inser+H annonce ses commandes.
+Inser+D donne le débogage d'Épaulard ; Inser+H annonce ses commandes. Inser+Maj+O
+énonce le modèle hors écran de la fenêtre active (textes, petites images, dernières
+opérations raster inhabituelles) : utile pour un programme inconnu.
 Pour une session DOS Windows silencieuse, lire `docs/diagnostic-dos.md`.
 
 En fin d'intervention, rapporter les fichiers modifiés, les validations effectuées

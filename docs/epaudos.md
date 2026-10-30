@@ -232,9 +232,22 @@ de braille abrégé ni de routage des messages.
 
 Le timer lit le mode vidéo BIOS : hors des modes texte 0–3 et 7, il arrête la
 lecture et libère les touches. Les notifications Windows INT 2Fh 1605h/1606h
-suspendent le lecteur pendant **toute** la session Windows, y compris ses écrans
-DOS texte. COM1 et COM3 sont alors laissés à Épaulard. À la sortie de Windows,
-les UART et l'état du lecteur sont réinitialisés au premier passage du timer.
+suspendent le lecteur pendant la session Windows ; COM1 et COM3 sont alors
+laissés à Épaulard. À la sortie de Windows, les UART et l'état du lecteur sont
+réinitialisés au premier passage du timer.
+
+Exception, le **mode invité** : quand Épaulard relaie une fenêtre DOS active
+(plein écran ou fenêtre), Épaudos lit cette machine virtuelle comme sous DOS,
+sans toucher aux ports. Sa parole passe par une boîte aux lettres (INT 2Fh
+AX=ED02h → ES:BX, structure `EDBOX` de `core.h`) qu'Épaulard vide vers COM1 ; les
+échos `@E` lui reviennent par la même boîte. Le braille aussi (boîte version 2) :
+ses trames Baum restent dans la file du port 1, Épaulard en tire les cellules et lui
+rend les touches de la plage. La parole et la trame braille préparées pendant un
+passage partent à la fin de ce passage (`send` dans `core.c`) : sous Windows, une
+machine DOS inactive n'a parfois plus de passage pendant des secondes. La
+machine suivie est celle qui reçoit les touches (INT 2Fh 1683h). Sans signe de vie
+d'Épaulard pendant 2 s, Épaudos se rendort. Voir [l'invite MS-DOS](invite-dos.md).
+C'est pourquoi le choix Windows du menu charge aussi Épaudos avant `WIN`.
 
 `tsr.asm` installe les interruptions et fournit une pile privée de 2 Kio pour
 le moteur C et une pile de 512 octets pour le clavier. Le moteur s'exécute après

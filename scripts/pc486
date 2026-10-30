@@ -8,8 +8,14 @@
 #       --boot a|c          QEMU : démarrer sur la disquette (a) ou le disque dur (c, défaut)
 #                           (86Box : le BIOS essaie A: puis C:)
 #       --floppy FICHIER    disquette dans A:
+#       --cdrom [IMAGE]     lecteur de CD-ROM ATAPI (IDE secondaire, maître, IRQ15),
+#                           vide ou avec une image ISO ; E: sous DOS si le pilote
+#                           est installé (installateur ou scripts/options-vm --cdrom)
 #                           Disque vm/win311.img, menu au démarrage : 1 = DOS + Épaudos,
 #                           2 = Windows + Épaulard ; DOS par défaut après 10 s
+#       --reseau            carte NE2000 (ISA, 0x300, IRQ10) reliée aux seuls services
+#                           de l'hôte : proxy web 10.0.2.2:8080, courrier POP3 :110 et
+#                           SMTP :25 (docs/reseau.md) ; sans cette option, aucune carte
 #       --win               sans effet (ancien choix du disque Windows, désormais le seul)
 #       --braille           impose Baum sur COM3 (automatique si tools/braille existe)
 #       --no-braille        désactive la passerelle braille
@@ -105,8 +111,41 @@ braille_stop() {
 
 vm_running() { running qemu || running 86box; }
 
+# Services de l'hôte pour --reseau (scripts/reseau) : proxy web HTML 3.2 et boîte aux
+# lettres locale, sur des sockets Unix de $RUN ; données (courrier) dans NET_DATA.
+NET_DATA="${PC486_RESEAU_DATA:-$VM/reseau}"
+
+reseau_start() {
+    running reseau && return 0
+    rm -f "$RUN/web.sock" "$RUN/pop3.sock" "$RUN/smtp.sock"
+    mkdir -p "$NET_DATA"
+    PYTHONPATH="$ROOT/scripts" nohup setsid python3 -P -m reseau --run "$RUN" --donnees "$NET_DATA" \
+        >>"$LOGS/reseau.log" 2>&1 </dev/null &
+    echo $! >"$RUN/reseau.pid"
+    for _ in $(seq 50); do [[ -S "$RUN/smtp.sock" ]] && break; sleep 0.1; done
+    [[ -S "$RUN/web.sock" && -S "$RUN/pop3.sock" && -S "$RUN/smtp.sock" ]] || {
+        echo "échec des services réseau, voir $LOGS/reseau.log" >&2; reseau_stop; return 1; }
+    echo "réseau : proxy web et courrier local prêts (journal : $LOGS/reseau.log)"
+}
+
+reseau_stop() {
+    if running reseau; then
+        kill "$(cat "$RUN/reseau.pid")" 2>/dev/null || true
+        for _ in $(seq 30); do running reseau || break; sleep 0.1; done
+    fi
+    rm -f "$RUN/reseau.pid" "$RUN/web.sock" "$RUN/pop3.sock" "$RUN/smtp.sock"
+}
+
+# Services de l'hôte joignables par la VM avec --reseau (nom de socket:port invité).
+# L'invité (adresse fixe 10.0.2.15) les voit à l'adresse de l'hôte du réseau
+# virtuel, la même sous QEMU et sous 86Box.
+NET_HOST=10.0.2.2
+NET_MAC=52:54:00:48:60:01
+NET_SERVICES=(web:8080 pop3:110 smtp:25)
+
 start() {
     local display="gtk,zoom-to-fit=on" boot=c floppy="" disk="$DISK" gw=1 emu=86box
+    CDROM=""; NET=0
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --braille) BRAILLE=1; export PC486_BRAILLE=1 ;;
@@ -120,6 +159,15 @@ start() {
                 elif [[ -f "$ROOT/$2" ]]; then floppy="$ROOT/$2"
                 else echo "disquette introuvable : $2" >&2; exit 1; fi
                 shift ;;
+            --cdrom)
+                CDROM=vide
+                if [[ $# -gt 1 && "$2" != --* ]]; then
+                    if [[ -f "$2" ]]; then CDROM="$(readlink -f "$2")"
+                    elif [[ -f "$ROOT/$2" ]]; then CDROM="$ROOT/$2"
+                    else echo "image de CD-ROM introuvable : $2" >&2; exit 1; fi
+                    shift
+                fi ;;
+            --reseau) NET=1 ;;
             --win) ;;
             --no-gateway) gw=0 ;;
             *) echo "option inconnue : $1" >&2; exit 2 ;;
@@ -131,7 +179,15 @@ start() {
         return 1
     fi
     { vm_running || running 86box-supervisor; } && { echo "la VM tourne déjà"; exit 1; }
-    if [[ $emu == 86box ]]; then start_86box "$floppy"; [[ $gw == 1 ]] && gateway_start; return 0; fi
+    if [[ $NET == 1 && $emu == qemu && "${PC486_ICOUNT:-7}" == off ]]; then
+        echo "attention : avec PC486_ICOUNT=off, Windows se bloque au chargement du réseau" >&2
+    fi
+    [[ $NET == 1 ]] && { reseau_start || exit 1; }
+    if [[ $emu == 86box ]]; then
+        start_86box "$floppy" || { reseau_stop; return 1; }
+        [[ $gw == 1 ]] && gateway_start
+        return 0
+    fi
     [[ -f "$disk" ]] || { echo "disque introuvable : $disk" >&2; exit 1; }
     local fmt=raw; [[ "$disk" == *.qcow2 ]] && fmt=qcow2
     [[ "$boot" == a ]] && boot=a || boot=c
@@ -139,6 +195,12 @@ start() {
     # disque de transfert (D:), rempli depuis Linux avec scripts/transfert, VM arrêtée
     local xfer=(); [[ -n "$XFER_DISK" && -f "$XFER_DISK" ]] && \
         xfer=(-drive "file=$XFER_DISK,if=ide,index=1,media=disk,format=raw")
+    # CD-ROM en lecture seule : l'image n'est jamais verrouillée ni modifiée
+    local cd=()
+    if [[ -n "$CDROM" ]]; then
+        cd=(-drive "if=ide,index=2,media=cdrom,readonly=on")
+        [[ "$CDROM" == vide ]] || cd=(-drive "if=ide,index=2,media=cdrom,readonly=on,format=raw,file=${CDROM//,/,,}")
+    fi
     # PC486_TRACE_KEYS=1 : journal des touches reçues de GTK dans logs/touches.log
     # PC486_TRACE=ev1,ev2 : événements de trace QEMU (qemu-system-i386 -trace help)
     # dans logs/trace.log, ex. pcspk_io_write,ps2_put_keycode
@@ -157,6 +219,20 @@ start() {
         braille=(-chardev "socket,id=com3,path=$RUN/com3.sock,server=on,wait=off"
                  -device "isa-serial,chardev=com3,index=2,iobase=0x3e8,irq=9")
     fi
+    # Réseau isolé : restrict=on coupe toute sortie ; seuls les guestfwd déclarés
+    # répondent, chacun relié à une socket Unix des services de l'hôte (reseau_start).
+    local net=(-nic none)
+    if [[ $NET == 1 ]]; then
+        local fwd="" svc port
+        for svc in "${NET_SERVICES[@]}"; do
+            port=${svc#*:}; svc=${svc%%:*}
+            fwd+=",guestfwd=tcp:$NET_HOST:$port-cmd:${SOCAT//,/,,} - UNIX-CONNECT:${RUN//,/,,}/$svc.sock"
+        done
+        # host= déplacé : un guestfwd ne peut pas viser l'hôte virtuel, or 86Box
+        # (slirp sans restriction, isolé par un espace de noms) n'atteint que lui
+        net=(-netdev "user,id=lan,restrict=on,ipv6=off,net=10.0.2.0/24,host=10.0.2.254$fwd"
+             -device "ne2k_isa,netdev=lan,iobase=0x300,irq=10,mac=$NET_MAC")
+    fi
     local icount=(-icount "shift=$ICOUNT,sleep=on,align=on"); [[ $ICOUNT == off ]] && icount=()
     # 486 en émulation pure (TCG, pas de KVM) ; chipset i440FX ; périphériques ISA
     local locked_disks=("$disk"); [[ ${#xfer[@]} == 0 ]] || locked_disks+=("$XFER_DISK")
@@ -169,6 +245,7 @@ start() {
         -rtc base=localtime \
         -drive "file=$disk,if=ide,index=0,media=disk,format=$fmt" \
         "${xfer[@]}" \
+        "${cd[@]}" \
         "${fdopt[@]}" \
         -boot "order=$boot,menu=off" \
         -vga cirrus \
@@ -180,14 +257,14 @@ start() {
         "${braille[@]}" \
         -chardev "file,id=lpt1,path=$LOGS/lpt1.out" \
         -parallel chardev:lpt1 \
-        -nic none \
+        "${net[@]}" \
         -qmp "unix:$RUN/qmp.sock,server=on,wait=off" \
         -monitor "unix:$RUN/monitor.sock,server=on,wait=off" \
         -display "$display" \
         -pidfile "$RUN/qemu.pid" \
         >>"$LOGS/qemu.log" 2>&1 &
     for _ in $(seq 50); do [[ -S "$RUN/qmp.sock" ]] && break; sleep 0.1; done
-    running qemu || { echo "échec du démarrage de QEMU, voir logs/qemu.log" >&2; tail -5 "$LOGS/qemu.log" >&2; exit 1; }
+    running qemu || { echo "échec du démarrage de QEMU, voir logs/qemu.log" >&2; tail -5 "$LOGS/qemu.log" >&2; reseau_stop; exit 1; }
     echo "VM démarrée (disque : $(basename "$disk"), démarrage sur $boot:)"
     braille_start --connect "$RUN/com3.sock"
     [[ $gw == 1 ]] && gateway_start
@@ -205,7 +282,7 @@ start_86box() {
     rm -f "$RUN/86box.ready"
     # Détacher le superviseur du terminal qui lance pc486 : sa fermeture ne doit
     # pas tuer la VM avant que le nettoyage puisse s'exécuter.
-    nohup setsid "$ROOT/scripts/pc486" __supervise-86box "$BOX_DIR" "$floppy" \
+    nohup setsid "$ROOT/scripts/pc486" __supervise-86box "$BOX_DIR" "$floppy" "$NET" "$CDROM" \
         >>"$LOGS/86box-supervisor.log" 2>&1 </dev/null &
     echo $! >"$RUN/86box-supervisor.pid"
     for _ in $(seq 150); do
@@ -250,6 +327,7 @@ cleanup_86box() {
     rm -f "$RUN/86box.pid" "$RUN/86box.ready" "$RUN/86box-supervisor.pid" "$RUN/86box.cfg"
     # Fermeture par la fenêtre de 86Box : la synthèse n'a plus de VM à servir.
     gateway_stop
+    reseau_stop
 }
 
 # Configuration de cette exécution, tirée du modèle versionné 86box/86box.cfg. 86Box
@@ -257,10 +335,18 @@ cleanup_86box() {
 # ici, jamais dans le modèle. Les modifications faites dans l'interface de 86Box sont
 # donc perdues à l'arrêt ; les reporter dans le modèle. Chemins de disques absolus
 # (86Box résout les relatifs depuis -P) ; D: (hdd_02) seulement si son image existe.
+# Options (sans elles, la configuration est exactement le modèle) : --cdrom ajoute un
+# lecteur ATAPI maître du canal IDE secondaire (contrôleur intégré, IRQ15),
+# --reseau la carte NE2000 (0x300, IRQ10) sur le réseau virtuel slirp de 86Box,
+# isolé par scripts/reseau/netns.py.
 box_config() {
-    local xfer=""
+    local xfer="" cd=""
     [[ -n "$XFER_DISK" && -f "$XFER_DISK" ]] && xfer="$(readlink -f "$XFER_DISK")"
-    awk -v dir="$BOX_DIR" -v xfer="$xfer" '
+    if [[ -n "$CDROM" ]]; then
+        cd="cdrom_01_parameters = 1, atapi|cdrom_01_ide_channel = 1:0"
+        [[ "$CDROM" == vide ]] || cd+="|cdrom_01_image_path = $CDROM"
+    fi
+    awk -v dir="$BOX_DIR" -v xfer="$xfer" -v cd="$cd" -v net="$NET" -v mac="${NET_MAC:9}" '
         /^[ \t]*(host_cpu|uuid)[ \t]*=/ { next }
         /^hdd_02_/ && xfer == "" { next }
         /^hdd_[0-9]+_fn[ \t]*=/ {
@@ -270,7 +356,15 @@ box_config() {
             else if (val !~ /^\//) val = dir "/" val
             print key " = " val; next
         }
-        { print }' "$BOX_DIR/86box.cfg" >"$RUN/86box.cfg"
+        { print }
+        /^\[Floppy and CD-ROM drives\]/ && cd != "" { n = split(cd, a, "|"); for (i = 1; i <= n; i++) print a[i] }
+        END {
+            if (net == 1) {
+                print ""; print "[Network]"; print "net_01_card = ne2k"; print "net_01_net_type = slirp"
+                print ""; print "[NE2000 Compatible #1]"; print "base = 0300"; print "irq = 10"
+                print "mac = " mac
+            }
+        }' "$BOX_DIR/86box.cfg" >"$RUN/86box.cfg"
     if [[ -z "$XFER_DISK" ]]; then echo "86Box : pas de D: (PC486_TRANSFERT vide)"
     elif [[ -z "$xfer" ]]; then echo "86Box : pas de D: ($XFER_DISK introuvable)"; fi
 }
@@ -290,7 +384,13 @@ box_nvr() {
 }
 
 run_86box() {
-    local floppy="$1" pts="" brpts=""
+    local floppy="$1" pts="" brpts="" isolate=() svc
+    NET="${2:-0}"; CDROM="${3:-}"
+    if [[ $NET == 1 ]]; then
+        isolate=(python3 -P "$ROOT/scripts/reseau/netns.py" --run "$RUN")
+        for svc in "${NET_SERVICES[@]}"; do isolate+=(--service "$svc"); done
+        isolate+=(--)
+    fi
     [[ -x "$BOX" ]] || { echo "86Box introuvable : $BOX" >&2; exit 1; }
     rm -f "$RUN/com1.sock" "$RUN/86box.ctl"
     box_config
@@ -308,7 +408,7 @@ run_86box() {
     local qpa="${PC486_QPA:-xcb}"; [[ -n "${WAYLAND_DISPLAY:-}" ]] && qpa="${PC486_QPA:-wayland}"
     # (env : un nom de variable commençant par un chiffre n'est pas une affectation bash)
     env QT_QPA_PLATFORM="$qpa" 86BOX_MANAGER_SOCKET="$RUN/86box-mgr.sock" \
-        python3 "$ROOT/scripts/with-disk-lock.py" --86box-dir "$BOX_DIR" --86box-cfg "$RUN/86box.cfg" \
+        "${isolate[@]}" python3 "$ROOT/scripts/with-disk-lock.py" --86box-dir "$BOX_DIR" --86box-cfg "$RUN/86box.cfg" \
         -- "$BOX" -N -P "$BOX_DIR" ${floppy:+-I "A:$floppy"} "$RUN/86box.cfg" \
         >>"$LOGS/86box.log" 2>&1 &
     echo $! >"$RUN/86box.pid"
@@ -361,6 +461,7 @@ stop() {
     rm -f "$RUN/com3.sock"
     rm -f "$RUN/qemu.pid" "$RUN/86box.pid"
     gateway_stop
+    reseau_stop
 }
 
 status() {
@@ -369,6 +470,7 @@ status() {
     else echo "VM : arrêtée"; fi
     running braille && echo "braille : en marche (pid $(cat "$RUN/braille.pid"))" || echo "braille : arrêté"
     running gateway && echo "synthèse : en marche (pid $(cat "$RUN/gateway.pid"))" || echo "synthèse : arrêtée"
+    if running reseau; then echo "réseau : proxy et courrier en marche (pid $(cat "$RUN/reseau.pid"))"; fi
 }
 
 case "${1:-}" in
@@ -376,7 +478,7 @@ case "${1:-}" in
         BOX_DIR="$2"
         trap cleanup_86box EXIT
         trap 'exit 143' TERM
-        run_86box "$3"
+        run_86box "$3" "${4:-0}" "${5:-}"
         ;;
     start) shift; start "$@" ;;
     stop) stop ;;

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# CD-ROM et réseau ajoutés à la copie d'un disque arrêté ; voir docs/reseau.md.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec python3 "$ROOT/scripts/options_vm.py" "$@"

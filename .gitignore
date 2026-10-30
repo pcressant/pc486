@@ -51,3 +51,4 @@ __pycache__/
 # Résultats des constructions Nix
 /result
 /result-*
+/dos/build/

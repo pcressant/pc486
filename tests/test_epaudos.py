@@ -34,7 +34,7 @@ class EpaudosTests(unittest.TestCase):
         cls.tmp.cleanup()
 
     def test_scenarios(self):
-        for scenario in ('review', 'menu', 'sleep', 'echo', 'baum', 'frame', 'format', 'keys',
+        for scenario in ('review', 'menu', 'sleep', 'guest', 'echo', 'baum', 'frame', 'format', 'keys',
                          'preemption', 'bounded', 'scroll', 'typing', 'screen', 'word', 'wordstart',
                          'dialog', 'editdialog'):
             with self.subTest(scenario=scenario):

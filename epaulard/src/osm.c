@@ -75,6 +75,14 @@ static FONTENT fonts[FONT_N];
 #define INV_N 64
 static struct { HWND hwnd; RECT r; } inv[INV_N];
 
+/* Inversions par région (InvertRgn, InvertRect) : Excel inverse la plage sélectionnée
+   moins la cellule active, puis chaque ajout (une équerre, parfois). Le bord d'une
+   telle région ne se découpe pas en rectangles : chaque fenêtre garde une vraie
+   région, en OU exclusif, d'où inv_clear retranche ce qui est repeint. */
+#define RG_N 4
+static struct { HWND hwnd; HRGN rgn; } rgsel[RG_N];
+static BOOL is_memdc(HWND hwnd, DWORD org);
+
 typedef struct {
     FARPROC target;             /* point d'entrée dans GDI */
     HGLOBAL fixed;              /* fixation possédée, libérée avec le sélecteur */
@@ -86,7 +94,7 @@ typedef struct {
 } PATCH;
 
 static PATCH p_eto, p_to, p_bp, p_gdc, p_gwdc, p_gdcex, p_pat;
-static PATCH p_sw, p_sdc, p_blt, p_ddc;
+static PATCH p_sw, p_sdc, p_blt, p_ddc, p_ivg, p_ivr;
 static UINT pending;            /* interceptions dont un appel d'origine est actif */
 static HTASK scrolling;         /* ScrollWindow peut appeler ScrollDC (tâche ou 0) */
 
@@ -300,6 +308,8 @@ void osm_reap(void)
     patch_reap(&p_sdc);
     patch_reap(&p_blt);
     patch_reap(&p_ddc);
+    patch_reap(&p_ivg);
+    patch_reap(&p_ivr);
 }
 
 /* Fenêtre détruite (crochet CBT) : oublier ce qu'elle affichait. Windows redonne
@@ -336,13 +346,32 @@ void osm_destroyed(HWND hwnd)
 
 /* ------------------------------------------------------------ enregistrement */
 
+/* Contexte de l'effacement en cours (NULL : aucun découpage à vérifier). Sa région
+   peut être complexe : Excel efface une page de boîte sous une région qui exclut
+   ses boutons, dont le rectangle englobant (clip_dp) les couvre pourtant. */
+static HDC vis_dc;
+static DWORD vis_org;
+
+static BOOL vis_pt(int sx, int sy)
+{
+    POINT p;
+    if (!vis_dc)
+        return TRUE;
+    p.x = sx - (int) LOWORD(vis_org);
+    p.y = sy - (int) HIWORD(vis_org);
+    DPtoLP(vis_dc, &p, 1);
+    return PtVisible(vis_dc, p.x, p.y);
+}
+
 static void forget_rect(HWND hwnd, int x, int y, int w, int h)
 {
     int i;
     for (i = 0; i < OSM_N; i++) {
         OSMENT *e = &osm[i];
         if (e->hwnd == hwnd && e->x < x + w && x < e->x + e->w &&
-            e->y < y + h && y < e->y + e->h)
+            e->y < y + h && y < e->y + e->h &&
+            vis_pt((max(e->x, x) + min(e->x + e->w, x + w)) / 2,
+                   (max(e->y, y) + min(e->y + e->h, y + h)) / 2))
             e->hwnd = 0;
     }
 }
@@ -357,7 +386,7 @@ static void forget_center(HWND hwnd, const RECT *r)
         OSMENT *e = &osm[i];
         int cx = e->x + e->w / 2, cy = e->y + e->h / 2;
         if (e->hwnd == hwnd && cx >= r->left && cx < r->right &&
-            cy >= r->top && cy < r->bottom)
+            cy >= r->top && cy < r->bottom && vis_pt(cx, cy))
             e->hwnd = 0;
     }
 }
@@ -452,10 +481,69 @@ full:
 }
 
 /* Zone redessinée à l'endroit */
+static HRGN rg_of(HWND hwnd, BOOL create)
+{
+    int i, slot = -1;
+    for (i = 0; i < RG_N; i++) {
+        if (rgsel[i].hwnd == hwnd && rgsel[i].rgn)
+            return rgsel[i].rgn;
+        if (slot < 0 && (!rgsel[i].rgn || !IsWindow(rgsel[i].hwnd)))
+            slot = i;
+    }
+    if (!create)
+        return 0;
+    if (slot < 0)
+        slot = 0;                       /* (au pire, la plus ancienne) */
+    if (!rgsel[slot].rgn)
+        rgsel[slot].rgn = CreateRectRgn(0, 0, 0, 0);
+    else
+        SetRectRgn(rgsel[slot].rgn, 0, 0, 0, 0);
+    rgsel[slot].hwnd = rgsel[slot].rgn ? hwnd : (HWND) 0;
+    return rgsel[slot].rgn;
+}
+
+/* Région inversée dans hdc (coordonnées logiques) : OU exclusif avec celle notée */
+static void rg_xor(HDC hdc, HRGN src)
+{
+    DWORD org = GetDCOrg(hdc);
+    HWND hwnd = dc_window(hdc);
+    HRGN c, sel;
+    POINT p;
+
+    if (is_memdc(hwnd, org) || (!hwnd && ep_in_menu))
+        return;
+    c = CreateRectRgn(0, 0, 0, 0);
+    if (!c)
+        return;
+    CombineRgn(c, src, 0, RGN_COPY);
+    p.x = p.y = 0;
+    LPtoDP(hdc, &p, 1);
+    OffsetRgn(c, p.x + (int) LOWORD(org), p.y + (int) HIWORD(org));
+    if (!hwnd) {
+        RECT b;
+        POINT m;
+        GetRgnBox(c, &b);
+        m.x = (b.left + b.right) / 2;
+        m.y = (b.top + b.bottom) / 2;
+        hwnd = WindowFromPoint(m);
+    }
+    if (hwnd && (sel = rg_of(hwnd, TRUE)) != 0)
+        CombineRgn(sel, sel, c, RGN_XOR);
+    DeleteObject(c);
+}
+
 static void inv_clear(HWND hwnd, const RECT *area)
 {
     RECT piece[4], e, x;
     int i, k, n;
+    HRGN sel = rg_of(hwnd, FALSE);
+    if (sel && area->left < area->right && area->top < area->bottom) {
+        HRGN a = CreateRectRgnIndirect(area);
+        if (a) {
+            CombineRgn(sel, sel, a, RGN_DIFF);
+            DeleteObject(a);
+        }
+    }
     for (i = 0; i < INV_N; i++) {
         if (inv[i].hwnd != hwnd || !IntersectRect(&x, &inv[i].r, area))
             continue;
@@ -572,6 +660,85 @@ static BOOL is_highlight(HDC hdc, HWND hwnd, int sx, int sy, LPCSTR s, int n)
     return TRUE;
 }
 
+static int free_slot(void)
+{
+    int i, slot = 0;
+    for (i = 0; i < OSM_N; i++) {       /* place libre, sinon la plus ancienne */
+        if (!osm[i].hwnd || !IsWindow(osm[i].hwnd))
+            return i;
+        if (osm[i].seq < osm[slot].seq)
+            slot = i;
+    }
+    return slot;
+}
+
+/* Texte tracé par-dessus une partie d'une ligne déjà notée, sur la même rangée.
+   Mêmes caractères au même endroit (Excel redessine ceux qui entourent le curseur
+   d'une formule en cours d'édition) : le début et la fin de l'ancienne ligne
+   restent (au début de la ligne, seulement pour un fragment court : un champ
+   redessiné plus court, « Combinaison:A », remplace l'ancien). Texte différent :
+   seul le début, avant lui, reste (insertion au milieu d'une ligne, redessinée
+   jusqu'au bout) ; tracé au même début, il la remplace. */
+static void cut_text(HWND hwnd, int x, int y, int w, int h, LPCSTR s, int sn,
+                     const BYTE FAR *cw)
+{
+    static int pos[OSM_TXT + 1];
+    int i, k, n, a, b, j, at;
+    BOOL same;
+
+    for (i = 0; i < OSM_N; i++) {
+        OSMENT *e = &osm[i];
+        if (e->hwnd != hwnd || e->x >= x + w || x >= e->x + e->w ||
+            e->y >= y + h || y >= e->y + e->h)
+            continue;
+        n = lstrlen(e->t);
+        if (n < 2 || e->y + e->h / 2 < y || e->y + e->h / 2 >= y + h ||
+            y + h / 2 < e->y || y + h / 2 >= e->y + e->h) {
+            e->hwnd = 0;                /* (autre rangée) */
+            continue;
+        }
+        pos[0] = 0;
+        for (k = 0; k < n; k++)
+            pos[k + 1] = pos[k] + wid[i * OSM_TXT + k];
+        for (a = 0; a < n && e->x + (pos[a] + pos[a + 1]) / 2 < x; a++)
+            ;
+        for (b = a; b < n && e->x + (pos[b] + pos[b + 1]) / 2 < x + w; b++)
+            ;
+        /* même caractère sous chaque caractère couvert (les fragments redessinés ne
+           tombent pas sur les limites des précédents) */
+        same = b > a && !(a == 0 && sn > 4);
+        for (k = a; k < b && same; k++) {
+            int c = e->x + (pos[k] + pos[k + 1]) / 2;
+            for (j = 0, at = x; j < sn && at + cw[j] <= c; j++)
+                at += cw[j];
+            same = j < sn && (s[j] ? s[j] : ' ') == e->t[k];
+        }
+        if (!same)
+            b = n;                      /* autre texte : la fin est remplacée */
+        if (a == 0 && b == n) {
+            e->hwnd = 0;
+            continue;
+        }
+        if (b < n) {                    /* fin gardée : nouvelle entrée */
+            int j = a > 0 ? free_slot() : i;
+            OSMENT *f = &osm[j];
+            if (j != i)
+                *f = *e;
+            f->x = e->x + pos[b];
+            f->w = pos[n] - pos[b];
+            for (k = b; k <= n; k++) {
+                f->t[k - b] = e->t[k];
+                if (k < n)
+                    wid[j * OSM_TXT + k - b] = wid[i * OSM_TXT + k];
+            }
+        }
+        if (a > 0) {                    /* début gardé */
+            e->t[a] = 0;
+            e->w = pos[a];
+        }
+    }
+}
+
 /* Texte affiché à l'écran dans hwnd : remplace ce qui était dessous */
 static void store(HWND hwnd, int x, int y, int w, int h, BOOL hi, LPCSTR s, int n,
                   const BYTE FAR *cw, BYTE font)
@@ -579,16 +746,10 @@ static void store(HWND hwnd, int x, int y, int w, int h, BOOL hi, LPCSTR s, int 
     int i, slot;
     OSMENT *e;
 
-    forget_covered(hwnd, x, y, w, h);
-    slot = 0;
-    for (i = 0; i < OSM_N; i++) {       /* place libre, sinon la plus ancienne */
-        if (!osm[i].hwnd || !IsWindow(osm[i].hwnd)) {
-            slot = i;
-            break;
-        }
-        if (osm[i].seq < osm[slot].seq)
-            slot = i;
-    }
+    cut_text(hwnd, x, y, w, h, s, n, cw);
+    if (GetWindowLong(hwnd, GWL_STYLE) & WS_CHILD)
+        forget_covered(GetParent(hwnd), x, y, w, h);
+    slot = free_slot();
     e = &osm[slot];
     e->hwnd = hwnd;
     e->x = x;
@@ -686,6 +847,19 @@ static void rect_dp(HDC hdc, int l, int t, int r, int b, RECT *out)
     SetRect(out, p[0].x, p[0].y, p[1].x, p[1].y);
 }
 
+/* Rectangle repeint (unités de périphérique) réduit à la zone de découpage du
+   contexte : Excel repeint toute sa grille sous une région limitée à deux cellules
+   (Entrée) ; sans cela, ses en-têtes de colonnes disparaissaient du modèle. */
+static void clip_dp(HDC hdc, RECT *r)
+{
+    RECT c, d;
+    if (GetClipBox(hdc, &c) == ERROR)
+        return;
+    rect_dp(hdc, c.left, c.top, c.right, c.bottom, &d);
+    if (!IntersectRect(r, r, &d))
+        SetRectEmpty(r);
+}
+
 /* Contexte sans fenêtre connue et d'origine 0,0 : bitmap en mémoire. (Un contexte
    d'écran ainsi placé, sans fenêtre notée, était déjà ignoré.) */
 static BOOL is_memdc(HWND hwnd, DWORD org)
@@ -743,8 +917,17 @@ static void blit_text(HDC dst, int x, int y, int w, int h, HDC src, int xs, int 
     }
     if (!hwnd)
         return;
-    forget_covered(hwnd, d.left, d.top, d.right - d.left, d.bottom - d.top);
-    inv_clear(hwnd, &d);
+    {
+        RECT k;                         /* partie réellement recouverte */
+        rect_dp(dst, x, y, x + w, y + h, &k);
+        clip_dp(dst, &k);
+        OffsetRect(&k, (int) LOWORD(org), (int) HIWORD(org));
+        vis_dc = dst;
+        vis_org = org;
+        forget_covered(hwnd, k.left, k.top, k.right - k.left, k.bottom - k.top);
+        vis_dc = NULL;
+        inv_clear(hwnd, &k);
+    }
     for (i = 0; i < MEM_N; i++) {
         MEMENT *m = &mem[i];
         int cy = m->y + m->h / 2;
@@ -777,13 +960,18 @@ static void char_widths(HDC hdc, LPCSTR s, int n, const int FAR *dx, int w, BYTE
     }
     for (i = 0; i < n; i++)
         total += dx ? dx[i] : cwbuf[(BYTE) s[i] - lo];
-    for (i = 0; i < n; i++) {
-        v = dx ? dx[i] : cwbuf[(BYTE) s[i] - lo];
-        if (total > 0)
-            v = (int) ((long) v * w / total);
-        else
-            v = w / n;
-        cw[i] = (BYTE) (v < 0 ? 0 : v > 255 ? 255 : v);
+    /* positions cumulées arrondies : arrondir chaque largeur perdait jusqu'à un point
+       par caractère (Ami Pro, en twips : sélection décalée d'un mot en fin de ligne) */
+    {
+        long sum = 0;
+        int prev = 0, pos;
+        for (i = 0; i < n; i++) {
+            sum += dx ? dx[i] : cwbuf[(BYTE) s[i] - lo];
+            pos = total > 0 ? (int) ((sum * w + total / 2) / total) : (int) ((long) w * (i + 1) / n);
+            v = pos - prev;
+            prev = pos;
+            cw[i] = (BYTE) (v < 0 ? 0 : v > 255 ? 255 : v);
+        }
     }
 }
 
@@ -860,8 +1048,14 @@ static void record(HDC hdc, int x, int y, UINT opts, const RECT FAR *rc,
             c.y = r.top;
             if (!hwnd)
                 hwnd = WindowFromPoint(c);
+            OffsetRect(&r, -(int) LOWORD(org), -(int) HIWORD(org));
+            clip_dp(hdc, &r);
+            OffsetRect(&r, (int) LOWORD(org), (int) HIWORD(org));
             if (hwnd) {
+                vis_dc = hdc;
+                vis_org = org;
                 forget_center(hwnd, &r);
+                vis_dc = NULL;
                 inv_clear(hwnd, &r);
             }
         }
@@ -983,23 +1177,28 @@ BOOL FAR PASCAL __export __loadds EpTextOut(HDC hdc, int x, int y, LPCSTR s, int
 
 /* Mince rectangle inversé à l'écran : curseur texte dessiné par le programme
    (Write par PatBlt, Word par BitBlt). Le clignotement le redessine au même endroit. */
+/* (Ami Pro dessine en twips, axe vertical vers le haut : 33 × -280 pour 2 × 19 points ;
+   la taille est jugée en unités de périphérique) */
 static void note_caret(HDC hdc, int x, int y, int w, int h)
 {
     DWORD org;
     POINT pt;
     HWND hwnd;
+    RECT r;
 
+    rect_dp(hdc, x, y, x + w, y + h, &r);
+    if (r.left > r.right) { int t = r.left; r.left = r.right; r.right = t; }
+    if (r.top > r.bottom) { int t = r.top; r.top = r.bottom; r.bottom = t; }
+    w = r.right - r.left;
+    h = r.bottom - r.top;
     if (w <= 0 || w > 4 || h < 6)
         return;
     org = GetDCOrg(hdc);
     hwnd = dc_window(hdc);
     if (is_memdc(hwnd, org))
         return;
-    pt.x = x;
-    pt.y = y;
-    LPtoDP(hdc, &pt, 1);
-    pt.x += LOWORD(org);
-    pt.y += HIWORD(org);
+    pt.x = r.left + (int) LOWORD(org);
+    pt.y = r.top + (int) HIWORD(org);
     if (!hwnd)
         hwnd = WindowFromPoint(pt);
     if (hwnd) {
@@ -1017,8 +1216,6 @@ static void note_invert(HDC hdc, int x, int y, int w, int h)
     HWND hwnd;
     RECT r;
 
-    if (h < 3)
-        return;
     org = GetDCOrg(hdc);
     hwnd = dc_window(hdc);
     if (is_memdc(hwnd, org))
@@ -1027,6 +1224,8 @@ static void note_invert(HDC hdc, int x, int y, int w, int h)
     OffsetRect(&r, (int) LOWORD(org), (int) HIWORD(org));
     if (r.left > r.right) { int t = r.left; r.left = r.right; r.right = t; }
     if (r.top > r.bottom) { int t = r.top; r.top = r.bottom; r.bottom = t; }
+    if (r.bottom - r.top < 3)
+        return;                         /* (en points : Ami Pro dessine en twips) */
     if (!hwnd) {
         POINT c;
         c.x = (r.left + r.right) / 2;
@@ -1122,12 +1321,36 @@ static void focus_line(HDC hdc, int x, int y, int w, int h)
     fr_top.w = r.right - r.left;
 }
 
+/* Diagnostic (Inser+Maj+O) : dernières opérations raster inhabituelles */
+static struct { DWORD rop; int w, h; char k; } rop_log[8];
+static int rop_next;
+static void rop_note(char k, DWORD rop, int w, int h)
+{
+    if (rop == SRCCOPY || rop == PATCOPY || abs(w) <= 4 || abs(h) <= 4)
+        return;
+    rop_log[rop_next].rop = rop;
+    rop_log[rop_next].w = w;
+    rop_log[rop_next].h = h;
+    rop_log[rop_next].k = k;
+    rop_next = (rop_next + 1) % 8;
+}
+
+BOOL FAR PASCAL __export EpOsmRopEntry(int i, LPSTR out)
+{
+    i = (rop_next + i) % 8;
+    if (!rop_log[i].k)
+        return FALSE;
+    wsprintf(out, "%c %lx %d %d", rop_log[i].k, rop_log[i].rop, rop_log[i].w, rop_log[i].h);
+    return TRUE;
+}
+
 BOOL FAR PASCAL __export __loadds EpPatBlt(HDC hdc, int x, int y, int w, int h, DWORD rop)
 {
     BOOL ret;
     patch_enter(&p_pat);
     ret = PatBlt(hdc, x, y, w, h, rop);
     patch_leave(&p_pat);
+    rop_note('P', rop, w, h);
     /* fond repeint : le texte dont il couvre le centre disparaît */
     if (rop == PATCOPY || rop == WHITENESS || rop == BLACKNESS) {
         DWORD org = GetDCOrg(hdc);
@@ -1141,25 +1364,38 @@ BOOL FAR PASCAL __export __loadds EpPatBlt(HDC hdc, int x, int y, int w, int h, 
                 r.right >= mfr.r.right && r.bottom >= mfr.r.bottom)
                 mfr.done = FALSE;
         } else {
+            POINT c;
+            c.x = r.left + (int) LOWORD(org);
+            c.y = r.top + (int) HIWORD(org);
+            clip_dp(hdc, &r);
             OffsetRect(&r, (int) LOWORD(org), (int) HIWORD(org));
-            if (!hwnd) {
-                POINT c;
-                c.x = r.left;
-                c.y = r.top;
+            if (!hwnd)
                 hwnd = WindowFromPoint(c);
-            }
             if (hwnd) {
+                vis_dc = hdc;
+                vis_org = org;
                 forget_center(hwnd, &r);
+                vis_dc = NULL;
                 inv_clear(hwnd, &r);
             }
         }
     }
-    if (rop == DSTINVERT && abs(w) > 2)  /* curseur : un ou deux points de large */
-        note_invert(hdc, x, y, w, h);
-    else if (rop == DSTINVERT)
-        note_caret(hdc, x, y, w, h);
-    else if (rop == 0x00A50065L || rop == PATINVERT)    /* DPxn : pointillés de Word */
-        focus_line(hdc, x, y, w, h);
+    if (rop == DSTINVERT) {             /* curseur : un ou deux points de large */
+        RECT d;
+        rect_dp(hdc, x, y, x + w, y + h, &d);
+        if (abs(d.right - d.left) > 2)
+            note_invert(hdc, x, y, w, h);
+        else
+            note_caret(hdc, x, y, w, h);
+    }
+    else if (rop == 0x00A50065L || rop == PATINVERT) {  /* DPxn : pointillés de Word */
+        RECT d;
+        rect_dp(hdc, x, y, x + w, y + h, &d);
+        if (rop == PATINVERT && abs(d.right - d.left) <= 4 && abs(d.bottom - d.top) >= 6)
+            note_caret(hdc, x, y, w, h);        /* curseur d'Ami Pro */
+        else
+            focus_line(hdc, x, y, w, h);
+    }
     return ret;
 }
 
@@ -1240,6 +1476,7 @@ BOOL FAR PASCAL __export __loadds EpBitBlt(HDC dst, int x, int y, int w, int h,
     patch_enter(&p_blt);
     ret = BitBlt(dst, x, y, w, h, src, xs, ys, rop);
     patch_leave(&p_blt);
+    rop_note('B', rop, w, h);
     if (src && ret && mfr.done && mfr.hdc == src)
         mfr_blit(dst, x, y, w, h, src, xs, ys);
     if (src && rop != SRCCOPY && abs(w) <= 4)
@@ -1332,6 +1569,34 @@ BOOL FAR PASCAL __export __loadds EpDeleteDC(HDC hdc)
     ret = DeleteDC(hdc);
     patch_leave(&p_ddc);
     return ret;
+}
+
+BOOL FAR PASCAL __export __loadds EpInvertRgn(HDC hdc, HRGN rgn)
+{
+    BOOL ret;
+    patch_enter(&p_ivg);
+    ret = InvertRgn(hdc, rgn);
+    patch_leave(&p_ivg);
+    rop_note('R', 0, 99, 99);
+    if (ret && rgn)
+        rg_xor(hdc, rgn);
+    return ret;
+}
+
+void FAR PASCAL __export __loadds EpInvertRect(HDC hdc, const RECT FAR *r)
+{
+    HRGN c;
+    patch_enter(&p_ivr);
+    InvertRect(hdc, r);
+    patch_leave(&p_ivr);
+    if (!r)
+        return;
+    rop_note('I', 0, r->right - r->left, r->bottom - r->top);
+    c = CreateRectRgn(r->left, r->top, r->right, r->bottom);
+    if (c) {
+        rg_xor(hdc, c);
+        DeleteObject(c);
+    }
 }
 
 void FAR PASCAL __export __loadds EpScrollWindow(HWND hwnd, int dx, int dy,
@@ -1480,7 +1745,7 @@ BOOL osm_install(void)
     /* Ne pas remplacer les octets sauvegardés lors d’un second appel. */
     if (LIVE(p_eto) || LIVE(p_to) || LIVE(p_bp) || LIVE(p_gdc) ||
         LIVE(p_gwdc) || LIVE(p_gdcex) || LIVE(p_pat) || LIVE(p_sw) ||
-        LIVE(p_sdc) || LIVE(p_blt) || LIVE(p_ddc))
+        LIVE(p_sdc) || LIVE(p_blt) || LIVE(p_ddc) || LIVE(p_ivg) || LIVE(p_ivr))
         return FALSE;
     if (!osm)
         osm = (OSMENT FAR *) GlobalLock(GlobalAlloc(GMEM_FIXED | GMEM_ZEROINIT | GMEM_SHARE,
@@ -1498,6 +1763,12 @@ BOOL osm_install(void)
     memset(glyph, 0, sizeof(glyph));
     memset(fonts, 0, sizeof(fonts));
     memset(inv, 0, sizeof(inv));
+    {
+        int i;
+        for (i = 0; i < RG_N; i++)
+            if (rgsel[i].rgn)
+                SetRectRgn(rgsel[i].rgn, 0, 0, 0, 0);
+    }
     memset(dcmap, 0, sizeof(dcmap));
     fc_hwnd = 0;
     fr_top.hwnd = 0;
@@ -1512,7 +1783,9 @@ BOOL osm_install(void)
            patch_install(&p_sw, "USER", "SCROLLWINDOW", (FARPROC) EpScrollWindow) &&
            patch_install(&p_sdc, "USER", "SCROLLDC", (FARPROC) EpScrollDC) &&
            patch_install(&p_blt, "GDI", "BITBLT", (FARPROC) EpBitBlt) &&
-           patch_install(&p_ddc, "GDI", "DELETEDC", (FARPROC) EpDeleteDC);
+           patch_install(&p_ddc, "GDI", "DELETEDC", (FARPROC) EpDeleteDC) &&
+           patch_install(&p_ivg, "GDI", "INVERTRGN", (FARPROC) EpInvertRgn) &&
+           patch_install(&p_ivr, "USER", "INVERTRECT", (FARPROC) EpInvertRect);
     if (!ok)
         osm_remove();
     return ok;
@@ -1533,6 +1806,17 @@ BOOL osm_remove(void)
     patch_remove(&p_sdc);
     patch_remove(&p_blt);
     patch_remove(&p_ddc);
+    patch_remove(&p_ivg);
+    patch_remove(&p_ivr);
+    {
+        int i;
+        for (i = 0; i < RG_N; i++) {
+            if (rgsel[i].rgn)
+                DeleteObject(rgsel[i].rgn);
+            rgsel[i].rgn = 0;
+            rgsel[i].hwnd = 0;
+        }
+    }
     return pending != 0;
 }
 
@@ -1563,6 +1847,68 @@ int FAR PASCAL __export EpOsmGet(int slot, LPSTR out, int max)
 
 /* Ligne de texte de la fenêtre hwnd qui contient l'ordonnée sy (écran), de gauche à
    droite. Renvoie le nombre de morceaux trouvés. */
+/* Entrée slot du modèle (débogage, Inser+Maj+O) : fenêtre, rectangle écran, texte */
+int FAR PASCAL __export EpOsmEntry(int slot, HWND FAR *hwnd, RECT FAR *r, LPSTR out, int max)
+{
+    if (!osm || slot < 0 || slot >= OSM_N || !osm[slot].hwnd)
+        return 0;
+    *hwnd = osm[slot].hwnd;
+    SetRect((RECT FAR *) r, osm[slot].x, osm[slot].y, osm[slot].x + osm[slot].w,
+            osm[slot].y + osm[slot].h);
+    lstrcpyn(out, osm[slot].t, max);
+    if (osm[slot].font && lstrlen(out) + 40 < max) {
+        FONTENT *f = &fonts[osm[slot].font - 1];
+        wsprintf(out + lstrlen(out), " (police %d %s %d%s%s)", osm[slot].font,
+                 (LPSTR) f->face, f->pts, (LPSTR) (f->bold ? " gras" : ""),
+                 (LPSTR) (f->italic ? " italique" : ""));
+    }
+    return lstrlen(out) + 1;
+}
+
+/* Enveloppe (écran) des zones inversées de hwnd dans le rectangle donné : sélection
+   d'une plage de cellules (Excel). FALSE si aucune. */
+BOOL FAR PASCAL __export EpOsmInvBox(HWND hwnd, int l, int t, int r, int b, RECT FAR *box)
+{
+    RECT area, x, u;
+    int i;
+    BOOL any = FALSE;
+    SetRect(&area, l, t, r, b);
+    SetRectEmpty(&u);
+    for (i = 0; i < INV_N; i++)
+        if (inv[i].hwnd == hwnd && IntersectRect(&x, &inv[i].r, &area)) {
+            if (any)
+                UnionRect(&u, &u, &x);
+            else
+                u = x;
+            any = TRUE;
+        }
+    {
+        HRGN sel = rg_of(hwnd, FALSE);
+        if (sel && GetRgnBox(sel, &x) != NULLREGION && IntersectRect(&x, &x, &area)) {
+            if (any)
+                UnionRect(&u, &u, &x);
+            else
+                u = x;
+            any = TRUE;
+        }
+    }
+    *box = u;
+    return any;
+}
+
+/* Diagnostic (Inser+Maj+O) : petite image n° slot, sa fenêtre et son rectangle */
+BOOL FAR PASCAL __export EpOsmGlyphEntry(int slot, HWND FAR *hwnd, RECT FAR *r,
+                                         int FAR *xs, int FAR *ys)
+{
+    if (slot < 0 || slot >= GL_N || !glyph[slot].hwnd)
+        return FALSE;
+    *hwnd = glyph[slot].hwnd;
+    *r = glyph[slot].r;
+    *xs = glyph[slot].xs;
+    *ys = glyph[slot].ys;
+    return TRUE;
+}
+
 int FAR PASCAL __export EpOsmLine(HWND hwnd, int sy, LPSTR out, int max)
 {
     int used[OSM_N / 8 + 1];
@@ -1622,13 +1968,57 @@ static BOOL review_visible(OSMENT *e, HWND scope)
     return cy >= rc.top && cy < rc.bottom && e->x < rc.right && e->x + e->w > rc.left;
 }
 
+/* Fragment sans lettre ni chiffre (puce de Netscape, un « · » en Courier 30 points
+   haut de deux rangées ; espace) : il appartient à la rangée qui contient son
+   milieu et n'en étend pas les limites, sinon la rangée suivante serait sautée. */
+static BOOL deco(OSMENT *e)
+{
+    const char *s;
+    for (s = e->t; *s; s++)
+        if (IsCharAlphaNumeric(*s))
+            return FALSE;
+    return TRUE;
+}
+
+/* Limites de la rangée qui passe par sy : fragments de texte qui la contiennent ;
+   à défaut (rangée de seuls signes), tous ceux qui la contiennent. */
+static void row_bounds(HWND scope, int sy, int *top, int *bottom)
+{
+    int i, pass;
+    BOOL found;
+    *top = sy;
+    *bottom = sy + 1;
+    for (pass = 0; pass < 2; pass++) {
+        found = FALSE;
+        for (i = 0; i < OSM_N; i++) {
+            OSMENT *e = &osm[i];
+            if (sy < e->y || sy >= e->y + e->h || (pass == 0 && deco(e)) ||
+                !review_visible(e, scope))
+                continue;
+            if (e->y < *top) *top = e->y;
+            if (e->y + e->h > *bottom) *bottom = e->y + e->h;
+            found = TRUE;
+        }
+        if (found)
+            return;
+    }
+}
+
+static BOOL in_row(OSMENT *e, int sy, int top, int bottom)
+{
+    int cy = e->y + e->h / 2;
+    if (deco(e))
+        return cy >= top && cy < bottom;
+    return sy >= e->y && sy < e->y + e->h;
+}
+
 /* Une rangée de texte visible, même si ses morceaux appartiennent à plusieurs
    contrôles. Ne renvoyer que des copies : les entrées OSM sont recyclées. */
 int FAR PASCAL __export EpOsmReviewLine(HWND scope, POINT FAR *pt, int direction,
                                        LPSTR out, int max, int FAR *column)
 {
-    int i, best = -1, distance = 32000, d, sy = pt->y;
-    int top = sy, bottom = sy + 1, len = 0, right = -32000, count = 0;
+    int i, best = -1, distance = 32000, d, sy = pt->y, ey, eh;
+    int top, bottom, len = 0, right = -32000, count = 0;
     int used[OSM_N / 16 + 1];
 
     if (!osm)
@@ -1638,26 +2028,25 @@ int FAR PASCAL __export EpOsmReviewLine(HWND scope, POINT FAR *pt, int direction
     *column = 0;
     /* Limites de la rangée courante : ne pas prendre un autre fragment de la
        même ligne pour la ligne suivante (polices de hauteurs différentes). */
-    for (i = 0; i < OSM_N; i++) {
-        OSMENT *e = &osm[i];
-        if (review_visible(e, scope) &&
-            sy >= e->y && sy < e->y + e->h) {
-            if (e->y < top) top = e->y;
-            if (e->y + e->h > bottom) bottom = e->y + e->h;
-        }
-    }
+    row_bounds(scope, sy, &top, &bottom);
     for (i = 0; i < OSM_N; i++) {
         OSMENT *e = &osm[i];
         if (!review_visible(e, scope))
             continue;
+        ey = e->y;
+        eh = e->h;
+        if (deco(e)) {                  /* (signe seul : son milieu) */
+            ey += eh / 2;
+            eh = 1;
+        }
         if (direction == -1) {
-            if (e->y + e->h > top) continue;
-            d = top - e->y - e->h;
+            if (ey + eh > top) continue;
+            d = top - ey - eh;
         } else if (direction == 1) {
-            if (e->y < bottom) continue;
-            d = e->y - bottom;
+            if (ey < bottom) continue;
+            d = ey - bottom;
         } else {
-            d = sy < e->y ? e->y - sy : sy >= e->y + e->h ? sy - e->y - e->h + 1 : 0;
+            d = sy < ey ? ey - sy : sy >= ey + eh ? sy - ey - eh + 1 : 0;
             if (direction == 0 && d) continue;
         }
         if (best < 0 || d < distance) {
@@ -1669,13 +2058,14 @@ int FAR PASCAL __export EpOsmReviewLine(HWND scope, POINT FAR *pt, int direction
         return 0;
     sy = osm[best].y + osm[best].h / 2;
     pt->y = sy;
+    row_bounds(scope, sy, &top, &bottom);
     memset(used, 0, sizeof(used));
     for (;;) {
         best = -1;
         for (i = 0; i < OSM_N; i++) {
             OSMENT *e = &osm[i];
-            if ((used[i / 16] & (1 << (i % 16))) || !review_visible(e, scope) ||
-                sy < e->y || sy >= e->y + e->h)
+            if ((used[i / 16] & (1 << (i % 16))) || !in_row(e, sy, top, bottom) ||
+                !review_visible(e, scope))
                 continue;
             if (best < 0 || e->x < osm[best].x)
                 best = i;
@@ -1901,6 +2291,78 @@ int FAR PASCAL __export EpOsmRect(HWND hwnd, int l, int t, int r, int b, LPSTR o
     return n;
 }
 
+/* Morceau de texte visible de scope (ou de ses filles) exactement égal à s, espaces de
+   bord ignorées, dont le centre est dans (l, t, r, b) : le plus haut, puis le plus à
+   gauche. Sert à retrouver les en-têtes d'une grille (colonne « B », ligne « 12 »). */
+BOOL FAR PASCAL __export EpOsmFind(HWND scope, int l, int t, int r, int b, LPCSTR s,
+                                   RECT FAR *found)
+{
+    int i, best = -1, n = lstrlen(s), k, cx, cy;
+    const char FAR *p;
+
+    if (!osm || !n)
+        return FALSE;
+    for (i = 0; i < OSM_N; i++) {
+        OSMENT *e = &osm[i];
+        cx = e->x + e->w / 2;
+        cy = e->y + e->h / 2;
+        if (cx < l || cx >= r || cy < t || cy >= b || !review_visible(e, scope))
+            continue;
+        for (p = e->t; *p == ' '; p++)
+            ;
+        for (k = lstrlen(p); k > 0 && p[k - 1] == ' '; k--)
+            ;
+        if (k != n || _fstrncmp(p, s, n) != 0)
+            continue;
+        if (best < 0 || e->y < osm[best].y || (e->y == osm[best].y && e->x < osm[best].x))
+            best = i;
+    }
+    if (best < 0)
+        return FALSE;
+    SetRect((RECT FAR *) found, osm[best].x, osm[best].y, osm[best].x + osm[best].w,
+            osm[best].y + osm[best].h);
+    return TRUE;
+}
+
+/* Textes visibles de scope qui commencent dans (l, t, r, b) (bord gauche et milieu
+   vertical), de gauche à droite : contenu d'une cellule, sans le texte d'une cellule
+   voisine qui déborde dessus. *at : rectangle du premier morceau, si at. */
+int FAR PASCAL __export EpOsmStartIn(HWND scope, int l, int t, int r, int b, LPSTR out,
+                                     int max, RECT FAR *at)
+{
+    int used[OSM_N / 16 + 1];
+    int i, best, n = 0, len = 0;
+
+    out[0] = 0;
+    if (!osm)
+        return 0;
+    memset(used, 0, sizeof(used));
+    for (;;) {
+        best = -1;
+        for (i = 0; i < OSM_N; i++) {
+            OSMENT *e = &osm[i];
+            int cy = e->y + e->h / 2;
+            if ((used[i / 16] & (1 << (i % 16))) || !e->t[0] || e->x < l || e->x >= r ||
+                cy < t || cy >= b || !review_visible(e, scope))
+                continue;
+            if (best < 0 || e->x < osm[best].x)
+                best = i;
+        }
+        if (best < 0 || len >= max - 2)
+            break;
+        used[best / 16] |= 1 << (best % 16);
+        if (!n && at)
+            SetRect((RECT FAR *) at, osm[best].x, osm[best].y, osm[best].x + osm[best].w,
+                    osm[best].y + osm[best].h);
+        if (len)
+            out[len++] = ' ';
+        lstrcpyn(out + len, osm[best].t, max - len);
+        len = lstrlen(out);
+        n++;
+    }
+    return n;
+}
+
 /* Caractère de la fenêtre hwnd sous le point (sx, sy) de l'écran ; 0 si rien. */
 int FAR PASCAL __export EpOsmCharAt(HWND hwnd, int sx, int sy)
 {
@@ -1935,17 +2397,18 @@ static int char_x(int i, int k)
 BOOL FAR PASCAL __export EpOsmReviewPoint(HWND scope, POINT FAR *pt, int column)
 {
     int used[OSM_N / 16 + 1];
-    int i, best, len = 0, n, right = -32000, sy = pt->y;
+    int i, best, len = 0, n, right = -32000, sy = pt->y, top, bottom;
 
     if (!osm)
         return FALSE;
+    row_bounds(scope, sy, &top, &bottom);
     memset(used, 0, sizeof(used));
     for (;;) {
         best = -1;
         for (i = 0; i < OSM_N; i++) {
             OSMENT *e = &osm[i];
-            if ((used[i / 16] & (1 << (i % 16))) || !review_visible(e, scope) ||
-                sy < e->y || sy >= e->y + e->h)
+            if ((used[i / 16] & (1 << (i % 16))) || !in_row(e, sy, top, bottom) ||
+                !review_visible(e, scope))
                 continue;
             if (best < 0 || e->x < osm[best].x)
                 best = i;

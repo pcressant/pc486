@@ -308,7 +308,7 @@ static void test_patch_lifecycle(void)
     int i;
     osm_remove();
     CHECK(sim_fixed == 0 && sim_aliases == 0);
-    for (i = 1; i <= 11; i++) {
+    for (i = 1; i <= 13; i++) {
         sim_alloc_count = 0;
         sim_alloc_fail = i;
         CHECK(!osm_install());
@@ -323,9 +323,9 @@ static void test_patch_lifecycle(void)
     CHECK(sim_fixed == 0 && sim_aliases == 0);
     sim_presto_fail = 0;
     CHECK(osm_install());
-    CHECK(sim_fixed == 11 && sim_aliases == 11);
+    CHECK(sim_fixed == 13 && sim_aliases == 13);
     CHECK(!osm_install());
-    CHECK(sim_fixed == 11);
+    CHECK(sim_fixed == 13);
     patch_enter(&p_eto);
     patch_enter(&p_eto);
     osm_remove();
@@ -398,7 +398,7 @@ static void test_abandoned_call(void)
     osm_reap();
     CHECK(!p_bp.depth && !p_bp.task && !pending);
     CHECK(memcmp(sim_patch_area, p_bp.jmp, 5) == 0);
-    CHECK(sim_fixed == 11 && sim_aliases == 11);
+    CHECK(sim_fixed == 13 && sim_aliases == 13);
 
     /* faute dans GDI pendant TextOut : le modèle doit continuer à noter le texte */
     sim_task = 4;
@@ -427,7 +427,7 @@ static void test_abandoned_call(void)
     /* Réinstallation pendant que l'appel est actif : sélecteur réutilisé, pas de
        saut tant que l'original tourne ; son retour le repose. */
     CHECK(osm_install());
-    CHECK(!p_bp.removing && p_bp.depth == 1 && sim_aliases == 11 && sim_fixed == 11);
+    CHECK(!p_bp.removing && p_bp.depth == 1 && sim_aliases == 13 && sim_fixed == 13);
     CHECK(!osm_install());
     patch_leave(&p_bp);
     CHECK(!pending && memcmp(sim_patch_area, p_bp.jmp, 5) == 0);
@@ -471,6 +471,44 @@ static void test_destroyed(void)
     CHECK_STR(row(dlg, 112), "");
 }
 
+/* Ami Pro : dessin en twips (15 unités par point), axe vertical vers le haut ; curseur
+   tracé par PatBlt PATINVERT (33 × -280 environ), sélection par InvertRect, qui passe
+   par PatBlt DSTINVERT, hauteur négative */
+static void test_amipro(void)
+{
+    HWND top, doc;
+    HDC dc;
+    POINT pt;
+    int a, b;
+    char sel[128];
+
+    reset_world();
+    top = sim_create(0, "AMIPROWNDA", "Ami Pro", 0, 0, 0, 640, 480);
+    doc = sim_create(top, "AMIPROLAYOUTA", "", 0, 10, 40, 610, 400);
+    dc = EpGetDC(doc);
+    sim_dc[dc].twips = 15;
+    text(dc, 0, 0, "Bonjour le monde.");
+    text(dc, 0, -255, "Deuxieme ligne ici.");
+    CHECK_STR(row(top, 48), "Bonjour le monde.");
+    EpPatBlt(dc, 16 * 15, -255, 33, -255, PATINVERT);
+    CHECK(EpOsmCaret(doc, &pt) && pt.x == 26 && pt.y == 57);
+    EpPatBlt(dc, 0, 0, 40 * 15, -255, DSTINVERT);      /* « Bonjo » */
+    CHECK(EpOsmRowSelection(top, 48, &a, &b) && a == 0 && b == 5);
+    EpOsmSelection(top, sel, sizeof(sel));
+    CHECK_STR(sel, "Bonjo");
+    EpPatBlt(dc, 0, 0, 40 * 15, -255, DSTINVERT);
+    {
+        /* largeurs imposées de 100 twips (6,67 points) : 15 caractères font 100 points */
+        static int dx[20];
+        int i;
+        for (i = 0; i < 20; i++)
+            dx[i] = 100;
+        EpExtTextOut(dc, 0, -510, 0, NULL, "abcdefghijklmnopqrst", 20, dx);
+        EpPatBlt(dc, 0, -510, 1500, -255, DSTINVERT);
+        CHECK(EpOsmRowSelection(top, 76, &a, &b) && a == 0 && b == 15);
+    }
+}
+
 int main(void)
 {
     test_patch_lifecycle();
@@ -484,6 +522,7 @@ int main(void)
     test_paint();
     test_review();
     test_destroyed();
+    test_amipro();
     if (failures)
         printf("%d échec(s)\n", failures);
     else

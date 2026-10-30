@@ -36,9 +36,11 @@ les services hôte et le démarrage d'une installation neuve avec QEMU.
 
 L'installateur utilise les supports **locaux** de l'utilisateur : DOS 6.22 français
 (trois disquettes) et Windows pour Workgroups 3.11 français (neuf disquettes), sous
-forme d'images IMG/IMA ou de ZIP, et facultativement le disque supplémentaire de
-DOS 6.22, Word 6.0c pour Windows et Word 6.0 pour DOS. Ces logiciels ne sont ni inclus dans les sources
-ni téléchargés par le script.
+forme d'images IMG/IMA ou de ZIP. Facultativement : le disque supplémentaire de
+DOS 6.22, Word 6.0c, Excel 5, Access 2.0, Ami Pro 3.01, Word 6.0 pour DOS,
+Netscape Navigator 3.01, Communicator 4.08, Eudora Light 3.06, le pilote de CD-ROM et
+TCP/IP-32. Ces logiciels ne sont ni inclus dans les sources ni téléchargés par le
+script.
 
 ```sh
 scripts/installer --dos media/msdos622 --windows media/wfw311 \
@@ -46,13 +48,16 @@ scripts/installer --dos media/msdos622 --windows media/wfw311 \
 scripts/installer --dos media/msdos622 --windows media/wfw311 \
   --suppl media/msdos622/SUPPL.IMG \
   --word media/word6-win --word-dos media/word6-dos-fr --name 'Utilisateur' \
-  --output work/installations/nouveau-pc.img
+  --output vm/win311.img
 ```
 
 La sortie doit être absente. Le script crée un nouveau disque, installe DOS
 (clavier français, page 850), les outils supplémentaires, Épaudos, Windows,
-son pilote Sound Blaster, Word 6.0c, Word 6.0 pour DOS, Épaulard et le braille Baum sur COM3, avec le menu et les fichiers de démarrage de la VM de
-référence. Il vérifie ensuite le démarrage de chaque lecteur.
+son pilote Sound Blaster, les logiciels fournis, Épaulard et le braille Baum sur
+COM3, avec le menu et les fichiers de démarrage du dépôt. Il vérifie ensuite le
+démarrage de chaque lecteur. Les options `--excel`, `--access`, `--amipro`,
+`--netscape`, `--communicator`, `--eudora`, `--cdrom` et `--reseau` sont décrites
+avec les autres.
 Voir [les prérequis, options et diagnostics](docs/installation-automatique.md).
 
 ## Commandes
@@ -183,10 +188,11 @@ produit une archive des seuls fichiers versionnés.
 | Dossier | Contenu |
 | --- | --- |
 | `epaulard/` | Sources Win16 du lecteur et compilation locale dans `build/` |
-| `scripts/` | Lancement, installation, pilotage et passerelle braille |
+| `epaudos/` | Sources du lecteur DOS (TSR) et compilation locale dans `build/` |
+| `scripts/` | Lancement, installation, pilotage, passerelle braille, services réseau (`reseau/`) |
 | `tests/` | Bancs natifs, intégrations et scénarios Windows |
 | `docs/` | Guides d'utilisation, protocoles et diagnostics |
-| `dos/`, `86box/` | Configuration du système invité et de l'émulateur |
+| `dos/`, `86box/` | Fichiers de démarrage et outil RESEAU.EXE de l'invité, configuration de l'émulateur |
 | `tools/` | Expressions Nix, correctifs et liens locaux vers les outils |
 | `vm/` | Disques locaux C: et D: (facultatif), exclus de Git |
 | `media/` | Supports locaux, exclus de la publication |
@@ -212,11 +218,10 @@ produit une archive des seuls fichiers versionnés.
 - Touches : pour diagnostiquer : `PC486_TRACE_KEYS=1 scripts/pc486 start …` enregistre dans
   `logs/touches.log` les touches que QEMU reçoit de GTK.
 
-- Épaudos se met en veille pendant toute la session Windows. Épaulard ne lit
-  actuellement pas le
-  contenu d'une session « Commandes MS-DOS ». Une absence de parole dans cette session
-  ne signifie donc pas forcément que Windows est figé. Alt+Tab permet de revenir à
-  une application Windows ; `EXIT` ferme la session DOS. Voir
+- Une session « Invite MS-DOS » de Windows est lue par Épaudos, dont Épaulard relaie
+  la parole et le braille ([l'invite MS-DOS](docs/invite-dos.md)) ; il faut pour cela
+  avoir démarré Windows par le menu, qui charge Épaudos avant `WIN`. Une session
+  silencieuse ne signifie pas que Windows est figé : voir
   [le diagnostic des sessions DOS](docs/diagnostic-dos.md).
 - Apolo-emu reproduit le protocole de l'Apollo II (texte, arrêt, réglages, échos,
   interrogations), pas sa voix. Le volume demandé par `@A` est ignoré
@@ -226,8 +231,8 @@ produit une archive des seuls fichiers versionnés.
 
 ## Windows pour Workgroups 3.11 et Épaulard
 
-Word 6.0c pour Windows (édition française) est installé dans `C:\WINWORD`.
-Lancement : groupe **Microsoft Office**, icône **Microsoft Word**. Voir
+Avec `--word`, Word 6.0c pour Windows (édition française) est installé dans
+`C:\WINWORD`. Lancement : groupe **Microsoft Office**, icône **Microsoft Word**. Voir
 [prise en charge et limites de lecture](docs/word6-accessibilite.md).
 Pour installer Word, suivre [l’installation automatique](docs/installation-automatique.md).
 
@@ -286,8 +291,16 @@ par Apolo-emu, comme Épaudos. Le dire tout attend l'écho `@E` renvoyé après 
   mot ; Maj+flèches annonce le texte sélectionné ou désélectionné (zones d'édition,
   Write, Word). La touche Inser est réservée à Épaulard.
 - Autres programmes Windows (Aide, Fiches, Table de caractères, Panneau de
-  configuration, Mail, Terminal, Didacticiel…) : état et limites par programme dans
-  [les programmes Windows](docs/programmes-windows.md).
+  configuration, Mail, Terminal, Didacticiel, Ami Pro…) : état et limites par
+  programme dans [les programmes Windows](docs/programmes-windows.md).
+- Excel 5 et Access 2.0 : cellule, valeur, formule, feuille, plage sélectionnée et
+  mise en forme ; voir [les tableurs](docs/tableur.md).
+- Invite MS-DOS : lue par Épaudos, parole et braille relayés par Épaulard ; voir
+  [l'invite MS-DOS](docs/invite-dos.md).
+- Pages de Netscape 3 et de Communicator 4 : mode navigation comme NVDA (curseur
+  virtuel, H titres, K liens, T tableaux, X cases à cocher…, Inser+Espace pour le
+  mode formulaire) ; voir [la navigation Web](docs/navigation-web.md). Il suppose le
+  réseau isolé ci-dessous.
 - Souris, comme NVDA, Verr Num éteint : / du pavé clic gauche, * clic droit, Maj+/ ou
   Maj+* verrouille le bouton, Inser+/ amène le pointeur au point de revue, Inser+*
   lit sous le pointeur. Voir [la revue et la souris](docs/revue-pave.md).
@@ -297,6 +310,19 @@ par Apolo-emu, comme Épaudos. Le dire tout attend l'écho `@E` renvoyé après 
   **Inser+5 du pavé** recentre la revue sur le focus ou le curseur de saisie.
   Les flèches dédiées et les combinaisons avec Maj, Ctrl ou Alt restent disponibles.
   Voir [les modes de revue et leurs limites](docs/revue-pave.md).
+
+## CD-ROM et réseau isolé (facultatifs)
+
+`scripts/pc486 start --cdrom [ISO]` ajoute un lecteur E: ; `scripts/pc486 start
+--reseau` branche une carte NE2000 qui ne peut joindre que les services locaux de
+l'hôte : un proxy qui traduit les pages modernes en HTML 3.2, et une boîte aux
+lettres POP3/SMTP de test. Sans ces options, rien ne change. Voir
+[le CD-ROM et le réseau](docs/reseau.md).
+
+Pour essayer un logiciel sur une copie du disque et entendre ce qu'Épaulard en dit
+pendant son installation : [le bac à sable](docs/bac-a-sable.md).
+
+## Compilation et développement
 
 Compilation (Open Watcom, `tools/watcom`, construit par
 `NIXPKGS_ALLOW_UNFREE=1 nix build --impure nixpkgs#open-watcom-v2 -o tools/watcom`) :

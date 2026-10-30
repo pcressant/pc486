@@ -7,7 +7,9 @@
 #define WIN16_FULL
 #include "../../epaulard/src/osm.c"
 #include "../../epaulard/src/braille.c"
-#include "../../epaulard/src/epaulard.c"
+#include "../../epaulard/src/page.c"
+#include "epaulard-modules.h"
+#include "navweb-essai.h"
 
 HWND ep_hwnd_main;
 BOOL ep_in_menu;
@@ -15,8 +17,13 @@ BOOL FAR PASCAL EpInstall(HWND h, int c) { (void) c; ep_hwnd_main = h; return TR
 void FAR PASCAL EpRemove(void) {}
 static BOOL cfg_mode_sim;       /* clavier donné au menu des réglages (EPAUHOOK.DLL) */
 void FAR PASCAL EpCfgMode(BOOL on) { cfg_mode_sim = on; }
+static BOOL pass_keys_sim;      /* touches laissées à la machine DOS (EPAUHOOK.DLL) */
+void FAR PASCAL EpPassKeys(BOOL on) { pass_keys_sim = on; }
 static int sim_br_epoch;
 int FAR PASCAL EpBrailleEpoch(void) { return sim_br_epoch; }
+static HWND sim_nav_view;       /* mode navigation posé dans EPAUHOOK.DLL */
+static int sim_nav_mode;
+void FAR PASCAL EpNavMode(HWND v, int m) { sim_nav_view = v; sim_nav_mode = v ? m : 0; }
 
 static int failures;
 #define CHECK(c) do { if (!(c)) { printf("ÉCHEC %s:%d : %s\n", __FILE__, __LINE__, #c); failures++; } } while (0)
@@ -33,12 +40,12 @@ static int line_index_np(const char *t);
 
 /* ------------------------------------------------------- fausse Apollo II */
 #define AP_N 512
-static struct { char t[300]; BOOL echo; } ap_q[AP_N];
+static struct { char t[1200]; BOOL echo; } ap_q[AP_N];
 static int ap_n, ap_parsed;
-static char ap_cur[300];
+static char ap_cur[1200];
 static int ap_curn;
 static DWORD ap_busy_until;     /* fin de l'énoncé en cours */
-static char spoken[400][300];   /* énoncés commencés, dans l'ordre */
+static char spoken[400][1200];   /* énoncés commencés, dans l'ordre */
 static int spoken_n;
 static DWORD idle_ms;           /* dire tout en cours, plus rien à dire, puis reprise */
 static DWORD idle_run;          /* silence en cours (compté s'il est suivi d'un énoncé) */
@@ -68,7 +75,7 @@ static void ap_step(void)
             if (ap_q[ap_n].echo || ap_cur[0] != '@')     /* réglages (@W4@F9...) : muets */
                 ap_n++;
             ap_curn = 0;
-        } else if (ap_curn < 299)
+        } else if (ap_curn < 1199)
             ap_cur[ap_curn++] = b;
     }
     while (sim_now >= ap_busy_until && ap_n) {
@@ -292,6 +299,13 @@ static struct {
     HDC dc;
     int sel;
 } pm;
+/* Préférences de Netscape : la zone de saisie dessine sa valeur */
+static void netscape_paint(HWND h, const RECT *r)
+{
+    (void) r;
+    EpExtTextOut(EpGetDC(h), 2, 2, 0, NULL, "600", 3, NULL);
+}
+
 static const char *pm_names[6] = { "Gestionnaire de fichiers", "Panneau de configuration",
     "Lisezmoi", "Windows Installation", "PIFedit", "Commandes MS-DOS" };
 
@@ -428,8 +442,50 @@ static LRESULT hp_key(UINT vk)
     return 0;
 }
 
+
+/* Éditeur de cellule d'Excel (F2) : formule dessinée une fois, puis seuls les trois
+   caractères autour de l'ancien et du nouveau curseur sont redessinés */
+static struct {
+    HWND top, ed;
+    HDC dc;
+    const char *t;
+    int col;
+} xe;
+static void xe_piece(int col)
+{
+    int a = col > 1 ? col - 1 : 0, n = (int) strlen(xe.t);
+    int b = a + 3 < n ? a + 3 : n;
+    if (b > a)
+        EpExtTextOut(xe.dc, a * 8, 0, 0, NULL, xe.t + a, (UINT) (b - a), NULL);
+}
+static BOOL xe_alnum(char c)
+{
+    return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+}
+static LRESULT xe_key(UINT vk)
+{
+    int n = (int) strlen(xe.t), old = xe.col;
+    if (vk == VK_LEFT && xe.col > 0) {
+        if (sim_keys[VK_CONTROL]) {     /* début du mot précédent (ponctuation sautée) */
+            for (xe.col--; xe.col > 0 && !xe_alnum(xe.t[xe.col]); xe.col--)
+                ;
+            for (; xe.col > 0 && xe_alnum(xe.t[xe.col - 1]); xe.col--)
+                ;
+        } else
+            xe.col--;
+    }
+    if (vk == VK_RIGHT && xe.col < n) xe.col++;
+    if (vk == VK_HOME) xe.col = 0;
+    if (vk == VK_END) xe.col = n;
+    xe_piece(old);
+    xe_piece(xe.col);
+    EpPatBlt(xe.dc, xe.col * 8, 0, 1, 16, DSTINVERT);
+    return 0;
+}
+
 static LRESULT app_key(HWND h, UINT vk)
 {
+    if (h == xe.ed && xe.ed) return xe_key(vk);
     if (h == hp.doc && hp.doc) return hp_key(vk);
     if (h == wr.doc && wr.doc) return wr_key(vk);
     if (h == np.edit && np.edit) return np_key(vk);
@@ -438,17 +494,71 @@ static LRESULT app_key(HWND h, UINT vk)
     return 0;
 }
 
-/* l'application qui a le focus lit ses touches ; le crochet clavier les signale */
+/* Champs d'une page de Netscape (fenêtres filles de la vue) : état des cases, longueur
+   du texte (WM_GETTEXT reste vide, comme chez Netscape), liste « Paris, Lyon, Marseille » */
+static int nsf_check[SIM_WN];
+static char nsf_value[SIM_WN][40];
+static HWND nsf_clicked;
+static LRESULT nsf_proc(HWND h, UINT m, WPARAM w, LPARAM l)
+{
+    int i, st = (int) (sim_win[h].style & 0x0F);
+    switch (m) {
+    case BM_GETCHECK: return nsf_check[h];
+    case WM_GETTEXTLENGTH: return (LRESULT) strlen(nsf_value[h]);
+    case CB_GETCURSEL: return 1;
+    case CB_GETLBTEXTLEN: return 4;
+    case CB_GETLBTEXT:                  /* sans CBS_HASSTRINGS : donnée de l'élément */
+        if ((sim_win[h].style & CBS_OWNERDRAWFIXED) && !(sim_win[h].style & CBS_HASSTRINGS)) {
+            strcpy((char *) l, "\x8a" "k&");
+            return 4;
+        }
+        strcpy((char *) l, "Lyon"); return 4;
+    case WM_KEYUP:                      /* Espace relâché : clic */
+        if (w != VK_SPACE || !is_class(h, "BUTTON"))
+            return 0;
+        if (st == BS_AUTOCHECKBOX)
+            nsf_check[h] = !nsf_check[h];
+        else if (st == BS_RADIOBUTTON) {
+            for (i = 1; i < SIM_WN; i++)
+                if (sim_win[i].used && sim_win[i].proc == nsf_proc &&
+                    sim_win[i].parent == sim_win[h].parent && (sim_win[i].style & 0x0F) == BS_RADIOBUTTON)
+                    nsf_check[i] = 0;
+            nsf_check[h] = 1;
+        } else
+            nsf_clicked = h;
+        return 0;
+    }
+    return 0;
+}
+
+/* champ de Netscape repeint : son texte entier */
+static void nsf_update(HWND h, const RECT *r)
+{
+    HDC dc;
+    (void) r;
+    if (sim_win[h].proc != nsf_proc || !nsf_value[h][0])
+        return;
+    dc = GetDC(h);
+    EpExtTextOut(dc, 2, 2, 0, NULL, nsf_value[h], (UINT) strlen(nsf_value[h]), NULL);
+    DeleteDC(dc);
+}
+
+/* l'application qui a le focus lit ses touches ; le crochet clavier signale celles du
+   clavier, pas celles qu'un programme a postées (dire tout d'Épaulard) */
 static void app_keys(void)
 {
     MSG m;
     int k;
-    for (k = 0; k < 64 && sim_focus && sim_take(sim_focus, &m); k++)
+    for (k = 0; k < 64 && sim_focus && sim_take(sim_focus, &m); k++) {
         if (m.message == WM_KEYDOWN) {
             app_key(m.hwnd, m.wParam);
-            PostMessage(hwnd_main, EPM_KEY, m.wParam, m.lParam |     /* comme EPAUHOOK.DLL */
+            if (m.time)
+                PostMessage(hwnd_main, EPM_KEY, m.wParam, m.lParam |     /* comme EPAUHOOK.DLL */
                         (sim_keys[VK_CONTROL] ? EPK_CTRL : 0) | (sim_keys[VK_SHIFT] ? EPK_SHIFT : 0));
         }
+        if (IsWindow(m.hwnd) && sim_win[m.hwnd].proc == nsf_proc)
+            nsf_proc(m.hwnd, m.message, m.wParam, m.lParam);
+    }
 }
 
 static void step(void)
@@ -477,8 +587,10 @@ static void run(DWORD ms)
 /* touche de l'utilisateur, envoyée à l'application qui a le focus */
 static void key(UINT vk)
 {
+    sim_hw = TRUE;                      /* touche de l'utilisateur : vue par le crochet */
     PostMessage(sim_focus, WM_KEYDOWN, vk, MAKELPARAM(1, 0x100));
     PostMessage(sim_focus, WM_KEYUP, vk, MAKELPARAM(1, 0xC100));
+    sim_hw = FALSE;
 }
 static void insert_cmd(UINT vk) { PostMessage(hwnd_main, EPM_CMD, vk, 0); }
 static void ctrl_alone(void) { PostMessage(hwnd_main, EPM_SILENCE, 0, 0); }
@@ -514,6 +626,8 @@ static void boot(void)
     com_open();
     cfg_load(0);
     voice_apply();
+    memset(&nav, 0, sizeof(nav));
+    nav_init();
     EpInstall(hwnd_main, com);
     br_open();
     SetTimer(hwnd_main, TIMER_ID, POLL_MS, NULL);
@@ -612,6 +726,35 @@ static void test_write_interrupt(void)
     CHECK(spoken_n == before + 1);
     if (spoken_n == before + 1)
         CHECK_STR(spoken[before], doc_lines[reading + 1][0] ? doc_lines[reading + 1] : "vide");
+}
+
+/* Fin du document : le curseur est en bas, la parole lit encore les lignes envoyées
+   d'avance. Haut y ramène le curseur et annonce la ligne qui précède celle lue
+   (régression : les descentes du dire tout, attendues en retour du crochet clavier
+   qui ne les voit pas, faisaient avaler cette flèche). */
+static void test_write_up_at_end(void)
+{
+    int reading, before, i;
+
+    boot();
+    wr_open(doc_lines, DOC_N);
+    run(500);
+    ap_reset();
+    insert_cmd(VK_DOWN);
+    run(1000);
+    for (i = 0; i < 2000 && sa.on && !sa.eof; i++)
+        run(100);
+    CHECK(sa.on && sa.eof);             /* curseur en fin, lecture en cours */
+    reading = line_index(spoken[spoken_n - 1]);
+    CHECK(reading > 0 && wr.caret > reading);
+    before = spoken_n;
+    key(VK_UP);
+    run(2000);
+    CHECK(!sa.on);
+    CHECK(wr.caret == reading - 1);
+    CHECK(spoken_n == before + 1);
+    if (spoken_n == before + 1)
+        CHECK_STR(spoken[before], doc_lines[reading - 1][0] ? doc_lines[reading - 1] : "vide");
 }
 
 /* Bloc-notes : le curseur suit la ligne lue ; arrêt à la fin */
@@ -1478,6 +1621,96 @@ static void test_generic_windows(void)
     ok = sim_create(dlg, "Button", "&Palette de couleurs >>", 0, 10, 60, 200, 80);
     describe(ok, out);
     CHECK_STR(out, "Palette de couleurs, bouton");
+    /* InstallShield (Netscape) : « < Précédent », « Suivant > » ; « 5 > 3 » reste */
+    ok = sim_create(dlg, "Button", "&Suivant >", 0, 10, 90, 200, 110);
+    describe(ok, out);
+    CHECK_STR(out, "Suivant, bouton");
+    ok = sim_create(dlg, "Button", "< &Précédent", 0, 10, 120, 200, 140);
+    describe(ok, out);
+    CHECK_STR(out, "Précédent, bouton");
+    ok = sim_create(dlg, "Button", "5 > 3", 0, 10, 150, 200, 170);
+    describe(ok, out);
+    CHECK_STR(out, "5 > 3, bouton");
+
+    /* Préférences de Netscape : zone de saisie sans texte rendu (WM_GETTEXT vide),
+       pas encore peinte à l'annonce du focus ; son dessin donne la valeur */
+    boot();
+    dlg = sim_create(0, "#32770", "Preferences", 0, 0, 0, 400, 300);
+    sim_create(dlg, "Static", "Cache en &mémoire:", 0, 10, 10, 100, 26);
+    edit = sim_create(dlg, "Edit", "", 0, 110, 10, 160, 26);
+    sim_update = netscape_paint;
+    InvalidateRect(edit, NULL, TRUE);
+    describe(edit, out);
+    CHECK_STR(out, "Cache en mémoire:, zone d'édition, 600");
+    sim_update = NULL;
+
+    /* Licence de Netscape : texte en zone de lecture seule, message dit à l'ouverture */
+    boot();
+    dlg = sim_create(0, "#32770", "Licence d'utilisation Netscape", 0, 0, 0, 400, 300);
+    ok = sim_create(dlg, "Button", "J'accepte", BS_DEFPUSHBUTTON, 10, 250, 100, 270);
+    sim_create(dlg, "Button", "Je refuse", 0, 290, 250, 390, 270);
+    sim_create(dlg, "Edit", "CONTRAT DE LICENCE", ES_MULTILINE | ES_READONLY | WS_VSCROLL,
+               10, 40, 390, 200);
+    sim_create(dlg, "Static", "Netscape est un logiciel sous licence.", SS_CENTER, 10, 10, 390, 30);
+    sim_create(dlg, "Static", "Si vous acceptez, appuyez sur J'accepte.", SS_CENTER, 10, 210, 390, 240);
+    sim_active = dlg;
+    sim_focus = ok;
+    ap_reset();
+    run(3000);
+    CHECK(spoken_n >= 1 && strstr(spoken[0], "Licence d'utilisation Netscape") &&
+          strstr(spoken[0], "logiciel sous licence") && strstr(spoken[0], "appuyez sur J'accepte") &&
+          strstr(spoken[0], "J'accepte, bouton"));
+    /* même boîte, zone modifiable : formulaire, libellés non dits d'avance */
+    boot();
+    dlg = sim_create(0, "#32770", "Formulaire", 0, 0, 0, 400, 300);
+    ok = sim_create(dlg, "Button", "OK", BS_DEFPUSHBUTTON, 10, 250, 100, 270);
+    sim_create(dlg, "Edit", "", 0, 10, 40, 390, 60);
+    sim_create(dlg, "Static", "Texte d'aide du formulaire", SS_CENTER, 10, 10, 390, 30);
+    sim_active = dlg;
+    sim_focus = ok;
+    ap_reset();
+    run(3000);
+    CHECK(spoken_n >= 1 && !strstr(spoken[0], "aide du formulaire"));
+    /* Eudora : corps du message sous « Attachments: », libellé du champ précédent */
+    boot();
+    dlg = sim_create(0, "#32770", "", 0, 0, 0, 400, 300);
+    sim_create(dlg, "Static", "Attachments:", SS_RIGHT, 10, 80, 90, 96);
+    sim_create(dlg, "Edit", "", ES_MULTILINE, 100, 80, 390, 96);
+    list = sim_create(dlg, "Edit", "", ES_MULTILINE, 10, 100, 390, 290);
+    describe(list, out);
+    CHECK(!strstr(out, "Attachments"));
+    describe(dlg + 2, out);
+    CHECK(strstr(out, "Attachments") == out);
+
+    /* assistant de profil de Communicator : une seule boîte, les zones des pages
+       suivantes sont cachées ; le texte de la page visible est dit */
+    boot();
+    dlg = sim_create(0, "#32770", "Configuration du nouveau profil", 0, 0, 0, 400, 300);
+    sim_create(dlg, "Static", "CREATION D'UN NOUVEAU PROFIL", 0, 10, 10, 390, 30);
+    sim_create(dlg, "Static", "Nom entier:", 0, 10, 40, 100, 56);
+    sim_win[sim_create(dlg, "Edit", "", 0, 110, 40, 390, 56)].style &= ~WS_VISIBLE;
+    sim_win[dlg + 2].style &= ~WS_VISIBLE;
+    ok = sim_create(dlg, "Button", "Suivant >", BS_DEFPUSHBUTTON, 10, 250, 100, 270);
+    sim_active = dlg;
+    sim_focus = ok;
+    ap_reset();
+    run(3000);
+    CHECK(spoken_n >= 1 && strstr(spoken[0], "NOUVEAU PROFIL") && !strstr(spoken[0], "Nom entier"));
+    /* Suivant : même boîte, autre page ; son explication avant le champ, pas le
+       libellé « Nom entier: » une seconde fois */
+    sim_win[dlg + 1].style &= ~WS_VISIBLE;
+    sim_create(dlg, "Static", "Pour commencer, entrez votre nom.", 0, 10, 10, 390, 30);
+    sim_win[dlg + 2].style |= WS_VISIBLE;
+    sim_win[dlg + 3].style |= WS_VISIBLE;
+    sim_focus = dlg + 3;
+    ap_reset();
+    run(3000);
+    CHECK(spoken_n == 1 && !strcmp(spoken[0], "Pour commencer, entrez votre nom., Nom entier:, zone d'\xe9" "dition, vide"));
+    /* champ suivant de la même page : rien de plus */
+    sim_focus = ok;
+    ap_reset();
+    run(3000);
+    CHECK(spoken_n == 1 && !strstr(spoken[0], "Pour commencer"));
 
     /* Souris : curseur nommé par son cadre de groupe, valeur en pour cent */
     boot();
@@ -1711,6 +1944,195 @@ static void test_winhelp(void)
     CHECK(!sa.on);                      /* fin de la rubrique */
 }
 
+/* Netscape : la page défile par sa barre (WM_VSCROLL) ; ses champs suivent */
+static LRESULT ns_view_proc(HWND h, UINT m, WPARAM w, LPARAM l)
+{
+    int i, rows = 0, max = hp.n > H_ROWS ? hp.n - H_ROWS : 0;
+    (void) l;
+    if (m != WM_VSCROLL)
+        return 0;
+    if (w == SB_PAGEUP)
+        rows = hp.top < H_ROWS - 1 ? -hp.top : -(H_ROWS - 1);
+    if (w == SB_PAGEDOWN)
+        rows = hp.top + H_ROWS - 1 > max ? max - hp.top : H_ROWS - 1;
+    hp.top += rows;
+    for (i = 1; i < SIM_WN; i++)
+        if (sim_win[i].used && sim_win[i].parent == h) {
+            sim_win[i].rc.top -= rows * 16;
+            sim_win[i].rc.bottom -= rows * 16;
+        }
+    hp_draw();
+    return 0;
+}
+
+/* Netscape : vue MFC (AFX_IDW_PANE_FIRST) sans curseur, page dessinée qui défile.
+   Nouvelle page : titre de la fenêtre, puis lecture d'office une fois la page
+   dessinée ; Bas lit la rangée apparue ; une touche avant la fin du dessin annule
+   la lecture d'office. */
+static void test_netscape(void)
+{
+    static const char *lines[] = {
+        "Aller au lien n\xb0", "Accueil pc486", "Les pages d'aujourd'hui", "Recherche sur le web",
+        "Quelques adresses", "Wikip\xe9" "dia [1]", "Wiktionnaire [2]", "Win3x.Org [3]",
+        "DuckDuckGo [4]", "Fin de la page"
+    };
+    HWND frame;
+    int i, k, n;
+
+    boot();
+    frame = sim_create(0, "AfxFrameOrView", "Netscape - [Accueil]", 0, 0, 0, 420, 200);
+    hp.doc = hp.topic = sim_create(frame, "AfxWnd", "", 0, 0, 40, 420, 40 + 16 * H_ROWS);
+    sim_win[hp.doc].id = 0xE900;
+    hp.dc = EpGetDC(hp.doc);
+    memcpy(hp.lines, lines, sizeof(lines));
+    hp.n = 1;
+    hp.top = 0;
+    hp_draw();
+    sim_active = frame;
+    sim_focus = hp.doc;
+    run(3000);
+    CHECK(page_view(hp.doc) && !page_view(frame));
+    /* rangée de recouvrement retrouvée avec ou sans sa puce */
+    CHECK(same_row("\xb7Se connecter [14]", "Se connecter [14]") &&
+          !same_row("Se connecter [14]", "Se connecter [15]"));
+    /* lien suivi : nouveau titre, page dessinée en deux temps */
+    ap_reset();
+    strcpy(sim_win[frame].text, "Netscape - [Accueil pc486]");
+    run(400);
+    hp.n = 10;
+    hp_draw();
+    run(30000);
+    CHECK(spoken_n >= 1 && !strcmp(spoken[0], "Netscape - [Accueil pc486]"));
+    n = 0;
+    for (i = 0; i < spoken_n; i++)
+        for (k = 0; k < 10; k++)
+            if (!strcmp(spoken[i], lines[k]) && k == n) n++;
+    CHECK(n == 10);                     /* toute la page, dans l'ordre, page suivante comprise */
+    CHECK(spoken_n == 11);
+    CHECK(!sa.on);
+    if (spoken_n != 11 || sa.on) dump("test_netscape (lecture)");
+    /* défilement d'une rangée : la rangée apparue */
+    hp.top = 0;
+    hp_draw();
+    run(3000);
+    ap_reset();
+    key(VK_DOWN);
+    run(3000);
+    CHECK(spoken_n == 1 && !strcmp(spoken[0], lines[H_ROWS]));
+    /* liste : puce « · » dessinée en grande police, haute de trois rangées et
+       centrée sur la sienne ; aucune rangée sautée */
+    hp.top = 0;
+    hp.n = 10;
+    hp_draw();
+    sim_text_height = 46;
+    EpExtTextOut(hp.dc, 200, 4 * 16 + 8 - 23, 0, NULL, "\xb7", 1, NULL);  /* rangée 4 */
+    sim_text_height = 0;
+    {
+        POINT pt;
+        RECT r;
+        char row[TXT];
+        int col;
+        GetWindowRect(hp.doc, &r);
+        pt.x = r.left + 2;
+        pt.y = r.top + 3 * 16 + 8;      /* rangée 3 */
+        CHECK(EpOsmReviewLine(hp.doc, &pt, 1, row, sizeof(row), &col) && strstr(row, lines[4]) &&
+              strchr(row, '\xb7'));
+        CHECK(EpOsmReviewLine(hp.doc, &pt, 1, row, sizeof(row), &col) && !strcmp(row, lines[5]));
+        pt.y = r.top + 5 * 16 + 8;
+        CHECK(EpOsmReviewLine(hp.doc, &pt, -1, row, sizeof(row), &col) && strstr(row, lines[4]) &&
+              strchr(row, '\xb7'));
+        CHECK(EpOsmReviewLine(hp.doc, &pt, -1, row, sizeof(row), &col) && !strcmp(row, lines[3]));
+    }
+    hp_draw();
+
+    /* Tab : de la page à ses champs (libellé dessiné à gauche), dans l'ordre de
+       lecture, puis retour à la page ; Maj+Tab en sens inverse */
+    {
+        HWND field, go, box;
+        hp.top = 0;
+        hp.n = 1;
+        hp_draw();
+        /* ordre de création différent de l'ordre de lecture */
+        box = sim_create(hp.doc, "Button", "Retenir", BS_AUTOCHECKBOX, 10, 72, 100, 88);
+        field = sim_create(hp.doc, "Edit", "", 0, 150, 40, 200, 56);
+        go = sim_create(hp.doc, "Button", "Aller", 0, 300, 40, 360, 56);
+        run(3000);
+        ap_reset();
+        CHECK(EpPageTab(FALSE) && sim_focus == field);
+        run(3000);
+        CHECK(spoken_n == 1 && !strcmp(spoken[0], "Aller au lien n\xb0, zone d'\xe9" "dition, vide"));
+        CHECK(EpPageTab(FALSE) && sim_focus == go);
+        CHECK(EpPageTab(FALSE) && sim_focus == box);
+        CHECK(EpPageTab(FALSE) && sim_focus == hp.doc);
+        CHECK(EpPageTab(TRUE) && sim_focus == box);
+        CHECK(EpPageTab(TRUE) && sim_focus == go);
+        CHECK(EpPageTab(TRUE) && sim_focus == field);
+        CHECK(EpPageTab(TRUE) && sim_focus == hp.doc);
+        sim_focus = frame;
+        CHECK(!EpPageTab(FALSE) && sim_focus == frame);      /* hors d'une page : rien */
+        sim_destroy(go);
+        sim_destroy(field);
+        sim_destroy(box);
+        /* champ au-dessus de la partie visible : la page défile jusqu'à lui */
+        hp.n = 10;
+        hp.top = 5;
+        hp_draw();
+        sim_win[hp.doc].proc = ns_view_proc;
+        field = sim_create(hp.doc, "Edit", "", 0, 150, 40 - 4 * 16, 200, 40 - 3 * 16);
+        sim_focus = hp.doc;
+        CHECK(EpPageTab(FALSE) && sim_focus == field);
+        CHECK(hp.top == 0 && sim_win[field].rc.top >= 40);
+        sim_win[hp.doc].proc = NULL;
+        sim_destroy(field);
+        sim_focus = hp.doc;
+        hp.n = 10;
+        hp_draw();
+        run(3000);
+    }
+
+    /* lien suivi depuis « Aller au lien n° » : le champ disparaît avec l'ancienne
+       page, focus perdu ; la nouvelle page est dite et le focus rendu à la page */
+    {
+        HWND field = sim_create(hp.doc, "Edit", "", 0, 150, 40, 200, 56), bar;
+        sim_focus = field;
+        run(3000);
+        ap_reset();
+        sim_destroy(field);
+        sim_focus = 0;
+        strcpy(sim_win[frame].text, "Netscape - [Win3x.Org]");
+        hp.top = 0;
+        hp.n = 3;
+        hp_draw();
+        run(15000);
+        CHECK(sim_focus == hp.doc);
+        CHECK(spoken_n == 4 && !strcmp(spoken[0], "Netscape - [Win3x.Org]") &&
+              !strcmp(spoken[3], lines[2]));
+        /* adresse tapée dans la barre : titre dit, focus laissé, pas de lecture */
+        bar = sim_create(frame, "Edit", "http://pc486/", 0, 80, 10, 400, 26);
+        sim_focus = bar;
+        run(3000);
+        ap_reset();
+        strcpy(sim_win[frame].text, "Netscape - [Accueil pc486]");
+        run(8000);
+        CHECK(sim_focus == bar && spoken_n == 1 && !strcmp(spoken[0], "Netscape - [Accueil pc486]"));
+        sim_destroy(bar);
+        sim_focus = hp.doc;
+        hp.n = 10;
+        hp_draw();
+        run(3000);
+    }
+
+    /* touche pendant le chargement : titre seul */
+    ap_reset();
+    strcpy(sim_win[frame].text, "Netscape - [Autre]");
+    run(300);
+    key(VK_NEXT);
+    run(8000);
+    CHECK(spoken_n >= 1 && !strcmp(spoken[0], "Netscape - [Autre]"));
+    CHECK(!sa.on && spoken_n <= 2);
+    hp.doc = hp.topic = 0;
+}
+
 /* Gestionnaire de liaisons : volet actif d'après son sous-titre en surbrillance
    (texte égal à celui de la fenêtre, sans barre de titre), dit une seule fois */
 static void test_packager(void)
@@ -1774,13 +2196,1042 @@ static void test_mail(void)
     CHECK(found);
 }
 
+/* Grille d'Excel 5 (tableur.c) : zone Nom à gauche de la barre de formule (EXCEL6),
+   en-têtes A, B, C et 1, 2, 3 dessinés dans la feuille (EXCEL9), onglet actif en gras.
+   Entrée repeint toute la grille sous une région limitée aux deux cellules : les
+   en-têtes et les autres valeurs doivent rester dans le modèle. */
+static HDC xl_name, xl_bar, xl_grid;
+static BOOL xl_bold;            /* B1 mis en gras : seulement visible à la repeinte */
+static void xl_paint(HWND h, const RECT *r)
+{
+    (void) h;
+    if (r->left <= 160 && r->right > 160 && r->top <= 18 && r->bottom > 18) {
+        sim_dc[xl_grid].bold = xl_bold;
+        EpExtTextOut(xl_grid, 160, 18, ETO_OPAQUE, NULL, "12", 2, NULL);
+        sim_dc[xl_grid].bold = FALSE;
+    }
+}
+static void xl_select(const char *ref, const char *content)
+{
+    EpExtTextOut(xl_name, 0, 0, ETO_OPAQUE, NULL, ref, (UINT) strlen(ref), NULL);
+    EpPatBlt(xl_bar, 0, 0, 460, 18, PATCOPY);
+    if (content[0])
+        EpExtTextOut(xl_bar, 2, 0, 0, NULL, content, (UINT) strlen(content), NULL);
+}
+/* InvertRgn d'Excel : un ou deux rectangles (coordonnées de la grille) en une région */
+static HDC xl_inv_dc;
+static void xl_invert(int l, int t, int r, int b, int l2, int t2, int r2, int b2)
+{
+    HRGN a = CreateRectRgn(l, t, r, b);
+    if (r2 > l2) {
+        HRGN c = CreateRectRgn(l2, t2, r2, b2);
+        CombineRgn(a, a, c, RGN_OR);
+        DeleteObject(c);
+    }
+    EpInvertRgn(xl_inv_dc, a);
+    DeleteObject(a);
+}
+static void test_excel_grid(void)
+{
+    HWND top, grid, tabs, name, bar;
+    HDC dc, tdc;
+    int from;
+
+    boot();
+    top = sim_create(0, "XLMAIN", "Microsoft Excel - Classeur1", 0, 0, 0, 640, 480);
+    name = sim_create(top, "XLCOMBO", "", 0, 4, 100, 100, 118);
+    bar = sim_create(top, "EXCEL6", "", 0, 170, 100, 630, 118);
+    grid = sim_create(top, "EXCEL9", "Classeur1", 0, 0, 116, 620, 460);
+    tabs = sim_create(grid, "SCROLLBAR", "", SBS_HORZ, 380, 440, 610, 456);
+    xl_name = EpGetDC(name);
+    xl_bar = EpGetDC(bar);
+    dc = EpGetDC(grid);
+    xl_inv_dc = dc;
+    EpExtTextOut(dc, 61, 1, 0, NULL, "A", 1, NULL);
+    EpExtTextOut(dc, 141, 1, 0, NULL, "B", 1, NULL);
+    EpExtTextOut(dc, 221, 1, 0, NULL, "C", 1, NULL);
+    EpExtTextOut(dc, 9, 18, 0, NULL, "1", 1, NULL);
+    EpExtTextOut(dc, 9, 35, 0, NULL, "2", 1, NULL);
+    EpExtTextOut(dc, 9, 52, 0, NULL, "3", 1, NULL);
+    EpExtTextOut(dc, 160, 18, 0, NULL, "12", 2, NULL);      /* B1, aligné à droite */
+    EpExtTextOut(dc, 160, 35, 0, NULL, "36", 2, NULL);      /* B2 = B1*3 */
+    (void) tabs;                        /* onglets dessinés dans la feuille */
+    tdc = EpGetDC(grid);
+    sim_dc[tdc].bold = TRUE;
+    EpExtTextOut(tdc, 74, 326, 0, NULL, "Feuil1", 6, NULL);
+    sim_dc[tdc].bold = FALSE;
+    EpExtTextOut(tdc, 123, 326, 0, NULL, "Feuil2", 6, NULL);
+    xl_select("B2", "=B1*3");
+    sim_active = top;
+    sim_focus = grid;
+    ap_reset();
+    run(6000);                          /* (titre dit à 15 caractères par seconde) */
+    from = 0;
+    CHECK(spoken_since(from, "Feuil1, B2, 36, formule égal B1 étoile 3") >= 0);
+    /* Entrée : B3, repeint limité à B2 et B3 */
+    from = spoken_n;
+    sim_clip(dc, 100, 34, 180, 68);
+    EpPatBlt(dc, 0, 0, 620, 344, PATCOPY);
+    {
+        RECT r;
+        CHECK(EpOsmFind(grid, 0, 116, 620, 460, "A", &r) && r.left == 61);
+        CHECK(!EpOsmFind(grid, 0, 116, 620, 460, "36", &r));   /* B2 repeint */
+    }
+    EpExtTextOut(dc, 160, 35, 0, NULL, "36", 2, NULL);
+    xl_select("B3", "");
+    run(800);
+    CHECK(spoken_since(from, "B3, vide") >= 0);
+    from = spoken_n;
+    xl_select("B2", "=B1*3");           /* valeur toujours lue dans la grille */
+    run(3000);
+    CHECK(spoken_since(from, "B2, 36, formule égal B1 étoile 3") >= 0);
+    from = spoken_n;
+    xl_select("B1", "12");
+    run(800);
+    CHECK(spoken_since(from, "B1, 12") >= 0);
+    from = spoken_n;
+    insert_cmd(VK_UP);
+    run(600);
+    CHECK(spoken_since(from, "B1, 12") >= 0);
+    /* Ctrl+G : Excel change l'attribut sans redessiner le texte ; Inser+F fait
+       repeindre la cellule avant de lire sa police */
+    xl_grid = dc;
+    xl_bold = TRUE;
+    sim_update = xl_paint;
+    from = spoken_n;
+    insert_cmd('F');
+    run(3000);
+    sim_update = NULL;
+    CHECK(spoken_n > from && strstr(spoken[from], "gras") != NULL);
+    /* Suppr : contenu effacé sans changer de cellule ; il est annoncé */
+    EpPatBlt(xl_bar, 0, 0, 460, 18, PATCOPY);
+    EpPatBlt(dc, 105, 17, 80, 17, PATCOPY);
+    from = spoken_n;
+    key(VK_DELETE);
+    run(1500);
+    CHECK(spoken_since(from, "vide") >= 0);
+    /* Maj+Droite, Maj+Bas depuis B2 : la plage s'étend, la cellule active reste B2 ;
+       les cellules ajoutées sont inversées */
+    xl_select("B2", "=B1*3");
+    run(1500);
+    from = spoken_n;
+    xl_invert(186, 35, 264, 51, 0, 0, 0, 0);             /* C2 */
+    run(800);
+    CHECK(spoken_since(from, "sélection B2 à C2") >= 0);
+    from = spoken_n;
+    xl_invert(106, 52, 264, 68, 0, 0, 0, 0);             /* B3:C3 */
+    run(800);
+    CHECK(spoken_since(from, "sélection B2 à C3") >= 0);
+    from = spoken_n;
+    xl_invert(186, 35, 264, 51, 106, 52, 264, 68);       /* Échap : plage moins B2 */
+    run(800);
+    CHECK(spoken_since(from, "B2") >= 0);
+    CHECK(sim_rgn_live <= 1);           /* région de la grille seulement, aucune fuite */
+    /* Maj+Bas puis Maj+Droite : équerre C2 + B3:C3 en une seule région */
+    from = spoken_n;
+    xl_invert(106, 52, 185, 68, 0, 0, 0, 0);             /* B3 */
+    run(800);
+    CHECK(spoken_since(from, "sélection B2 à B3") >= 0);
+    from = spoken_n;
+    xl_invert(186, 35, 264, 51, 186, 52, 264, 68);       /* C2:C3 */
+    run(800);
+    CHECK(spoken_since(from, "sélection B2 à C3") >= 0);
+    /* Entrée : grille repeinte (fond opaque) ; la sélection disparaît du modèle */
+    {
+        RECT r;
+        EpPatBlt(EpGetDC(grid), 0, 0, 620, 344, PATCOPY);
+        CHECK(!EpOsmInvBox(grid, 0, 0, 640, 480, &r));
+    }
+}
+
+/* Invite MS-DOS (dosbox.c) : fenêtre TTY active, Épaudos en mode invité. Sa parole
+   est relayée de la boîte aux lettres vers l'Apollo II, les échos lui reviennent,
+   les touches lui sont laissées ; en quittant, Épaulard reprend le clavier. */
+static BYTE dos_mem[2048];
+static void dos_put(const char *t)
+{
+    DOSBOX *b = (DOSBOX *) (dos_mem + 16);
+    for (; *t; t++) {
+        dos_mem[b->buf + dos_mem[b->head]] = (BYTE) *t;
+        dos_mem[b->head]++;
+    }
+}
+/* Trames Baum d'Épaudos (file de son port 1) et réponses reçues (rx port 1) */
+static void dos_baum(const char *t, int n)
+{
+    DOSBOX *b = (DOSBOX *) (dos_mem + 16);
+    for (; n > 0; n--, t++) {
+        dos_mem[b->buf + 256 + dos_mem[b->head + 1]] = (BYTE) *t;
+        dos_mem[b->head + 1]++;
+    }
+}
+static BOOL dos_brx_has(const char *t, int n)
+{
+    DOSBOX *b = (DOSBOX *) (dos_mem + 16);
+    BYTE got[256];
+    int k = 0, i;
+    while (dos_mem[b->rxtail + 1] != dos_mem[b->rxhead + 1]) {
+        got[k++] = dos_mem[b->rxbuf + 256 + dos_mem[b->rxtail + 1]];
+        dos_mem[b->rxtail + 1]++;
+    }
+    for (i = 0; i + n <= k; i++)
+        if (!memcmp(got + i, t, n)) return TRUE;
+    printf("trames reçues par Épaudos :");
+    for (i = 0; i < k; i++) printf(" %02x", got[i]);
+    printf("\n");
+    return FALSE;
+}
+static void baum_in(const char *t, int n)
+{
+    SIMCOM *c = &sim_com[3];
+    for (; n > 0; n--) c->in[c->in_n++] = (BYTE) *t++;
+}
+static void test_dos_box(void)
+{
+    HWND pm, tty;
+    DOSBOX *b = (DOSBOX *) (dos_mem + 16);
+    int from;
+
+    boot();
+    memset(dos_mem, 0, sizeof(dos_mem));
+    memcpy(b->sig, "EPBX", 4);
+    b->version = 2;
+    b->head = 100; b->tail = 102; b->buf = 256;        /* (uart_head[2], uart_tail[2]...) */
+    b->rxhead = 104; b->rxtail = 106; b->rxbuf = 1024;
+    sim_epaudos_seg = dos_mem;
+    sim_epaudos_box = 16;
+    box_tried = FALSE;
+    box = NULL;
+    pm = sim_create(0, "Progman", "Gestionnaire de programmes", 0, 0, 0, 640, 480);
+    tty = sim_create(0, "TTY", "COMMAND", 0, 0, 0, 640, 400);
+    sim_active = sim_focus = pm;
+    run(3000);
+    dos_put("vieux\r");                 /* avant le relais : oublié */
+    sim_active = sim_focus = tty;
+    run(3000);
+    CHECK(dos_relay && b->relay == 1 && pass_keys_sim);
+    /* plein écran : boucle éveillée après une frappe, endormie ensuite */
+    run(5000);
+    CHECK(!dos_spin());
+    b->keys++;
+    run(100);
+    CHECK(dos_spin());
+    from = spoken_n;
+    dos_put("C:\\>dir\r@EA\r");
+    run(3000);
+    CHECK(spoken_since(from, "C: barre oblique inverse > dir") >= 0 ||
+          spoken_since(from, "C:\\>dir") >= 0);
+    CHECK(spoken_since(0, "vieux") < 0);
+    CHECK(dos_mem[b->rxhead] == 1 && dos_mem[b->rxbuf] == 'A');   /* écho rendu */
+    CHECK(b->alive != 0);
+    /* braille : sonde d'Épaudos, largeur répondue sans passer par la plage */
+    dos_baum("\x1b\x15\x01", 3);
+    run(200);
+    CHECK(dos_brx_has("\x1b\x01\x28", 3));
+    /* ses cellules (déjà traduites) affichées, ESC doublé compris */
+    {
+        BYTE f[90];
+        int n = 0, i;
+        const char *t = "c:\\>dir";
+        f[n++] = 0x1b; f[n++] = 1;
+        for (i = 0; i < 40; i++) {
+            BYTE c = i < (int) strlen(t) ? br_fr[(BYTE) t[i]] : 0;
+            if (i == 7) c |= 0xc0;      /* curseur */
+            f[n++] = c;
+            if (c == 0x1b) f[n++] = 0x1b;
+        }
+        dos_baum((const char *) f, n);
+    }
+    run(300);
+    baum_step();
+    CHECK(!strncmp(br_shown, "c:\\>dir", 7));
+    /* touches de la plage : à Épaudos, pas au défilement d'Épaulard */
+    from = br_offset();
+    baum_in("\x1b\x24\x10\x1b\x24\x00\x1b\x27\x03", 9);
+    run(300);
+    CHECK(dos_brx_has("\x1b\x24\x10\x1b\x24\x00\x1b\x27\x03", 9));
+    CHECK(br_offset() == from);
+    /* trame coupée (Épaudos interrompu) puis une neuve : recalage */
+    dos_baum("\x1b\x01\x01\x02", 4);
+    dos_baum("\x1b\x15\x01", 3);
+    run(200);
+    CHECK(dos_brx_has("\x1b\x01\x28", 3));
+    sim_active = sim_focus = pm;
+    run(1500);
+    CHECK(!dos_relay && b->relay == 0 && !pass_keys_sim);
+    baum_step();
+    CHECK(strncmp(br_shown, "c:\\>dir", 7) != 0);    /* affichage d'Épaulard revenu */
+    sim_epaudos_seg = NULL;
+}
+
+/* Installateur ACME : jauge « 45% » dessinée, dite par paliers ; le focus rendu au
+   bouton Annuler à chaque fichier copié n'est dit qu'une fois. */
+static void test_installer_progress(void)
+{
+    HWND dlg, gauge, cancel;
+    HDC dc;
+    int i, n = 0, from;
+
+    boot();
+    dlg = sim_create(0, "#32770", "Installation de Microsoft Excel 5.0c", 0, 100, 100, 500, 260);
+    gauge = sim_create(dlg, "Gauge", "", 0, 120, 160, 480, 180);
+    cancel = sim_create(dlg, "Button", "Annuler", 0, 260, 200, 340, 224);
+    dc = EpGetDC(gauge);
+    EpExtTextOut(dc, 170, 2, ETO_OPAQUE, NULL, "12%", 3, NULL);
+    sim_active = dlg;
+    sim_focus = cancel;
+    run(4000);
+    from = spoken_n;
+    for (i = 0; i < 6; i++) {
+        sim_focus = dlg;
+        run(300);
+        sim_focus = cancel;
+        run(700);
+    }
+    for (i = from; i < spoken_n; i++)
+        if (strstr(spoken[i], "Annuler")) n++;
+    CHECK(n <= 1);                      /* (au plus une fois : première annonce composée) */
+    from = spoken_n;
+    EpExtTextOut(dc, 170, 2, ETO_OPAQUE, NULL, "17%", 3, NULL);
+    run(500);
+    EpExtTextOut(dc, 170, 2, ETO_OPAQUE, NULL, "23%", 3, NULL);
+    run(2000);
+    CHECK(spoken_since(from, "17 pour cent") < 0);
+    CHECK(spoken_since(from, "23 pour cent") >= 0);
+    /* une touche : la même annonce redevient légitime (Tab dans une boîte) */
+    from = spoken_n;
+    key(VK_TAB);
+    run(100);
+    sim_focus = dlg;
+    run(300);
+    sim_focus = cancel;
+    run(2000);
+    for (i = from, n = 0; i < spoken_n; i++)
+        if (strstr(spoken[i], "Annuler")) n++;
+    CHECK(n == 1);
+}
+
+/* Installateur Lotus (Ami Pro) : boutons à icône sans texte, libellé STATIC à droite */
+static void test_icon_buttons(void)
+{
+    HWND dlg, b1, b2, out;
+    char d[TXT * 2];
+
+    boot();
+    dlg = sim_create(0, "#32770", "Menu principal", 0, 90, 120, 550, 320);
+    sim_create(dlg, "Static", "Sélectionnez l'une des options suivantes :", 0, 98, 150, 400, 166);
+    b1 = sim_create(dlg, "Button", "", BS_OWNERDRAW, 120, 168, 168, 212);
+    sim_create(dlg, "Static", "Ami Pro sur ordinateur monoposte", 0, 176, 182, 400, 198);
+    b2 = sim_create(dlg, "Button", "", BS_OWNERDRAW, 152, 216, 200, 260);
+    sim_create(dlg, "Static", "Ami Pro en réseau", 0, 210, 230, 400, 246);
+    out = sim_create(dlg, "Button", "Quitter", 0, 460, 150, 545, 172);
+    (void) out;
+    describe(b1, d);
+    CHECK_STR(d, "Ami Pro sur ordinateur monoposte, bouton");
+    describe(b2, d);
+    CHECK_STR(d, "Ami Pro en réseau, bouton");
+}
+
+/* Boîte Format de cellule d'Excel (bosa_sdm_XL) : formulaire avec listes, pas un
+   message, donc pas lue en entier à l'ouverture ; au changement d'onglet, Excel
+   efface la page sous une région qui exclut ses boutons : leur texte reste. */
+static void test_excel_dialog(void)
+{
+    HWND dlg, sb, ed;
+    HDC dd;
+    int i;
+    RECT r;
+
+    boot();
+    dlg = sim_create(0, "bosa_sdm_XL", "Format de cellule", 0, 60, 60, 580, 400);
+    sb = sim_create(dlg, "SCROLLBAR", "", SBS_VERT, 260, 140, 276, 260);
+    ed = sim_create(dlg, "EDTBX", "", 0, 80, 300, 300, 318);
+    (void) sb; (void) ed;
+    dd = EpGetDC(dlg);
+    sim_dc[dd].bold = TRUE;
+    EpExtTextOut(dd, 20, 6, 0, NULL, "Nombre", 6, NULL);
+    sim_dc[dd].bold = FALSE;
+    EpExtTextOut(dd, 90, 6, 0, NULL, "Alignement", 10, NULL);
+    EpExtTextOut(dd, 20, 40, 0, NULL, "Catégorie:", 10, NULL);
+    EpExtTextOut(dd, 20, 60, 0, NULL, "Tous", 4, NULL);
+    EpExtTextOut(dd, 200, 40, 0, NULL, "Codes des formats:", 18, NULL);
+    EpExtTextOut(dd, 452, 40, 0, NULL, "OK", 2, NULL);
+    EpExtTextOut(dd, 440, 70, 0, NULL, "Annuler", 7, NULL);
+    run(300);
+    ap_reset();
+    sim_active = dlg;
+    sim_focus = dlg;
+    run(4000);
+    CHECK(spoken_n >= 1 && !strcmp(spoken[0], "Format de cellule"));
+    for (i = 0; i < spoken_n; i++)
+        CHECK(strstr(spoken[i], "Catégorie") == NULL);
+    /* Ctrl+Tab : page Alignement, effacée sous une région sans les boutons */
+    sim_clip(dd, 0, 30, 520, 340);
+    sim_clip_hole(dd, 430, 30, 520, 120);
+    EpPatBlt(dd, 0, 30, 520, 310, PATCOPY);
+    CHECK(!EpOsmFind(dlg, 60, 60, 580, 400, "Tous", &r));
+    CHECK(EpOsmFind(dlg, 60, 60, 580, 400, "OK", &r));
+    CHECK(EpOsmFind(dlg, 60, 60, 580, 400, "Annuler", &r));
+    /* Tab vers Orientation (sans rectangle de focus) : Excel efface en XOR celui de
+       « Bas », tracé une seconde fois ; ce n'est pas un nouveau focus */
+    EpExtTextOut(dd, 210, 130, 0, NULL, "Bas", 3, NULL);
+    wd.dc = dd;
+    wd_frame(208, 129, 30, 15);
+    run(3000);
+    ap_reset();
+    key(VK_TAB);
+    wd_frame(208, 129, 30, 15);
+    run(3000);
+    CHECK(spoken_n == 0);
+    memset(&wd, 0, sizeof(wd));
+}
+
+/* Accueil de l'installateur Lotus : trois longs paragraphes STATIC, plus de 512
+   caractères en tout, tous lus avant le bouton */
+static void test_long_message(void)
+{
+    HWND dlg, ok;
+    static char p1[300], p2[300], p3[300];
+    int i;
+
+    boot();
+    for (i = 0; i < 280; i++) {
+        p1[i] = (char) ('a' + i % 26);
+        p2[i] = (char) ('a' + i % 26);
+        p3[i] = (char) ('a' + i % 26);
+    }
+    memcpy(p1, "Premier ", 8);
+    memcpy(p2, "Deuxième ", 9);
+    memcpy(p3, "Troisième ", 10);
+    memcpy(p3 + 270, " fin.", 6);
+    dlg = sim_create(0, "#32770", "Bienvenue dans le programme Install", 0, 40, 60, 600, 400);
+    sim_create(dlg, "Static", p1, 0, 50, 90, 480, 140);
+    sim_create(dlg, "Static", p2, 0, 50, 150, 480, 200);
+    sim_create(dlg, "Static", p3, 0, 50, 210, 480, 260);
+    ok = sim_create(dlg, "Button", "Continuer", 0, 490, 90, 580, 112);
+    ap_reset();
+    sim_active = dlg;
+    sim_focus = ok;
+    run(200);
+    CHECK(spoken_n == 1);
+    if (spoken_n == 1) {
+        CHECK(strstr(spoken[0], "Troisième") != NULL);
+        CHECK(strstr(spoken[0], "fin") != NULL);
+        CHECK(strstr(spoken[0], "Continuer, bouton") != NULL);
+    }
+}
+
+/* Nouvelle table d'Access 2.0 : boutons à image (CIRRUSSBUTTON) dont le texte est le
+   nom du bitmap ; leur libellé est le STATIC centré qui les précède */
+static void test_picture_buttons(void)
+{
+    HWND dlg, b1, b2;
+    char d[TXT * 2];
+    int i;
+
+    boot();
+    dlg = sim_create(0, "#32770", "Nouvelle table", 0, 150, 120, 470, 300);
+    sim_create(dlg, "Static", "Table &vierge", SS_CENTER, 170, 140, 290, 156);
+    b1 = sim_create(dlg, "CirrusSButton", "#bmpBlnkTbl", 0, 180, 160, 280, 240);
+    sim_create(dlg, "Static", "&Assistants", SS_CENTER, 310, 140, 430, 156);
+    b2 = sim_create(dlg, "CirrusSButton", "#bmpTblWiz", 0, 320, 160, 420, 240);
+    sim_create(dlg, "Button", "Annuler", 0, 260, 260, 360, 284);
+    describe(b1, d);
+    CHECK_STR(d, "Table vierge, bouton");
+    describe(b2, d);
+    CHECK_STR(d, "Assistants, bouton");
+    ap_reset();
+    sim_active = dlg;
+    sim_focus = b1;
+    run(300);
+    CHECK(spoken_n == 1);
+    if (spoken_n == 1)
+        CHECK_STR(spoken[0], "Nouvelle table, Table vierge, bouton");
+    for (i = 0; i < spoken_n; i++)
+        CHECK(strstr(spoken[i], "bmp") == NULL);
+}
+
+/* Feuille de données d'Access : grille OGrid (en-têtes, sélecteurs de ligne en images),
+   éditeur OKttbx placé sur la cellule active ; ligne, colonne puis valeur */
+static void grid_editor_at(HWND ed, int l, int t, int r, int b, const char *v)
+{
+    HDC e;
+    sim_win[ed].rc.left = l; sim_win[ed].rc.top = t;
+    sim_win[ed].rc.right = r; sim_win[ed].rc.bottom = b;
+    e = EpGetDC(ed);
+    EpExtTextOut(e, 2, 0, 0, NULL, v, (UINT) strlen(v), NULL);
+}
+static void test_grid_editor(void)
+{
+    HWND top, grid, ed;
+    HDC g, m;
+    int from;
+
+    boot();
+    top = sim_create(0, "OMain", "Microsoft Access", 0, 0, 0, 640, 480);
+    grid = sim_create(top, "OGrid", "", 0, 60, 100, 600, 300);
+    g = EpGetDC(grid);
+    m = sim_memdc();
+    EpExtTextOut(g, 40, 0, 0, NULL, "Nom", 3, NULL);
+    EpExtTextOut(g, 140, 0, 0, NULL, "Ville", 5, NULL);
+    EpBitBlt(g, 2, 17, 14, 12, m, 0, 0, SRCCOPY);       /* sélecteurs de ligne */
+    EpBitBlt(g, 2, 33, 14, 12, m, 0, 0, SRCCOPY);
+    EpExtTextOut(g, 22, 16, 0, NULL, "Dupont", 6, NULL);
+    EpExtTextOut(g, 122, 16, 0, NULL, "Paris", 5, NULL);
+    EpExtTextOut(g, 22, 32, 0, NULL, "Martin", 6, NULL);
+    EpExtTextOut(g, 122, 32, 0, NULL, "Lyon", 4, NULL);
+    ed = sim_create(grid, "OKttbx", "", 0, 180, 116, 280, 132);
+    grid_editor_at(ed, 180, 116, 280, 132, "Paris");
+    ap_reset();
+    sim_active = top;
+    sim_focus = ed;
+    run(3000);
+    CHECK(spoken_since(0, "Dupont, Ville, Paris") >= 0);
+    from = spoken_n;
+    grid_editor_at(ed, 180, 132, 280, 148, "Lyon");     /* Bas : même colonne */
+    run(1500);
+    CHECK(spoken_since(from, "Martin, Lyon") >= 0);
+    from = spoken_n;
+    grid_editor_at(ed, 80, 132, 180, 148, "Martin");    /* Maj+Tab : même ligne */
+    run(1500);
+    CHECK(spoken_since(from, "Nom, Martin") >= 0);
+    from = spoken_n;
+    insert_cmd(VK_UP);
+    run(1500);
+    CHECK(spoken_since(from, "Nom, Martin") >= 0);
+    /* éditeur recréé sur la même cellule (Access) : rien de plus */
+    from = spoken_n;
+    {
+        HWND ed2 = sim_create(grid, "OKttbx", "", 0, 80, 132, 180, 148);
+        grid_editor_at(ed2, 80, 132, 180, 148, "Martin");
+        sim_focus = ed2;
+        run(1500);
+        CHECK(spoken_n == from);
+    }
+}
+
+/* F2 dans Excel : déplacement dans la formule, caractère par caractère et par mot,
+   malgré les fragments redessinés autour du curseur */
+static void xe_step(UINT vk, BOOL ctrl, const char *expect)
+{
+    int from = spoken_n;
+    sim_keys[VK_CONTROL] = ctrl ? 1 : 0;
+    key(vk);
+    app_keys();
+    sim_keys[VK_CONTROL] = 0;
+    run(1500);
+    if (!(spoken_n > from && !strcmp(spoken[spoken_n - 1], expect)))
+        printf("ÉCHEC F2 Excel : « %s » attendu, lu « %s »\n", expect,
+               spoken_n > from ? spoken[spoken_n - 1] : "(rien)"), failures++;
+}
+static void test_excel_edit(void)
+{
+    boot();
+    memset(&xe, 0, sizeof(xe));
+    xe.t = "=SOMME(B1:B3)*2";
+    xe.top = sim_create(0, "XLMAIN", "Microsoft Excel - Classeur1", 0, 0, 0, 640, 480);
+    xe.ed = sim_create(xe.top, "EXCEL7", "", 0, 28, 134, 300, 150);
+    xe.dc = EpGetDC(xe.ed);
+    EpExtTextOut(xe.dc, 0, 0, 0, NULL, xe.t, (UINT) strlen(xe.t), NULL);
+    xe.col = (int) strlen(xe.t);
+    EpPatBlt(xe.dc, xe.col * 8, 0, 1, 16, DSTINVERT);
+    sim_active = xe.top;
+    sim_focus = xe.ed;
+    run(1500);
+    ap_reset();
+    xe_step(VK_LEFT, FALSE, "2");
+    xe_step(VK_LEFT, FALSE, "étoile");
+    xe_step(VK_LEFT, FALSE, "parenthèse fermante");
+    xe_step(VK_HOME, FALSE, "égal");
+    xe_step(VK_RIGHT, FALSE, "S");
+    xe_step(VK_RIGHT, FALSE, "O");
+    xe_step(VK_RIGHT, FALSE, "M");
+    xe_step(VK_END, FALSE, "fin de ligne");
+    xe_step(VK_LEFT, FALSE, "2");
+    xe_step(VK_LEFT, TRUE, "B3");
+    xe_step(VK_LEFT, TRUE, "B1");
+    xe_step(VK_LEFT, TRUE, "SOMME");
+    xe_step(VK_LEFT, TRUE, "égal");
+}
+
+/* ------------------------------------------------- mode navigation (pages Web) */
+
+/* Faux DDEML (Netscape) et faux Winsock (proxy de pc486) */
+static BOOL fn_on;
+static char fn_info[300];               /* réponse de WWW_GetWindowInfo */
+static char fn_opened[300];             /* élément du dernier WWW_OpenURL */
+static char fn_request[700];            /* dernière requête reçue par le faux proxy */
+static int fn_requests;
+static const char *fn_body;             /* corps de la réponse ; NULL : 404 */
+static int fn_body_n;
+static char fn_str[16][300];
+static int fn_nstr;
+static HWND fn_hwnd;
+static UINT fn_msg;
+static char fn_resp[9000];
+static int fn_resp_n, fn_resp_at;
+
+static HMODULE fn_load(LPCSTR n)
+{
+    if (!fn_on) return 2;
+    if (!strcmp(n, "DDEML.DLL")) return 40;
+    if (!strcmp(n, "WINSOCK.DLL")) return 41;
+    return 2;
+}
+static UINT fn_ddeinit(DWORD *inst, FARPROC cb, DWORD a, DWORD b) { (void) cb; (void) a; (void) b; *inst = 1; return 0; }
+static DWORD fn_strnew(DWORD inst, LPCSTR t, int cp)
+{
+    (void) inst; (void) cp;
+    lstrcpyn(fn_str[fn_nstr % 16], t, 300);
+    return (DWORD) (fn_nstr++ % 16) + 1;
+}
+static BOOL fn_strfree(DWORD inst, DWORD h) { (void) inst; (void) h; return TRUE; }
+static DWORD fn_connect(DWORD inst, DWORD svc, DWORD top, void *c) { (void) inst; (void) c; return strcmp(fn_str[svc - 1], "NETSCAPE") ? 0 : top; }
+static BOOL fn_disc(DWORD c) { (void) c; return TRUE; }
+static DWORD fn_trans(void *d, DWORD cb, DWORD conv, DWORD item, UINT fmt, UINT type, DWORD to, DWORD *res)
+{
+    (void) d; (void) cb; (void) fmt; (void) type; (void) to; (void) res;
+    if (!strcmp(fn_str[conv - 1], "WWW_GetWindowInfo")) return 1;
+    if (!strcmp(fn_str[conv - 1], "WWW_OpenURL")) { strcpy(fn_opened, fn_str[item - 1]); return 2; }
+    return 0;
+}
+static DWORD fn_get(DWORD h, void *out, DWORD max, DWORD off)
+{
+    const char *t = h == 1 ? fn_info : "0x1";
+    (void) off;
+    lstrcpyn((char *) out, t, (int) max);
+    return (DWORD) strlen((char *) out) + 1;
+}
+static BOOL fn_free(DWORD h) { (void) h; return TRUE; }
+static int fn_startup(WORD v, void *d) { (void) v; (void) d; return 0; }
+static UINT fn_socket(int a, int b, int c) { (void) a; (void) b; (void) c; return 7; }
+static int fn_async(UINT s, HWND h, UINT m, long ev) { (void) s; (void) ev; if (m) { fn_hwnd = h; fn_msg = m; } return 0; }
+static int fn_wconnect(UINT s, const void *sa, int n)
+{
+    (void) sa; (void) n;
+    PostMessage(fn_hwnd, fn_msg, s, MAKELONG(0x10, 0));
+    return -1;                          /* WSAEWOULDBLOCK */
+}
+static int fn_send(UINT s, const char *b, int n, int f)
+{
+    (void) f;
+    memcpy(fn_request, b, n < 699 ? n : 699);
+    fn_request[n < 699 ? n : 699] = 0;
+    fn_requests++;
+    if (fn_body) {
+        strcpy(fn_resp, "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\n");
+        fn_resp_n = (int) strlen(fn_resp);
+        memcpy(fn_resp + fn_resp_n, fn_body, fn_body_n);
+        fn_resp_n += fn_body_n;
+    } else {
+        strcpy(fn_resp, "HTTP/1.0 404 Not Found\r\n\r\nPC486-TAMPON 0\nabsent\n");
+        fn_resp_n = (int) strlen(fn_resp);
+    }
+    fn_resp_at = 0;
+    PostMessage(fn_hwnd, fn_msg, s, MAKELONG(0x01, 0));
+    PostMessage(fn_hwnd, fn_msg, s, MAKELONG(0x20, 0));
+    return n;
+}
+static int fn_recv(UINT s, char *b, int n, int f)
+{
+    int k = fn_resp_n - fn_resp_at;
+    (void) s; (void) f;
+    if (k <= 0) return -1;
+    if (k > n) k = n;
+    memcpy(b, fn_resp + fn_resp_at, k);
+    fn_resp_at += k;
+    return k;
+}
+static int fn_close(UINT s) { (void) s; return 0; }
+static FARPROC fn_proc(HMODULE m, LPCSTR n)
+{
+    static const struct { const char *name; FARPROC f; } t[] = {
+        {"DdeInitialize", (FARPROC) fn_ddeinit}, {"DdeCreateStringHandle", (FARPROC) fn_strnew},
+        {"DdeFreeStringHandle", (FARPROC) fn_strfree}, {"DdeConnect", (FARPROC) fn_connect},
+        {"DdeDisconnect", (FARPROC) fn_disc}, {"DdeClientTransaction", (FARPROC) fn_trans},
+        {"DdeGetData", (FARPROC) fn_get}, {"DdeFreeDataHandle", (FARPROC) fn_free},
+        {"WSAStartup", (FARPROC) fn_startup}, {"socket", (FARPROC) fn_socket},
+        {"connect", (FARPROC) fn_wconnect}, {"send", (FARPROC) fn_send},
+        {"recv", (FARPROC) fn_recv}, {"closesocket", (FARPROC) fn_close},
+        {"WSAAsyncSelect", (FARPROC) fn_async}
+    };
+    int i;
+    (void) m;
+    for (i = 0; i < (int) (sizeof(t) / sizeof(t[0])); i++)
+        if (!strcmp(t[i].name, n)) return t[i].f;
+    return 0;
+}
+
+/* touche prise par EPAUHOOK.DLL en mode navigation ; fl : 1 Maj, 2 Ctrl, 4 Alt */
+static void nav_press(UINT vk, int fl)
+{
+    ap_reset();
+    PostMessage(hwnd_main, EPM_NAV, vk, fl);
+    run(6000);
+}
+static const char *said(void) { return spoken_n ? spoken[spoken_n - 1] : ""; }
+static void show(const char *what) { int i; printf("[%s]", what); for (i = 0; i < spoken_n; i++) printf(" « %s »", spoken[i]); printf("\n"); }
+
+static HWND nav_frame, nav_fields[13];
+static void nav_make_fields(void);
+
+/* Netscape affiche http://pc486/essai : vue, rangées visibles, champs du formulaire */
+static void nav_page(void)
+{
+    static const char *rows[] = { "Aller au lien n\xb0", "Aller au contenu",
+        "En-t\xeate du site d'essai : Accueil pc486", "Titres", "Tableaux", "Formulaire",
+        "Page d'essai du mode navigation" };
+    int i;
+    nav_frame = sim_create(0, "AfxFrameOrView", "Netscape - [Page d'essai du mode navigation]",
+                           0, 0, 0, 420, 200);
+    hp.doc = hp.topic = sim_create(nav_frame, "AfxWnd", "", 0, 0, 40, 420, 40 + 16 * H_ROWS);
+    sim_win[hp.doc].id = 0xE900;
+    hp.dc = EpGetDC(hp.doc);
+    for (i = 0; i < 7; i++)
+        hp.lines[i] = rows[i];
+    hp.n = 7;
+    hp.top = 0;
+    hp_draw();
+    nav_make_fields();
+    sim_active = nav_frame;
+    sim_focus = hp.doc;
+}
+
+/* champs du formulaire, créés dans l'ordre du document ; hors de la partie affichée :
+   cachés */
+static void nav_make_fields(void)
+{
+    static const struct { const char *cls; LONG style; const char *value; int check; } f[13] = {
+        {"Edit", 0, "", 0}, {"Button", BS_PUSHBUTTON, "", 0}, {"Edit", 0, "Dupont", 0},
+        {"Edit", ES_PASSWORD, "", 0}, {"Button", BS_AUTOCHECKBOX, "", 1},
+        {"Button", BS_AUTOCHECKBOX, "", 0}, {"Button", BS_RADIOBUTTON, "", 0},
+        {"Button", BS_RADIOBUTTON, "", 1}, {"Button", BS_RADIOBUTTON, "", 0},
+        {"ComboBox", 3, "", 0}, {"Edit", ES_MULTILINE, "Texte initial", 0},
+        {"Button", BS_PUSHBUTTON, "", 0}, {"Button", BS_PUSHBUTTON, "", 0}
+    };
+    int i;
+    for (i = 0; i < 13; i++) {
+        HWND c = sim_create(hp.doc, f[i].cls, i == 1 ? "Aller" : "", f[i].style,
+                            i < 2 ? 150 + 60 * i : 71, i < 2 ? 40 : -111, i < 2 ? 200 + 60 * i : 295,
+                            i < 2 ? 56 : -87);
+        sim_win[c].id = (WORD) (25018 + i);
+        sim_win[c].proc = nsf_proc;
+        if (i >= 2)
+            sim_win[c].style &= ~WS_VISIBLE;
+        strcpy(nsf_value[c], f[i].value);
+        nsf_check[c] = f[i].check;
+        nav_fields[i] = c;
+    }
+}
+
+static char said_all[6000];
+static BOOL heard(const char *t)
+{
+    int i;
+    said_all[0] = 0;
+    for (i = 0; i < spoken_n; i++) {
+        if (strlen(said_all) + strlen(spoken[i]) + 4 >= sizeof(said_all)) break;
+        if (i) strcat(said_all, " / ");
+        strcat(said_all, spoken[i]);
+    }
+    if (strstr(said_all, t)) return TRUE;
+    printf("  entendu : « %s » ; attendu : « %s »\n", said_all, t);
+    return FALSE;
+}
+static BOOL br_starts(const char *t)
+{
+    int i;
+    for (i = 0; t[i]; i++)
+        if ((br_shown[i] | 0x20) != (t[i] | 0x20)) {
+            printf("  plage : « %s » ; attendu : « %s »\n", br_shown, t);
+            return FALSE;
+        }
+    return TRUE;
+}
+#define NAV(vk, fl, t) do { nav_press((vk), (fl)); CHECK(heard(t)); } while (0)
+
+/* Mode navigation d'une page de Netscape : structure demandée au proxy (faux Winsock)
+   pour l'adresse donnée par DDE ; titres, liens, listes, tableaux, champs, activation,
+   modes, dire tout, braille, changement de page, page hors proxy, titre différent. */
+static void test_navweb(void)
+{
+    HWND *f = nav_fields;
+    WORD h1;
+    int n;
+
+    boot();
+    sim_load_hook = fn_load;
+    sim_proc_hook = fn_proc;
+    fn_on = TRUE;
+    net_state = 0;
+    fn_body = nav_essai;
+    fn_body_n = NAV_ESSAI_LEN;
+    fn_requests = 0;
+    strcpy(fn_info, "\"http://pc486/essai\",\"Netscape - [Page d'essai du mode navigation]\"");
+    nav_page();
+    ap_reset();
+    run(5000);
+    CHECK(nav.loaded && nav.mapped && sim_nav_view == hp.doc && sim_nav_mode == 1);
+    CHECK(fn_requests == 1 && !strncmp(fn_request,
+          "GET http://pc486/tampon?url=http%3A%2F%2Fpc486%2Fessai HTTP/1.0\r\nHost: pc486\r\n", 75));
+    CHECK(spoken_n <= 1);               /* page déjà là au lancement : rien d'office */
+
+    /* titres : H, chiffres (niveau), Maj en arrière */
+    NAV(VK_HOME, 2, "Aller au lien n\xb0 zone d'\xe9" "dition vide bouton Aller");
+    NAV('H', 0, "fin de formulaire, r\xe9gion principal, titre niveau 1 Page d'essai du mode navigation");
+    h1 = nav.pos;
+    NAV('H', 0, "titre niveau 2 Titres et paragraphes");
+    NAV('3', 0, "titre niveau 3 Sous-titre de niveau trois");
+    NAV('4', 0, "titre niveau 4 Niveau quatre");
+    NAV('4', 0, "pas de titre de niveau 4 suivant");
+    NAV('2', 1, "titre niveau 2 Titres et paragraphes");
+    NAV('H', 1, "titre niveau 1 Page d'essai du mode navigation");
+    NAV('H', 1, "pas de titre pr\xe9" "c\xe9" "dent");
+    CHECK(nav.pos == h1);
+    /* braille : la ligne du curseur, abrégée */
+    CHECK(br_starts("t1 page d'essai"));
+
+    /* liens : K, visités (V), non visités (U) */
+    NAV('K', 0, "lien visit\xe9 lien d\xe9j\xe0 visit\xe9");
+    NAV('K', 0, "lien lien jamais visit\xe9");
+    NAV('K', 1, "lien visit\xe9 lien d\xe9j\xe0 visit\xe9");
+    NAV('U', 0, "lien lien jamais visit\xe9");
+    NAV(VK_HOME, 2, "Aller au lien");
+    NAV('V', 0, "r\xe9gion banni\xe8re, lien visit\xe9 Accueil pc486");
+    NAV('U', 1, "lien dans la page Aller au contenu");
+
+    /* listes, éléments, conteneurs (virgule), citation, séparateur */
+    NAV('L', 0, "liste de 3 \xe9l\xe9ments, puce lien dans la page Titres");
+    NAV('L', 0, "fin de liste, fin de r\xe9gion, r\xe9gion principal, liste de 3 \xe9l\xe9ments, puce Fruits");
+    NAV(VK_DOWN, 0, "liste de 3 \xe9l\xe9ments, puce Pomme");
+    NAV('I', 0, "puce Poire");
+    NAV(0xBC, 0, "fin de liste, puce L\xe9gumes");
+    NAV(0xBC, 1, "puce Fruits");
+    NAV('L', 0, "liste de 3 \xe9l\xe9ments, puce Pomme");
+    NAV('L', 0, "fin de liste, fin de liste, liste de 2 \xe9l\xe9ments, 1. Premier");
+    NAV('Q', 1, "citation, Une citation");
+    NAV('S', 0, "fin de citation, s\xe9parateur");
+    NAV('G', 0, "image Soleil sur la colline");
+    NAV('D', 1, "r\xe9gion principal, titre niveau 1");
+    NAV('N', 0, "au milieu de la phrase.");
+    NAV('M', 0, "pas de cadre suivant");
+    NAV('O', 0, "pas d'objet incorpor\xe9 suivant");
+
+    /* tableaux : T, cellules au clavier, en-têtes, cellule vide, cellules fusionnées */
+    NAV('T', 0, "tableau de 6 lignes et 3 colonnes, Temp\xe9ratures de la semaine");
+    NAV(VK_DOWN, 6, "ligne 1, colonne 1, Jour");    /* depuis la légende : 1re cellule */
+    NAV('T', 1, "tableau de 6 lignes");
+    NAV(VK_DOWN, 0, "ligne 1 colonne 1 Jour");
+    NAV(VK_DOWN, 6, "ligne 2, Lundi");
+    NAV(VK_DOWN, 6, "ligne 3, Mardi");
+    NAV(VK_RIGHT, 6, "Matin, colonne 2, vide");
+    NAV(VK_DOWN, 6, "Mercredi, ligne 4, sur 2 colonnes, pluie toute la journ\xe9" "e");
+    NAV(VK_RIGHT, 6, "bord du tableau");
+    NAV(VK_DOWN, 6, "Jeudi, ligne 5, 10");
+    NAV(VK_LEFT, 6, "Jour, colonne 1, sur 2 lignes, Jeudi");
+    NAV(VK_DOWN, 6, "bord du tableau");
+    NAV(VK_NEXT, 6, "ligne 6, sur 2 lignes, Jeudi");
+    NAV(VK_RIGHT, 6, "Matin, colonne 2, 11");
+    NAV(VK_UP, 6, "Jeudi, ligne 5, 10");
+    NAV(VK_DOWN, 0, "colonne 3 15");
+    NAV('T', 1, "tableau de 6 lignes");
+    NAV(VK_RIGHT, 6, "ligne 1, colonne 1, Jour");
+    NAV(VK_HOME, 2, "Aller au lien");
+    NAV(VK_RIGHT, 6, "pas dans un tableau");
+
+    /* champs : libellés, états réels (fenêtres de Netscape) */
+    /* champ visible dont le modèle n'a gardé qu'un morceau retracé (Netscape redessine
+       la fin du texte après une saisie) : repeint, puis lu en entier */
+    {
+        HDC dc = GetDC(f[0]);
+        strcpy(nsf_value[f[0]], "Marc");
+        EpExtTextOut(dc, 2 + 2 * 8, 2, 0, NULL, "rc", 2, NULL);
+        sim_update = nsf_update;
+        NAV(VK_HOME, 2, "Aller au lien n\xb0 zone d'\xe9" "dition Marc bouton");
+        sim_update = NULL;
+        nsf_value[f[0]][0] = 0;
+        clear(dc, 0, 0, 200, 20);
+        DeleteDC(dc);
+    }
+    NAV(VK_HOME, 2, "Aller au lien");
+    NAV('X', 0, "formulaire, Recevoir la lettre, case \xe0 cocher coch\xe9" "e");
+    ap_reset();
+    NAV(VK_RETURN, 0, "non coch\xe9" "e");
+    CHECK(nsf_check[f[4]] == 0 && sim_focus == f[4] && sim_nav_mode == 1);
+    CHECK(spoken_n == 1);               /* le focus posé sur la case n'est pas annoncé */
+    /* focus déjà sur la case (cas réel : Netscape traite la touche après la
+       scrutation) : le changement d'état n'est dit qu'une fois */
+    NAV(VK_RETURN, 0, "coch\xe9" "e");
+    CHECK(nsf_check[f[4]] == 1 && spoken_n == 1);
+    NAV(VK_RETURN, 0, "non coch\xe9" "e");
+    CHECK(spoken_n == 1);
+    NAV('X', 0, "Recevoir les offres, case \xe0 cocher non coch\xe9" "e");
+    NAV(VK_SPACE, 0, "coch\xe9" "e");
+    CHECK(nsf_check[f[5]] == 1);
+    NAV('R', 0, "Rouge, bouton radio non coch\xe9");
+    NAV('R', 0, "Vert, bouton radio coch\xe9");
+    NAV('R', 1, "Rouge, bouton radio non coch\xe9");
+    NAV(VK_RETURN, 0, "coch\xe9");
+    CHECK(nsf_check[f[6]] == 1 && nsf_check[f[7]] == 0);
+    NAV('C', 0, "Ville :, liste d\xe9roulante Lyon");
+    NAV('B', 0, "bouton Envoyer");
+    NAV('F', 1, "Remarque :, zone d'\xe9" "dition multiligne Texte initial");
+    NAV('E', 1, "Mot de passe :, mot de passe vide");
+    NAV('E', 1, "Nom :, zone d'\xe9" "dition Dupont");
+    /* Entrée sur une zone d'édition : focus, mode formulaire ; Échap : retour */
+    NAV(VK_RETURN, 0, "mode formulaire, Nom :, zone d'\xe9" "dition Dupont");
+    CHECK(sim_focus == f[2] && sim_nav_mode == 2 && !nav_here());
+    NAV(VK_ESCAPE, 0, "mode navigation");
+    CHECK(sim_nav_mode == 1 && nav.pos == nav_items[nav_item_of(f[2])].start);
+    NAV('E', 0, "Mot de passe :, mot de passe vide");
+    /* Inser+Espace : formulaire (focus au champ du curseur), puis navigation */
+    ap_reset();
+    insert_cmd(VK_SPACE);
+    run(3000);
+    CHECK(heard("mode formulaire") && sim_nav_mode == 0 && sim_focus == f[3]);
+    ap_reset();
+    insert_cmd(VK_SPACE);
+    run(3000);
+    CHECK(heard("mode navigation") && sim_nav_mode == 1);
+    /* bouton : envoi, puis structure redemandée, position gardée */
+    n = fn_requests;
+    NAV('B', 0, "bouton Envoyer");
+    h1 = nav.pos;
+    nav_press(VK_RETURN, 0);
+    CHECK(nsf_clicked == f[11] && fn_requests == n + 1 && nav.loaded && nav.pos == h1);
+    /* Communicator 4 : boutons de commande dessinés par lui (BS_OWNERDRAW) */
+    sim_win[f[11]].style = (sim_win[f[11]].style & ~0x0FL) | BS_OWNERDRAW;
+    sim_win[f[12]].style = (sim_win[f[12]].style & ~0x0FL) | BS_OWNERDRAW;
+    nav.mapped = FALSE;
+    nsf_clicked = 0;
+    nav_press(VK_RETURN, 0);
+    CHECK(nsf_clicked == f[11]);
+    /* Communicator 4 : liste déroulante dessinée par lui, sans textes */
+    sim_win[f[9]].style |= CBS_OWNERDRAWFIXED;
+    NAV('C', 1, "Ville :, liste d\xe9roulante Lyon");
+
+    /* liens : Entrée ouvre l'adresse par DDE ; lien dans la page : son ancre */
+    NAV(VK_HOME, 2, "Aller au lien");
+    NAV('K', 0, "lien dans la page Aller au contenu");
+    NAV(VK_RETURN, 0, "titre niveau 1 Page d'essai");
+    NAV('K', 0, "lien visit\xe9 lien d\xe9j\xe0 visit\xe9");
+    NAV('K', 0, "lien jamais");
+    fn_opened[0] = 0;
+    nav_press(VK_RETURN, 0);
+    CHECK_STR(fn_opened, "\"http://pc486/jamais-visite\",,0xFFFFFFFF,0x0,,,");
+
+    /* lecture : caractères, mots, lignes, paragraphes, début et fin */
+    NAV(VK_HOME, 2, "Aller au lien");
+    NAV(VK_DOWN, 0, "fin de formulaire, lien dans la page Aller au contenu");
+    NAV(VK_DOWN, 0, "r\xe9gion banni\xe8re, En-t\xeate du site d'essai : lien visit\xe9 Accueil pc486");
+    NAV(VK_RIGHT, 0, "n");
+    NAV(VK_RIGHT, 2, "du");
+    NAV(VK_LEFT, 2, "En-t\xeate");
+    NAV(VK_END, 0, "6");
+    NAV(VK_HOME, 0, "E");
+    NAV(VK_DOWN, 2, "fin de r\xe9gion, r\xe9gion navigation, liste de 3 \xe9l\xe9ments, puce");
+    NAV(VK_UP, 0, "fin de liste, fin de r\xe9gion, r\xe9gion banni\xe8re, En-t\xeate");
+    NAV(VK_END, 2, "Accueil pc486");
+    NAV(VK_DOWN, 0, "bas du document");
+    NAV(VK_PRIOR, 0, "Mot de passe");
+
+    /* dire tout depuis le curseur, interrompu par Ctrl : le curseur reste sur la ligne lue */
+    NAV(VK_HOME, 2, "Aller au lien");
+    NAV('H', 0, "titre niveau 1");
+    h1 = nav.pos;
+    ap_reset();
+    insert_cmd(VK_DOWN);
+    run(20000);
+    CHECK(sa.on && sa.kind == 4);
+    CHECK(heard("titre niveau 1 Page d'essai du mode navigation / Cette page sert"));
+    ctrl_alone();
+    run(500);
+    CHECK(!sa.on && nav.pos > h1);
+    h1 = nav.pos;
+    nav_press(VK_DOWN, 0);
+    CHECK(nav.pos == nav_next_line(h1));
+
+    /* braille : Bas de la plage, routage (deux fois : activer) */
+    NAV(VK_HOME, 2, "Aller au lien");
+    run(500);
+    CHECK(br_starts("aller au lien n? ed btn aller"));
+    ap_reset();
+    nav_br_key(BR_DOWN);
+    run(2000);
+    CHECK(heard("Aller au contenu") && br_starts("ln aller au contenu"));
+    nav_br_key(BR_ROUTE + 3);
+    nav_br_key(BR_ROUTE + 3);
+    run(3000);
+    CHECK(heard("titre niveau 1"));
+
+    /* nouvelle page hors proxy : titre, puis lecture d'office du texte dessiné ; les
+       champs de l'ancienne page disparaissent avec elle (focus perdu) */
+    for (n = 0; n < 13; n++)
+        sim_destroy(f[n]);
+    sim_focus = 0;
+    fn_body = NULL;
+    strcpy(fn_info, "\"file:///C|/autre.htm\",\"Netscape - [Autre]\"");
+    ap_reset();
+    strcpy(sim_win[nav_frame].text, "Netscape - [Autre]");
+    run(400);
+    CHECK(!nav.loaded && sim_nav_mode == 0);
+    run(15000);
+    CHECK(!nav.loaded && heard("Netscape - [Autre] / Aller au lien"));
+    ap_reset();
+    insert_cmd(VK_SPACE);
+    run(2000);
+    CHECK(heard("pas de mode navigation pour cette page"));
+    /* retour à la page d'essai : structure, puis dire tout depuis le haut */
+    fn_body = nav_essai;
+    strcpy(fn_info, "\"http://pc486/essai\",\"Netscape - [Page d'essai du mode navigation]\"");
+    nav_make_fields();
+    {
+        /* retour arrière : Netscape remet le texte saisi (absent du tampon) ; ce n'est
+           pas une page différente */
+        clear(hp.dc, 0, 0, 400, 16);
+        EpExtTextOut(hp.dc, 0, 0, 0, NULL, "MartinTexte initial", 19, NULL);
+    }
+    ap_reset();
+    strcpy(sim_win[nav_frame].text, "Netscape - [Page d'essai du mode navigation]");
+    run(12000);
+    CHECK(nav.loaded && sa.on && sa.kind == 4);
+    CHECK(heard("Netscape - [Page d'essai du mode navigation] / formulaire, Aller au lien"));
+    CHECK(!nav.warned);
+    ctrl_alone();
+    run(500);
+    /* contenu changé sous le même titre : deux rangées inconnues, alerte entendue */
+    clear(hp.dc, 0, 0, 400, 32);
+    EpExtTextOut(hp.dc, 0, 0, 0, NULL, "Zorglub xylophones", 18, NULL);
+    EpExtTextOut(hp.dc, 0, 16, 0, NULL, "Quokkas wombats zzz", 19, NULL);
+    ap_reset();
+    insert_cmd(VK_F5);
+    run(12000);
+    CHECK(nav.warned && heard("Attention : la structure lue peut diff\xe9rer"));
+    hp_draw();
+    ctrl_alone();
+    run(500);
+    /* page affichée différente (titre) : structure refusée */
+    strcpy(fn_info, "\"http://pc486/essai\",\"Netscape - [Une autre page]\"");
+    strcpy(sim_win[nav_frame].text, "Netscape - [Une autre page]");
+    run(8000);
+    CHECK(!nav.loaded && sim_nav_mode == 0);
+
+    sim_load_hook = NULL;
+    sim_proc_hook = NULL;
+    fn_on = FALSE;
+    net_state = 0;
+    hp.doc = hp.topic = 0;
+}
+
 int main(void)
 {
+    { int f = failures; test_navweb(); if (failures > f) dump("test_navweb"); }
     { int f = failures; test_disabled_controls(); if (failures > f) dump("test_disabled_controls"); }
     { int f = failures; test_calculator_states(); if (failures > f) dump("test_calculator_states"); }
     { int f = failures; test_calculator(); if (failures > f) dump("test_calculator"); }
     { int f = failures; test_write_say_all(); if (failures > f) dump("test_write_say_all"); }
     { int f = failures; test_write_interrupt(); if (failures > f) dump("test_write_interrupt"); }
+    { int f = failures; test_write_up_at_end(); if (failures > f) dump("test_write_up_at_end"); }
     { int f = failures; test_notepad_say_all(); if (failures > f) dump("test_notepad_say_all"); }
     { int f = failures; test_progman_icons(); if (failures > f) dump("test_progman_icons"); }
     { int f = failures; test_winfile_list(); if (failures > f) dump("test_winfile_list"); }
@@ -1795,8 +3246,18 @@ int main(void)
     { int f = failures; test_cardfile(); if (failures > f) dump("test_cardfile"); }
     { int f = failures; test_charmap(); if (failures > f) dump("test_charmap"); }
     { int f = failures; test_winhelp(); if (failures > f) dump("test_winhelp"); }
+    { int f = failures; test_netscape(); if (failures > f) dump("test_netscape"); }
     { int f = failures; test_packager(); if (failures > f) dump("test_packager"); }
     { int f = failures; test_mail(); if (failures > f) dump("test_mail"); }
+    { int f = failures; test_excel_grid(); if (failures > f) dump("test_excel_grid"); }
+    { int f = failures; test_dos_box(); if (failures > f) dump("test_dos_box"); }
+    { int f = failures; test_installer_progress(); if (failures > f) dump("test_installer_progress"); }
+    { int f = failures; test_icon_buttons(); if (failures > f) dump("test_icon_buttons"); }
+    { int f = failures; test_excel_dialog(); if (failures > f) dump("test_excel_dialog"); }
+    { int f = failures; test_long_message(); if (failures > f) dump("test_long_message"); }
+    { int f = failures; test_picture_buttons(); if (failures > f) dump("test_picture_buttons"); }
+    { int f = failures; test_grid_editor(); if (failures > f) dump("test_grid_editor"); }
+    { int f = failures; test_excel_edit(); if (failures > f) dump("test_excel_edit"); }
     test_value_bounds();
     test_braille_modal_handoff();
     { int f = failures; test_braille_selection(); if (failures > f) dump("test_braille_selection"); }

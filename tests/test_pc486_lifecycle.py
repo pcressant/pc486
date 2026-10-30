@@ -28,6 +28,26 @@ Path('box-args').write_text('\n'.join(sys.argv[1:]))
 Path('box-cfg').write_text(cfg.read_text())
 with cfg.open('a') as f:
     f.write('host_cpu = simulé\nuuid = 00000000-0000-5000-8000-000000000000\n')
+if Path('net-probe').exists():
+    # --reseau : espace de noms de 86Box, relais du proxy, port de l'hôte inaccessible
+    def reach(port):
+        try:
+            s = socket.create_connection(('127.0.0.1', port), timeout=3)
+        except OSError as e:
+            return 'ERR ' + type(e).__name__
+        if port == 8080:
+            s.sendall(b'GET http://pc486/ HTTP/1.0\r\n\r\n')
+            data = b''
+            while True:
+                chunk = s.recv(65536)
+                if not chunk:
+                    break
+                data += chunk
+            return 'OK ' + data.split(b'\r\n')[0].decode()
+        return 'OK'
+    host_port = int(Path('net-probe').read_text())
+    Path('box-net').write_text('\n'.join([os.readlink('/proc/self/ns/net'), reach(8080),
+                                          reach(host_port)]))
 master, slave = pty.openpty()
 print('serial_passthrough: Slave side is ' + os.ttyname(slave), flush=True)
 if os.environ.get('PC486_BRAILLE') == '1':
@@ -50,6 +70,8 @@ class LifecycleTests(unittest.TestCase):
             (self.root / name).mkdir()
         for script in ('pc486', 'with-disk-lock.py'):
             shutil.copy2(ROOT / 'scripts' / script, self.root / 'scripts' / script)
+        shutil.copytree(ROOT / 'scripts/reseau', self.root / 'scripts/reseau',
+                        ignore=shutil.ignore_patterns('__pycache__'))
         (self.root / 'disk.img').touch()
         (self.root / '86box/86box.cfg').write_text('[Hard disks]\nhdd_01_fn = ../disk.img\n')
         (self.root / 'tools/socat').symlink_to((ROOT / 'tools/socat').resolve())
@@ -247,6 +269,54 @@ class LifecycleTests(unittest.TestCase):
         self.assertNotIn('hdd_02', self.generated_config())
         self.launch('stop')
         self.wait_clean()
+
+    CD_TEMPLATE = ('[Hard disks]\nhdd_01_fn = ../disk.img\n\n[Floppy and CD-ROM drives]\n'
+                   'fdd_01_type = 35_2hd\nfdd_02_type = none\n\n[Ports (COM & LPT)]\n'
+                   'serial1_passthrough_enabled = 1\n')
+
+    def test_86box_without_options_has_no_cdrom_nor_network(self):
+        (self.root / '86box/86box.cfg').write_text(self.CD_TEMPLATE)
+        self.env['PC486_RESEAU_DATA'] = str(self.root / 'reseau')
+        self.launch('start', '--no-gateway')
+        cfg = self.generated_config()
+        self.assertEqual(cfg, self.CD_TEMPLATE.replace('../disk.img', f'{self.root}/86box/../disk.img'))
+        self.assertFalse((self.root / 'run/reseau.pid').exists())
+        self.assertFalse((self.root / 'run/web.sock').exists())
+        self.launch('stop')
+        self.wait_clean()
+
+    def test_86box_network_is_isolated_and_cdrom_attached(self):
+        (self.root / '86box/86box.cfg').write_text(self.CD_TEMPLATE)
+        self.env['PC486_RESEAU_DATA'] = str(self.root / 'reseau')
+        iso = self.root / 'cd.iso'
+        iso.write_bytes(b'\0' * 2048)
+        outside = socket.socket()
+        outside.bind(('127.0.0.1', 0))
+        outside.listen()
+        self.addCleanup(outside.close)
+        (self.root / 'net-probe').write_text(str(outside.getsockname()[1]))
+        p = self.launch('start', '--no-gateway', '--reseau', '--cdrom', str(iso))
+        self.assertIn('réseau : proxy web et courrier local prêts', p.stdout)
+        cfg = self.generated_config()
+        self.assertIn('[Floppy and CD-ROM drives]\ncdrom_01_parameters = 1, atapi\n'
+                      f'cdrom_01_ide_channel = 1:0\ncdrom_01_image_path = {iso}\nfdd_01_type', cfg)
+        self.assertIn('[Network]\nnet_01_card = ne2k\nnet_01_net_type = slirp\n\n'
+                      '[NE2000 Compatible #1]\nbase = 0300\nirq = 10\nmac = 48:60:01\n', cfg)
+        until = time.monotonic() + 10
+        while not (self.root / 'box-net').exists() and time.monotonic() < until:
+            time.sleep(.05)
+        ns, proxy, host = (self.root / 'box-net').read_text().splitlines()
+        self.assertNotEqual(ns, os.readlink('/proc/self/ns/net'), '86Box hors espace de noms isolé')
+        self.assertEqual(proxy, 'OK HTTP/1.0 200 OK')
+        self.assertEqual(host, 'ERR ConnectionRefusedError', 'port de l’hôte joignable depuis 86Box')
+        for name in ('web', 'pop3', 'smtp'):
+            self.assertTrue((self.root / f'run/{name}.sock').is_socket())
+        self.assertTrue((self.root / 'reseau/courrier/new').is_dir())
+        services = int((self.root / 'run/reseau.pid').read_text())
+        self.launch('stop')
+        self.wait_clean()
+        with self.assertRaises(ProcessLookupError, msg='services réseau encore en marche'):
+            os.kill(services, 0)
 
     def test_second_start_preserves_running_vm(self):
         self.launch('start', '--no-gateway')

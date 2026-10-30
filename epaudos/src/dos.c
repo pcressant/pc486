@@ -23,6 +23,7 @@ extern void __cdecl dos_setvector(unsigned n, void *fn);
 extern void __cdecl dos_setfarvector(unsigned n, VECTOR fn);
 extern BYTE __far * __cdecl dos_indos(void);
 extern unsigned long __cdecl mux(unsigned fn);
+extern unsigned __cdecl cur_vm(void);
 extern void __cdecl keep(void);
 extern void isr15(void), isr08(void), isr28(void), isr2f(void);
 extern void isr0c(void), isr71(void);
@@ -43,11 +44,49 @@ static BYTE __far *indos;
 static const char *const cfg_names[ED_CFG] = {"Debit","Hauteur","Voix","Ponctuation","Echo","Majuscules","EchoEcran"};
 
 static BYTE __far *bda = (BYTE __far *)MK_FP(0x40,0);
+
+/* Boîte aux lettres d'Épaulard (INT 2Fh AX=ED02h -> ES:BX). Sous Windows, COM1
+   et COM3 appartiennent à Épaulard : dans une machine DOS, Épaudos laisse sa parole
+   dans uart_buf (port 0) et lit les échos de l'Apollo II dans uart_rxbuf ; version
+   2, ses trames Baum dans uart_buf+256 (port 1), d'où Épaulard tire les cellules,
+   et les touches de la plage, réencodées par Épaulard, dans uart_rxbuf+256.
+   Mémoire chargée avant Windows, donc commune à toutes les machines. Producteur et
+   consommateur uniques par file : chacun n'écrit que son propre indice. */
+EDBOX ed_box = { {'E','P','B','X'}, 2 };
+static WORD box_alive, box_ticks;
+
+/* Épaulard vivant : son compteur a changé il y a moins de 2 s */
+static int relay_alive(void)
+{
+    if (!ed_box.relay) return 0;
+    if (ed_box.alive != box_alive) { box_alive = ed_box.alive; box_ticks = 0; return 1; }
+    return ++box_ticks < 36;
+}
+int hw_guest(int key)
+{
+    unsigned vm;
+    if (!relay_alive()) { ed_box.active = 0; return ED_SLEEP; }
+    vm = cur_vm();
+    if (vm <= 1) return key ? ED_SLEEP : ED_SKIP;   /* machine système : Épaulard lit */
+    /* La machine qui reçoit les touches est celle de la fenêtre DOS active ; sans
+       touche encore, la première machine DOS qui tourne. */
+    if (key || !ed_box.vm) ed_box.vm = vm;
+    if (vm != ed_box.vm) return ED_SKIP;
+    ed_box.active = 1;
+    if (key) ++ed_box.keys;     /* Épaulard se tient prêt à relayer (dosbox.c) */
+    return ED_RUN;
+}
 int hw_tx(int port, BYTE value)
 {
     unsigned base = port ? 0x3e8 : 0x3f8;
     BYTE next = (BYTE)(uart_head[port]+1);
     WORD flags;
+    if (ed_windows) {
+        /* Mode invité : aucun accès au port ; Épaulard vide la file. */
+        if (next == uart_tail[port]) return 0;
+        uart_buf[port*256+uart_head[port]] = value; uart_head[port] = next;
+        return 1;
+    }
     if (next == uart_tail[port]) {
         /* File pleine : si l'UART est pourtant libre, l'interruption THRE
            s'est perdue ; relancer l'émission à la main, ISR exclue. */
@@ -72,17 +111,22 @@ int hw_rx(int port)
 }
 void hw_quiet(void)
 {
-    /* Windows a déjà reçu les ports par INT 2Fh : ne plus les toucher. */
-    if (!ed_windows) {
-        port_out(0x3f9,0); port_out(0x3e9,0);
-        uart_out(0x3f8,24);
+    /* Windows a déjà reçu les ports par INT 2Fh : ne plus les toucher. Les files
+       partagées avec Épaulard : ne vider que ce que l'on consomme. */
+    if (ed_windows) {
+        uart_rxtail[0] = uart_rxhead[0]; uart_rxtail[1] = uart_rxhead[1];
+        uart_head[1] = uart_tail[1];    /* trame interrompue : Épaulard se recale */
+        return;
     }
+    port_out(0x3f9,0); port_out(0x3e9,0);
+    uart_out(0x3f8,24);
     uart_head[0] = uart_tail[0] = uart_head[1] = uart_tail[1] = 0;
     uart_rxhead[0] = uart_rxtail[0] = uart_rxhead[1] = uart_rxtail[1] = 0;
 }
 void hw_serial(int port, int divisor)
 {
     unsigned base = port ? 0x3e8 : 0x3f8;
+    if (ed_windows) { hw_quiet(); return; }     /* mode invité : ports à Windows */
     port_out(base+1,0); port_out(base+3,0x80);
     port_out(base,divisor); port_out(base+1,0);
     port_out(base+3,3); port_out(base+4,11);
@@ -132,7 +176,7 @@ void hw_restore(void)
     int i;
     if (saved_row < 0) return;
     /* Ne pas réécrire de mémoire vidéo si l'application a changé de mode. */
-    if (!ed_windows && (bda[0x49] <= 3 || bda[0x49] == 7))
+    if ((!ed_windows || ed_guest) && (bda[0x49] <= 3 || bda[0x49] == 7))
         for (i = 0; i < saved_cols; ++i) saved_video[i] = saved_cells[i];
     saved_row = -1;
 }
@@ -187,9 +231,16 @@ static int save(const BYTE __far *cfg)
 void idle(void)
 {
     unsigned caller; VECTOR critical; int ok;
+    /* Mode invité : parole ou trame braille en attente d'Épaulard. Céder le reste
+       de la tranche de temps de cette machine (INT 2Fh 1680h) : la machine système
+       les relaie aussitôt, au lieu d'attendre son tour derrière une invite qui ne
+       fait qu'attendre une touche (plein écran surtout). */
+    if (ed_windows && ed_guest && ed_box.relay &&
+        (uart_head[0] != uart_tail[0] || uart_head[1] != uart_tail[1]))
+        mux(0x1680);
     /* INT 28h autorise les services DOS > 0Ch. Ne pas entrer pendant une
        erreur critique. Le PSP résident possède les handles temporaires. */
-    if (ed_save != 1 || ed_windows || *indos > 1 || *(indos-1)) return;
+    if (ed_save != 1 || (ed_windows && !ed_guest) || *indos > 1 || *(indos-1)) return;
     caller = dos_psp(); critical = dos_vector(0x24);
     dos_setpsp(psp); dos_setvector(0x24,fail24);
     ok = save((const BYTE __far *)MK_FP(psp,(unsigned)ed_cfg));
@@ -215,6 +266,10 @@ void install(void)
         dos_print("Lancer Épaudos avant Windows.\r\n$"); return;
     }
     load(); indos = dos_indos();
+    ed_box.head = (WORD)&uart_head[0]; ed_box.tail = (WORD)&uart_tail[0];
+    ed_box.buf = (WORD)uart_buf;
+    ed_box.rxhead = (WORD)&uart_rxhead[0]; ed_box.rxtail = (WORD)&uart_rxtail[0];
+    ed_box.rxbuf = (WORD)uart_rxbuf;
     old15 = dos_vector(0x15); old08 = dos_vector(0x08);
     old28 = dos_vector(0x28); old2f = dos_vector(0x2f);
     old0c = dos_vector(0x0c); old71 = dos_vector(0x71);

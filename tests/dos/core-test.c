@@ -32,6 +32,9 @@ int hw_screen(int *c,int *r,int *x,int *y,WORD *s)
 void hw_overlay(int r,const char *s) { (void)r; (void)s; }
 void hw_restore(void) {}
 void hw_quiet(void) {}
+static int guest;               /* hw_guest : ED_SLEEP, ED_RUN ou ED_SKIP */
+int hw_guest(int k) { (void)k; return guest; }
+EDBOX ed_box;
 WORD hw_lock(void) { return 0; }
 void hw_unlock(WORD flags) { (void)flags; }
 static void run(int n) { while (n--) ed_tick(); }
@@ -125,6 +128,21 @@ int main(int argc,char **argv)
         assert(!ed_scan(82,0)); textmode=1; run(10); assert(!ed_disabled);
         ed_windows=1; run(1); n=outn[0]; run(100); assert(outn[0]==n);
         assert(!ed_scan(82,0)); ed_windows=0; run(10); contains("prêt");
+    } else if (!strcmp(argv[1],"guest")) {
+        /* Windows : machine DOS relayée par Épaulard (mode invité) */
+        ed_windows=1; guest=ED_SLEEP; run(5); n=outn[0]; run(50); assert(outn[0]==n);
+        assert(!ed_scan(82,0));
+        guest=ED_RUN; put(0,10,"C:\\>dir",7); vy=10; vx=8; run(20);
+        assert(outn[0]>n); assert(ed_guest);
+        /* braille relayé : largeur rendue par Épaulard, cellules de la ligne */
+        i=outn[1]; receive(1,27); receive(1,1); receive(1,40); run(10);
+        assert(br_width==40); assert(outn[1]>i+40);
+        assert(output[1][outn[1]-42]==27 && output[1][outn[1]-41]==1);
+        n=outn[0]; guest=ED_SKIP; run(50); assert(outn[0]==n); assert(ed_guest);
+        assert(!ed_scan(82,0));
+        guest=ED_RUN; key(72); run(20); assert(outn[0]>n);
+        guest=ED_SLEEP; run(2); assert(!ed_guest);
+        ed_windows=0; run(10); contains("prêt");
     } else if (!strcmp(argv[1],"echo")) {
         combo(80); run(20); assert(awaiting); n=outn[0]; run(100);
         assert(outn[0]==n); receive(0,echo_id); run(20);
@@ -238,11 +256,11 @@ int main(int argc,char **argv)
         clear_row(24); put(0,24,"nouvelle",7); run(3);
         contains("nouvelle"); absent("sortie");
         /* Rangée du curseur : attendue stable (un passage), puis lue une fois.
-           La parole mise en file est émise au passage suivant. */
-        outn[0]=0; vx=4; vy=22; put(0,22,"C:\\>",7); run(3); assert(outn[0]==0);
+           La parole part à la fin du passage qui la prépare. */
+        outn[0]=0; vx=4; vy=22; put(0,22,"C:\\>",7); run(2); assert(outn[0]==0);
         run(1); contains("C:\\>"); outn[0]=0; run(5); assert(outn[0]==0);
         /* Entrée : la commande n'est pas relue, la sortie et l'invite le sont. */
-        outn[0]=0; app(28); put(0,23,"resultat",7); put(0,24,"C:\\>",7); vx=4; vy=24; run(3);
+        outn[0]=0; app(28); put(0,23,"resultat",7); put(0,24,"C:\\>",7); vx=4; vy=24; run(2);
         contains("resultat"); absent("C:\\>"); run(1); contains("C:\\>");
         /* Fenêtre redessinée sur deux passages (éditeur lent) : un défilement
            d'une rangée n'est pas lu comme du texte nouveau. */

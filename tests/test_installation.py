@@ -1,6 +1,7 @@
 """Garde-fous de l'installation ; aucun support Microsoft requis pour ces tests."""
 import importlib.util
 import argparse
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -579,3 +580,158 @@ class ReferenceProfileTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class OfficeMediaTests(unittest.TestCase):
+    def test_excel_form_is_chosen_from_the_media(self):
+        """5.0c (1,2 Mo) et 5.0 (1,44 Mo) : la forme qui se valide est retenue."""
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            source = p / 'excel'
+            source.mkdir()
+            for n in range(1, 11):
+                (source / f'DISK{n}.IMG').write_bytes(b'x' * install.FLOPPY_SIZE)
+            seen = []
+            with patch.object(install, 'validate_acme', side_effect=lambda prod, media: seen.append(prod.key)):
+                product, media = install.collect_acme(source, p / 'copie', ('excel', 'excel50'))
+            self.assertEqual(product.key, 'excel50')
+            self.assertEqual(len(media), 10)
+            self.assertEqual(seen, ['excel50'])      # 5.0c refusé dès la taille des images
+            self.assertFalse((p / 'copie/excel').exists())
+
+    def test_unknown_office_media_lists_every_form(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            (p / 'vide').mkdir()
+            with self.assertRaises(install.InstallError) as e:
+                install.collect_acme(p / 'vide', p / 'copie', ('excel', 'excel50'))
+            self.assertIn('Excel 5.0c', str(e.exception))
+            self.assertIn('Excel 5.0 :', str(e.exception))
+
+    def test_access_y2k_dlls_come_from_the_self_extracting_zip(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            inner = p / 'inner.zip'
+            with zipfile.ZipFile(inner, 'w') as z:
+                z.writestr('MSABC200.dll', b'MZabc')
+                z.writestr('Msaju200.dll', b'MZaju')
+                z.writestr('../../evil.dll', b'MZ')
+            outer = p / 'acc2date.zip'
+            with zipfile.ZipFile(outer, 'w') as z:
+                z.writestr('acc2date/ACC2K/ACC2DATE.EXE', b'MZstub' + inner.read_bytes())
+            dlls = install.collect_access_y2k(outer, p / 'copie')
+            self.assertEqual(sorted(x.name for x in dlls), ['MSABC200.DLL', 'MSAJU200.DLL'])
+            self.assertEqual(sorted(x.name for x in (p / 'copie').iterdir()), ['MSABC200.DLL', 'MSAJU200.DLL'])
+            self.assertEqual((p / 'copie/MSAJU200.DLL').read_bytes(), b'MZaju')
+
+    def test_netscape_folder_only_short_names_from_its_directory(self):
+        """Netscape : seul le dossier N16FR31 du ZIP, fichiers aux noms DOS ; validé par
+        SETUP.INI français et SETUP.EXE."""
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            source = p / 'ns.zip'
+            with zipfile.ZipFile(source, 'w') as z:
+                z.writestr('N16FR31/SETUP.EXE', b'MZsetup')
+                z.writestr('N16FR31/SETUP.INI', b'[Intl]\r\nResource Dll Name=nsfrfr16.dll\r\n')
+                z.writestr('N16FR31/data.z', b'donnees')
+                z.writestr('N16FR31/nom beaucoup trop long.txt', b'x')
+                z.writestr('N16FR31/SOUS/AUTRE.EXE', b'MZ')
+                z.writestr('N16FR31/../EVIL.EXE', b'MZ')
+                z.writestr('win3xorg.txt', b'x')
+            product, media = install.collect_acme(source, p / 'copie', ('netscape',))
+            self.assertEqual(product.key, 'netscape')
+            self.assertEqual(sorted(x.name for x in media[0].iterdir()), ['DATA.Z', 'SETUP.EXE', 'SETUP.INI'])
+            self.assertFalse((p / 'EVIL.EXE').exists())
+            # version anglaise (autre DLL de ressources) : refusée
+            other = p / 'en.zip'
+            with zipfile.ZipFile(other, 'w') as z:
+                z.writestr('N16FR31/SETUP.EXE', b'MZsetup')
+                z.writestr('N16FR31/SETUP.INI', b'[Intl]\r\n')
+            with self.assertRaises(install.InstallError):
+                install.collect_acme(other, p / 'copie2', ('netscape',))
+
+    def test_netscape_settings_point_to_the_host_services(self):
+        with tempfile.TemporaryDirectory() as d:
+            stage = Path(d)
+            ini = ('[Main]\r\nHome Page=http://home.fr.netscape.com/fr/\r\n\r\n[Proxy Information]\r\n'
+                   'Http_ProxyPort=0\r\nHTTP_Proxy=\r\n').encode('cp1252')
+            writes = {}
+
+            def fake_run(*args):
+                if args[0] == 'mtype':
+                    return ini
+                if args[0] == 'mcopy':
+                    writes[args[-1]] = Path(args[-2]).read_bytes()
+                    return b''
+                raise AssertionError(args)
+
+            with patch.object(install, 'run', side_effect=fake_run):
+                install.configure_product(stage, 'disk@@32256', install.ACME['netscape'], 'Jérôme')
+            text = writes['::/NETSCAPE/NETSCAPE.INI'].decode('cp1252')
+            for line in ('Home Page=http://pc486/', 'Proxy Type=1', 'HTTP_Proxy=10.0.2.2',
+                         'Http_ProxyPort=8080', 'SMTP_Server=10.0.2.2', 'POP_Server=10.0.2.2',
+                         'User_Name=Jérôme', 'Warn Insecure Forms=no'):
+                self.assertIn(line + '\r\n', text)
+            self.assertNotIn('home.fr.netscape.com', text)
+            bookmarks = writes['::/NETSCAPE/BOOKMARK.HTM'].decode('cp1252')
+            self.assertIn('<A HREF="http://pc486/">', bookmarks)
+            self.assertIn('\r\n', bookmarks)
+
+    def test_netscape_cfg_matches_the_file_shipped_with_communicator(self):
+        """Le NETSCAPE.CFG vide de Communicator 4.08 est reproduit octet pour octet :
+        même décalage, même clé, même empreinte."""
+        shipped = bytes((b + 7) & 255 for b in
+                        b'// 2d 83 59 03 a4 cc 03 1f 64 3a c9 90 8b 62 f5 ca\n\r')
+        self.assertEqual(install.netscape_cfg([]), shipped)
+
+    def test_communicator_defaults_point_to_the_host_services(self):
+        cfg = install.communicator_cfg()
+        text = bytes((b - 7) & 255 for b in cfg)
+        head, rest = text[:51], text[51:]
+        digest = hashlib.md5(install.NETSCAPE_CFG_KEY + rest).hexdigest()
+        self.assertEqual(head.decode()[3:-1].replace(' ', ''), digest)
+        rest = rest.decode('cp1252')
+        for line in ('PrefConfig.pref("network.proxy.type", 1);',
+                     'PrefConfig.pref("network.proxy.http", "10.0.2.2");',
+                     'PrefConfig.pref("network.proxy.http_port", 8080);',
+                     'PrefConfig.pref("browser.startup.homepage", "http://pc486/");',
+                     'PrefConfig.pref("network.hosts.pop_server", "10.0.2.2");',
+                     'PrefConfig.pref("security.warn_submit_insecure", false);'):
+            self.assertIn(line + '\r\n', rest)
+        self.assertNotIn('lockPref', rest)          # l'utilisateur garde la main
+        files = dict(install.ACME['communicator'].files)
+        self.assertEqual(files['NETSCAPE/COMM/PROGRAM/NETSCAPE.CFG'], cfg)
+
+    def test_communicator_answers_follow_its_boxes(self):
+        titles = [t for t, _ in install.ACME['communicator'].answers]
+        self.assertEqual(titles.count('Question'), 2)
+        self.assertEqual(dict(install.ACME['communicator'].answers)['Redémarrer Windows'],
+                         '{BAS}{ENTREE}')                       # plus tard : INSTAUTO quitte
+        second = [a for t, a in install.ACME['communicator'].answers if t == 'Question'][1]
+        self.assertEqual(second, '{TAB}{ENTREE}')               # LISEZMOI : Non
+
+    def test_eudora_self_extractor_comes_from_the_zip_root(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            source = p / 'eul306.zip'
+            with zipfile.ZipFile(source, 'w') as z:
+                z.writestr('eul306.exe', b'MZ...Eudora.ini...win16.z...')
+                z.writestr('sous/autre.exe', b'MZ')
+            product, media = install.collect_acme(source, p / 'copie', ('eudora',))
+            self.assertEqual([x.name for x in media[0].iterdir()], ['EUL306.EXE'])
+            # dossier local : la racine, jamais « / » du système
+            local = p / 'local'
+            local.mkdir()
+            (local / 'eul306.exe').write_bytes(b'MZ...Eudora.ini...win16.z...')
+            product, media = install.collect_acme(local, p / 'copie2', ('eudora',))
+            self.assertEqual([x.name for x in media[0].iterdir()], ['EUL306.EXE'])
+
+    def test_eudora_uses_the_local_mailbox(self):
+        settings = {(k, v) for path, section, k, v in install.ACME['eudora'].settings}
+        self.assertTrue({('POPAccount', 'pc486@10.0.2.2'), ('SMTPServer', '10.0.2.2'),
+                         ('UseACAPServer', '0'), ('RealName', '{NOM}')} <= settings)
+        self.assertEqual(install.ACME['eudora'].answers[-1], ('Question', '{TAB}{ENTREE}'))
+
+    def test_y2k_fix_requires_access(self):
+        args = install.parser().parse_args(['--dos', 'd', '--windows', 'w', '--access-an2000', 'x'])
+        with self.assertRaises(install.InstallError):
+            install.prerequisites(args)

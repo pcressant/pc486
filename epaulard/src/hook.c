@@ -34,13 +34,59 @@ static WORD pad_held;           /* relâchements des touches de revue déjà abs
 static int com_id = -1;         /* COM1 ouvert par EPAULARD.EXE */
 BOOL ep_in_menu;                /* un menu est ouvert (WM_MENUSELECT) */
 static BOOL cfg_mode;           /* menu des réglages d'Épaulard ouvert */
+static BOOL pass_keys;          /* fenêtre DOS lue par Épaudos : toutes les touches à elle */
 static DWORD cfg_tick;          /* sa dernière touche */
+static BOOL tab_held;           /* Tab absorbé dans une page : son relâchement aussi */
+static HWND nav_view;           /* page Web en mode navigation (navweb.c de l'EXE) */
+static int nav_mode;            /* 1 navigation, 2 formulaire automatique (Échap seul) */
+static BYTE nav_held[32];       /* touches absorbées : leur relâchement aussi */
+static UINT nav_comma;          /* touche de la virgule (clavier français : ;,) */
+
 
 /* Menu des réglages ouvert ou fermé par EPAULARD.EXE */
 void FAR PASCAL __export EpCfgMode(BOOL on)
 {
     cfg_mode = on;
     cfg_tick = GetTickCount();
+}
+
+/* Mode navigation d'une page Web, posé par EPAULARD.EXE (navweb.c) */
+void FAR PASCAL __export EpNavMode(HWND view, int mode)
+{
+    nav_view = view;
+    nav_mode = view ? mode : 0;
+}
+
+/* Touche du mode navigation : prise si le focus est dans la page */
+static BOOL nav_take(WPARAM vk)
+{
+    HWND f = GetFocus();
+    BOOL ctrl = GetKeyState(VK_CONTROL) < 0, alt = GetKeyState(VK_MENU) < 0;
+    char cls[12];
+    if (!nav_mode || !nav_view || !IsWindow(nav_view) || !f ||
+        (f != nav_view && !IsChild(nav_view, f)))
+        return FALSE;
+    if (nav_mode == 2) {
+        /* formulaire automatique : Échap revient en navigation, sauf liste dépliée */
+        if (vk != VK_ESCAPE || ctrl || alt)
+            return FALSE;
+        GetClassName(f, cls, sizeof(cls));
+        return lstrcmpi(cls, "ComboBox") != 0 || !SendMessage(f, CB_GETDROPPEDSTATE, 0, 0L);
+    }
+    if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9') || vk == nav_comma ||
+        vk == VK_RETURN || vk == VK_SPACE || vk == VK_TAB)
+        return !ctrl && !alt;
+    if (vk >= VK_PRIOR && vk <= VK_DOWN)
+        return !alt || ctrl;    /* Alt seul : Netscape (Précédent) ; Ctrl+Alt : tableaux */
+    return FALSE;
+}
+
+/* Fenêtre DOS au premier plan, lue par Épaudos dans sa machine virtuelle : ses
+   commandes (Inser + touche, pavé) doivent lui parvenir. Posé par EPAULARD.EXE. */
+void FAR PASCAL __export EpPassKeys(BOOL on)
+{
+    pass_keys = on;
+    ins_down = FALSE;
 }
 
 /* Parole directe, depuis la tâche qui affiche une fenêtre modale système : tant
@@ -189,7 +235,7 @@ LRESULT CALLBACK __export EpKbdProc(int code, WPARAM vk, LPARAM lp)
     int scan = (int) ((lp >> 16) & 0xFF), pad = 0, action = 0;
     WORD bit;
 
-    if (code < 0 || !ep_hwnd_main)
+    if (code < 0 || !ep_hwnd_main || (lp & EPK_OWN))
         return CallNextHookEx(hk_kbd, code, vk, lp);
 
     /* Menu des réglages : toutes les touches lui reviennent, rien pour l'application.
@@ -207,6 +253,8 @@ LRESULT CALLBACK __export EpKbdProc(int code, WPARAM vk, LPARAM lp)
         return 1;
     }
 
+    if (pass_keys && IsWindow(ep_hwnd_main))
+        return CallNextHookEx(hk_kbd, code, vk, lp);
     /* Une touche que l'on absorbe (valeur 1) disparaît dès le premier appel, même
        quand le programme ne fait que regarder la file (HC_NOREMOVE : Word) ; elle ne
        reviendra pas en HC_ACTION. Les touches absorbées sont donc traitées au premier
@@ -292,6 +340,33 @@ LRESULT CALLBACK __export EpKbdProc(int code, WPARAM vk, LPARAM lp)
         return 1;                       /* Inser + touche : commande, rien pour l'appli */
     }
 
+    if (vk < 256 && (nav_held[vk >> 3] & (1 << (vk & 7)))) {
+        if (up) {
+            nav_held[vk >> 3] &= ~(1 << (vk & 7));
+            return 1;
+        }
+    }
+    if (!up && vk < 256 && nav_take(vk)) {
+        nav_held[vk >> 3] |= (BYTE) (1 << (vk & 7));
+        ctrl_alone = FALSE;
+        PostMessage(ep_hwnd_main, EPM_NAV, vk, (GetKeyState(VK_SHIFT) < 0 ? 1L : 0L) |
+                    (GetKeyState(VK_CONTROL) < 0 ? 2L : 0L) |
+                    (GetKeyState(VK_MENU) < 0 ? 4L : 0L) | (repeat ? 8L : 0L));
+        return 1;
+    }
+
+    if (vk == VK_TAB && GetKeyState(VK_CONTROL) >= 0 && GetKeyState(VK_MENU) >= 0) {
+        if (up && tab_held) {
+            tab_held = FALSE;
+            return 1;
+        }
+        if (!up && EpPageTab(GetKeyState(VK_SHIFT) < 0)) {
+            tab_held = TRUE;
+            ctrl_alone = FALSE;
+            return 1;
+        }
+    }
+
     if (code == HC_ACTION) {
         if (vk == VK_CONTROL) {
             if (!up && !repeat)
@@ -356,6 +431,7 @@ BOOL FAR PASCAL __export EpInstall(HWND hwnd, int com)
 {
     ep_hwnd_main = hwnd;
     com_id = com;
+    nav_comma = LOBYTE(VkKeyScan(','));
     hk_kbd = SetWindowsHookEx(WH_KEYBOARD, (HOOKPROC) EpKbdProc, hinst, NULL);
     hk_msg = SetWindowsHookEx(WH_GETMESSAGE, (HOOKPROC) EpMsgProc, hinst, NULL);
     hk_wnd = SetWindowsHookEx(WH_CALLWNDPROC, (HOOKPROC) EpWndProc, hinst, NULL);
@@ -370,6 +446,8 @@ void FAR PASCAL __export EpRemove(void)
     if (hk_wnd) UnhookWindowsHookEx(hk_wnd);
     if (hk_cbt) UnhookWindowsHookEx(hk_cbt);
     hk_kbd = hk_msg = hk_wnd = hk_cbt = NULL;
+    nav_view = NULL;
+    nav_mode = 0;
     if (osm_remove()) {
         /* Une tâche est dans la vraie fonction (boîte de message dans son
            WM_ERASEBKGND, par exemple) et reviendra dans notre code : décharger la

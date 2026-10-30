@@ -83,24 +83,32 @@ static BYTE sim_patch_area[16];
 #define WS_CAPTION    0x00C00000L
 #define WS_DISABLED   0x08000000L
 #define WS_VISIBLE    0x10000000L
+#define WS_VSCROLL    0x00200000L
 #define GWW_ID (-12)
 #define GWL_STYLE (-16)
 #define GW_HWNDNEXT 2
 #define GW_HWNDPREV 3
 #define GW_OWNER 4
 #define GW_CHILD 5
+#define SBS_HORZ 0x0000L
+#define SBS_VERT 0x0001L
 #define ES_MULTILINE 0x0004L
 #define ES_PASSWORD 0x0020L
+#define ES_READONLY 0x0800L
+#define SS_CENTER 1
 #define SS_RIGHT 2
+#define BS_DEFPUSHBUTTON 1
 #define BS_CHECKBOX 2
 #define BS_AUTOCHECKBOX 3
 #define BS_RADIOBUTTON 4
+#define BS_OWNERDRAW 0x0B
 #define BS_3STATE 5
 #define BS_AUTO3STATE 6
 #define BS_GROUPBOX 7
 #define BS_AUTORADIOBUTTON 9
 #define LBS_MULTIPLESEL 0x0008L
 #define CBS_OWNERDRAWFIXED 0x0010L
+#define CBS_HASSTRINGS 0x0200L
 #define CBS_OWNERDRAWVARIABLE 0x0020L
 #define LBS_OWNERDRAWFIXED 0x0010L
 #define LBS_OWNERDRAWVARIABLE 0x0020L
@@ -114,6 +122,20 @@ static BYTE sim_patch_area[16];
 #define WM_KEYDOWN 0x0100
 #define WM_KEYUP 0x0101
 #define WM_MENUSELECT 0x011F
+#define WM_VSCROLL 0x0115
+#define SB_PAGEUP 2
+#define SB_PAGEDOWN 3
+#define SB_THUMBPOSITION 4
+#define SB_TOP 6
+#define SB_VERT 1
+#define WM_GETTEXTLENGTH 0x000E
+#define CB_GETDROPPEDSTATE (WM_USER + 23)
+#define BS_PUSHBUTTON 0
+#define GMEM_MOVEABLE 2
+#define SEM_NOOPENFILEERRORBOX 0x8000
+#define GWW_HINSTANCE (-6)
+#define VK_SPACE 0x20
+#define VK_F5 0x74
 #define EM_GETSEL (WM_USER + 0)
 #define EM_SETSEL (WM_USER + 1)
 #define EM_GETLINECOUNT (WM_USER + 10)
@@ -211,6 +233,10 @@ static LPSTR lstrcpyn(LPSTR d, LPCSTR s, int n)
 static LPSTR AnsiUpper(LPSTR s) { char *p; for (p = s; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32; return s; }
 static void AnsiToOem(LPCSTR a, LPSTR o) { if (a != o) strcpy(o, a); }
 static BOOL IsCharUpper(char c) { return c >= 'A' && c <= 'Z'; }
+static BOOL IsCharAlpha(char c)
+{ return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (BYTE) c >= 0xC0; }
+/* clavier français : la virgule a sa propre touche (VK_OEM_COMMA) */
+static UINT VkKeyScan(int c) { return c == ',' ? 0xBC : (UINT) c; }
 static BOOL IsCharAlphaNumeric(char c)
 { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || (BYTE) c >= 0xC0; }
 
@@ -228,6 +254,32 @@ static int GetPrivateProfileInt(LPCSTR sec, LPCSTR key, int def, LPCSTR file)
     for (i = 0; i < sim_ini_n; i++)
         if (!strcmp(sim_ini[i].sec, sec) && !strcmp(sim_ini[i].key, key)) return atoi(sim_ini[i].val);
     return def;
+}
+/* key NULL : liste des clés de la section, chacune terminée par 0, puis 0 */
+static int GetPrivateProfileString(LPCSTR sec, LPCSTR key, LPCSTR def, LPSTR out, int n,
+                                   LPCSTR file)
+{
+    int i, len = 0, k;
+    (void) file;
+    if (n < 2) return 0;
+    if (!key) {
+        for (i = 0; i < sim_ini_n; i++)
+            if (!strcmp(sim_ini[i].sec, sec)) {
+                k = (int) strlen(sim_ini[i].key);
+                if (len + k + 2 > n) break;
+                strcpy(out + len, sim_ini[i].key);
+                len += k + 1;
+            }
+        out[len] = 0;
+        return len;
+    }
+    for (i = 0; i < sim_ini_n; i++)
+        if (!strcmp(sim_ini[i].sec, sec) && !strcmp(sim_ini[i].key, key)) {
+            def = sim_ini[i].val;
+            break;
+        }
+    lstrcpyn(out, def, n);
+    return (int) strlen(out);
 }
 static BOOL WritePrivateProfileString(LPCSTR sec, LPCSTR key, LPCSTR val, LPCSTR file)
 {
@@ -258,9 +310,10 @@ typedef struct {
     HWND parent, owner;
     LONG style;
     WORD id;
-    char cls[32], text[256];       /* titre : jusqu'à TXT - 1 octets */
+    char cls[32], text[700];       /* titre (paragraphe d'un STATIC : 640 octets) */
     RECT rc;                    /* écran ; zone client identique */
     LRESULT (*proc)(HWND, UINT, WPARAM, LPARAM);
+    HMENU menu;                 /* barre de menus (GetMenu) */
 } SIMWIN;
 static SIMWIN sim_win[SIM_WN];
 static HWND sim_focus, sim_active, sim_sysmodal;
@@ -287,6 +340,7 @@ static HWND sim_create(HWND parent, const char *cls, const char *text, LONG styl
 static void sim_destroy(HWND h) { sim_win[h].used = FALSE; }
 static BOOL IsWindow(HWND h) { return h > 0 && h < SIM_WN && sim_win[h].used; }
 static HWND GetParent(HWND h) { return IsWindow(h) ? sim_win[h].parent : 0; }
+static HMENU GetMenu(HWND h) { return IsWindow(h) ? sim_win[h].menu : 0; }
 static WORD GetWindowWord(HWND h, int i) { (void) i; return sim_win[h].id; }
 static LONG GetWindowLong(HWND h, int i) { (void) i; return IsWindow(h) ? sim_win[h].style : 0; }
 static BOOL IsWindowEnabled(HWND h) { return IsWindow(h) && !(sim_win[h].style & WS_DISABLED); }
@@ -338,10 +392,32 @@ static BOOL GetClientRect(HWND h, RECT *r)
 }
 static void ClientToScreen(HWND h, POINT *p) { p->x += sim_win[h].rc.left; p->y += sim_win[h].rc.top; }
 static void ScreenToClient(HWND h, POINT *p) { p->x -= sim_win[h].rc.left; p->y -= sim_win[h].rc.top; }
+/* Zone à repeindre ; UpdateWindow appelle sim_update (le programme simulé redessine) */
+static HWND sim_inval_hwnd;
+static RECT sim_inval;
+static void (*sim_update)(HWND h, const RECT *r);
+static void InvalidateRect(HWND h, const RECT *r, BOOL erase)
+{
+    (void) erase;
+    sim_inval_hwnd = h;
+    if (r) sim_inval = *r; else GetClientRect(h, &sim_inval);
+}
+static void UpdateWindow(HWND h)
+{
+    if (h == sim_inval_hwnd && sim_update) sim_update(h, &sim_inval);
+    sim_inval_hwnd = 0;
+}
+static BOOL GetUpdateRect(HWND h, RECT *r, BOOL erase)
+{
+    (void) erase;
+    if (r) *r = sim_inval;
+    return h == sim_inval_hwnd;
+}
 static int GetWindowText(HWND h, LPSTR s, int n) { lstrcpyn(s, IsWindow(h) ? sim_win[h].text : "", n); return lstrlen(s); }
 static int GetWindowTextLength(HWND h) { return IsWindow(h) ? lstrlen(sim_win[h].text) : 0; }
 static int GetClassName(HWND h, LPSTR s, int n) { lstrcpyn(s, IsWindow(h) ? sim_win[h].cls : "", n); return lstrlen(s); }
 static HWND GetFocus(void) { return sim_focus; }
+static HWND SetFocus(HWND h) { HWND old = sim_focus; sim_focus = h; return old; }
 static HWND GetActiveWindow(void) { return sim_active; }
 static HWND GetSysModalWindow(void) { return sim_sysmodal; }
 /* fenêtre visible la plus profonde, la dernière créée l'emportant */
@@ -368,6 +444,18 @@ static void SetRectEmpty(RECT *r) { SetRect(r, 0, 0, 0, 0); }
 static void OffsetRect(RECT *r, int dx, int dy) { r->left += dx; r->right += dx; r->top += dy; r->bottom += dy; }
 static BOOL IsRectEmpty(const RECT *r) { return r->right <= r->left || r->bottom <= r->top; }
 static BOOL PtInRect(const RECT *r, POINT p) { return p.x >= r->left && p.x < r->right && p.y >= r->top && p.y < r->bottom; }
+static BOOL UnionRect(RECT *d, const RECT *a, const RECT *b)
+{
+    RECT u;
+    if (IsRectEmpty(a)) { *d = *b; return !IsRectEmpty(b); }
+    if (IsRectEmpty(b)) { *d = *a; return TRUE; }
+    u.left = a->left < b->left ? a->left : b->left;
+    u.top = a->top < b->top ? a->top : b->top;
+    u.right = a->right > b->right ? a->right : b->right;
+    u.bottom = a->bottom > b->bottom ? a->bottom : b->bottom;
+    *d = u;
+    return TRUE;
+}
 static BOOL EqualRect(const RECT *a, const RECT *b) { return !memcmp(a, b, sizeof(RECT)); }
 static BOOL IntersectRect(RECT *d, const RECT *a, const RECT *b)
 {
@@ -390,6 +478,10 @@ typedef struct {
     int bkmode;
     UINT align;
     BOOL bold;                  /* police grasse (onglet actif de Word) */
+    BOOL clipped;               /* région de découpage (sim_clip), coordonnées logiques */
+    RECT clip;
+    RECT excl;                  /* trou dans la région (sim_clip_hole) : région complexe */
+    int twips;                  /* Ami Pro : unités logiques par point, axe y vers le haut */
 } SIMDC;
 static SIMDC sim_dc[SIM_DN];
 static HDC sim_dc_new(HWND hwnd)
@@ -427,18 +519,135 @@ static DWORD GetDCOrg(HDC d)
 }
 static BOOL LPtoDP(HDC d, POINT *p, int n)
 {
-    int i;
-    for (i = 0; i < n; i++) { p[i].x += sim_dc[d].vx; p[i].y += sim_dc[d].vy; }
+    int i, t = sim_dc[d].twips;
+    for (i = 0; i < n; i++) {
+        if (t) { p[i].x /= t; p[i].y = -p[i].y / t; }
+        p[i].x += sim_dc[d].vx; p[i].y += sim_dc[d].vy;
+    }
     return TRUE;
 }
 static DWORD GetViewportOrg(HDC d) { return MAKELONG(sim_dc[d].vx, sim_dc[d].vy); }
 static DWORD GetWindowOrg(HDC d) { (void) d; return 0; }
+#ifndef ERROR
+#define ERROR 0
+#endif
 static int GetClipBox(HDC d, RECT *r)
 {
     HWND h = sim_dc[d].hwnd;
+    if (sim_dc[d].clipped) { *r = sim_dc[d].clip; return 2; }
     GetClientRect(h, r);
     OffsetRect(r, -sim_dc[d].vx, -sim_dc[d].vy);
     return 1;
+}
+/* Régions (InvertRgn d'Excel) : masque d'un point par bit, 640×480 */
+#define SIM_RN 12
+#define NULLREGION 1
+#define SIMPLEREGION 2
+#define COMPLEXREGION 3
+#define RGN_AND 1
+#define RGN_OR 2
+#define RGN_XOR 3
+#define RGN_DIFF 4
+#define RGN_COPY 5
+static unsigned char sim_rgn[SIM_RN][480][80];
+static BOOL sim_rgn_used[SIM_RN];
+static int sim_rgn_live;        /* régions non détruites : fuite vérifiée par le banc */
+static void sim_rgn_rect(HRGN h, int l, int t, int r, int b)
+{
+    int x, y;
+    memset(sim_rgn[h], 0, sizeof(sim_rgn[h]));
+    for (y = t < 0 ? 0 : t; y < b && y < 480; y++)
+        for (x = l < 0 ? 0 : l; x < r && x < 640; x++)
+            sim_rgn[h][y][x >> 3] |= (unsigned char) (1 << (x & 7));
+}
+static HRGN CreateRectRgn(int l, int t, int r, int b)
+{
+    int i;
+    for (i = 1; i < SIM_RN; i++)
+        if (!sim_rgn_used[i]) {
+            sim_rgn_used[i] = TRUE;
+            sim_rgn_live++;
+            sim_rgn_rect((HRGN) i, l, t, r, b);
+            return (HRGN) i;
+        }
+    abort();
+    return 0;
+}
+static HRGN CreateRectRgnIndirect(const RECT *r) { return CreateRectRgn(r->left, r->top, r->right, r->bottom); }
+static void SetRectRgn(HRGN h, int l, int t, int r, int b) { sim_rgn_rect(h, l, t, r, b); }
+static BOOL DeleteObject(HRGN h) { if (h && sim_rgn_used[h]) { sim_rgn_used[h] = FALSE; sim_rgn_live--; } return TRUE; }
+static int GetRgnBox(HRGN h, RECT *r)
+{
+    int x, y;
+    SetRect(r, 32000, 32000, -32000, -32000);
+    for (y = 0; y < 480; y++)
+        for (x = 0; x < 640; x++)
+            if (sim_rgn[h][y][x >> 3] & (1 << (x & 7))) {
+                if (x < r->left) r->left = x;
+                if (y < r->top) r->top = y;
+                if (x + 1 > r->right) r->right = x + 1;
+                if (y + 1 > r->bottom) r->bottom = y + 1;
+            }
+    if (r->left > r->right) { SetRect(r, 0, 0, 0, 0); return NULLREGION; }
+    return COMPLEXREGION;
+}
+static int CombineRgn(HRGN d, HRGN a, HRGN b, int mode)
+{
+    static unsigned char t[480][80];
+    int y, x;
+    RECT r;
+    for (y = 0; y < 480; y++)
+        for (x = 0; x < 80; x++) {
+            unsigned char u = sim_rgn[a][y][x], v = b ? sim_rgn[b][y][x] : 0;
+            t[y][x] = (unsigned char) (mode == RGN_AND ? u & v : mode == RGN_OR ? u | v :
+                                       mode == RGN_XOR ? u ^ v : mode == RGN_DIFF ? u & ~v : u);
+        }
+    memcpy(sim_rgn[d], t, sizeof(t));
+    return GetRgnBox(d, &r);
+}
+static int OffsetRgn(HRGN h, int dx, int dy)
+{
+    static unsigned char t[480][80];
+    int x, y;
+    RECT r;
+    memset(t, 0, sizeof(t));
+    for (y = 0; y < 480; y++)
+        for (x = 0; x < 640; x++)
+            if ((sim_rgn[h][y][x >> 3] & (1 << (x & 7))) && x + dx >= 0 && x + dx < 640 &&
+                y + dy >= 0 && y + dy < 480)
+                t[y + dy][(x + dx) >> 3] |= (unsigned char) (1 << ((x + dx) & 7));
+    memcpy(sim_rgn[h], t, sizeof(t));
+    return GetRgnBox(h, &r);
+}
+static BOOL InvertRgn(HDC d, HRGN h) { (void) d; (void) h; return TRUE; }
+static void InvertRect(HDC d, const RECT *r) { (void) d; (void) r; }
+/* Excel : dessin limité par une région (SelectClipRgn) */
+static void sim_clip(HDC d, int l, int t, int r, int b)
+{
+    sim_dc[d].clipped = TRUE;
+    SetRect(&sim_dc[d].clip, l, t, r, b);
+}
+/* Région complexe : le rectangle de sim_clip moins celui-ci (boutons d'une boîte) */
+static void sim_clip_hole(HDC d, int l, int t, int r, int b)
+{
+    SetRect(&sim_dc[d].excl, l, t, r, b);
+}
+static BOOL DPtoLP(HDC d, POINT *p, int n)
+{
+    int i, t = sim_dc[d].twips;
+    for (i = 0; i < n; i++) {
+        p[i].x -= sim_dc[d].vx; p[i].y -= sim_dc[d].vy;
+        if (t) { p[i].x *= t; p[i].y = -p[i].y * t; }
+    }
+    return TRUE;
+}
+static BOOL PtVisible(HDC d, int x, int y)
+{
+    RECT c;
+    POINT pt;
+    pt.x = x; pt.y = y;
+    GetClipBox(d, &c);
+    return PtInRect(&c, pt) && !PtInRect(&sim_dc[d].excl, pt);
 }
 static COLORREF GetTextColor(HDC d) { return sim_dc[d].text; }
 static COLORREF GetBkColor(HDC d) { return sim_dc[d].bk; }
@@ -450,13 +659,19 @@ static COLORREF GetSysColor(int i)
     return i == COLOR_HIGHLIGHT ? RGB(0, 0, 128) : i == COLOR_HIGHLIGHTTEXT ?
            RGB(255, 255, 255) : RGB(0, 0, 0);
 }
-static DWORD GetTextExtent(HDC d, LPCSTR s, int n) { (void) d; (void) s; return MAKELONG(8 * n, 16); }
+static int sim_text_height;      /* hauteur d'un caractère, 16 par défaut (puce de Netscape) */
+static DWORD GetTextExtent(HDC d, LPCSTR s, int n)
+{
+    int t = sim_dc[d].twips ? sim_dc[d].twips : 1;
+    (void) s;
+    return MAKELONG(8 * n * t, (sim_text_height ? sim_text_height : 16) * t);
+}
 static BOOL GetCharWidth(HDC d, UINT a, UINT b, int *w) { UINT c; (void) d; for (c = a; c <= b; c++) w[c - a] = 8; return TRUE; }
 static int GetTextFace(HDC d, int n, LPSTR s) { (void) d; lstrcpyn(s, "Sim", n); return 3; }
 static BOOL GetTextMetrics(HDC d, TEXTMETRIC *tm)
 {
     memset(tm, 0, sizeof(*tm));
-    tm->tmHeight = 16; tm->tmAscent = 13; tm->tmDescent = 3;
+    tm->tmHeight = sim_text_height ? sim_text_height : 16; tm->tmAscent = tm->tmHeight - 3; tm->tmDescent = 3;
     tm->tmWeight = sim_dc[d].bold ? 700 : 400;
     return TRUE;
 }
@@ -501,17 +716,32 @@ static HTASK GetCurrentTask(void) { return sim_task; }
 static BOOL IsTask(HTASK t) { return t && t != sim_dead_task; }
 static HMODULE GetModuleHandle(LPCSTR n) { (void) n; return 1; }
 static void sim_proc(void) {}
-static FARPROC GetProcAddress(HMODULE m, LPCSTR n) { (void) m; return strcmp(n, "MOUSE_EVENT") ? sim_proc : 0; }
+/* bibliothèques chargées à la demande : introuvables, sauf si le banc les fournit */
+static HMODULE (*sim_load_hook)(LPCSTR name);
+static FARPROC (*sim_proc_hook)(HMODULE m, LPCSTR name);
+static HMODULE LoadLibrary(LPCSTR n) { return sim_load_hook ? sim_load_hook(n) : 2; }
+static UINT SetErrorMode(UINT m) { (void) m; return 0; }
+static FARPROC MakeProcInstance(FARPROC f, HINSTANCE h) { (void) h; return f; }
+static FARPROC GetProcAddress(HMODULE m, LPCSTR n)
+{
+    if (sim_proc_hook && m >= 40)
+        return sim_proc_hook(m, n);
+    return strcmp(n, "MOUSE_EVENT") ? sim_proc : 0;
+}
 
 /* ------------------------------------------------------------- messages */
 #define SIM_QN 4096
 static MSG sim_q[SIM_QN];
 static int sim_qn;
+/* sim_hw : message du clavier (matériel). Les touches postées par un programme
+   (PostMessage) ne passent pas par le crochet clavier de Windows 3.1 : time = 0. */
+static BOOL sim_hw;
 static BOOL PostMessage(HWND h, UINT m, WPARAM w, LPARAM l)
 {
     if (sim_qn >= SIM_QN) abort();
     sim_q[sim_qn].hwnd = h; sim_q[sim_qn].message = m;
     sim_q[sim_qn].wParam = w; sim_q[sim_qn].lParam = l;
+    sim_q[sim_qn].time = sim_hw;
     sim_qn++;
     return TRUE;
 }
@@ -572,6 +802,9 @@ static BOOL RegisterClass(const WNDCLASS *c) { (void) c; return TRUE; }
 static HWND CreateWindow(LPCSTR c, LPCSTR t, LONG s, int x, int y, int w, int h, HWND p, HMENU m, HINSTANCE i, void *v)
 { (void) c; (void) t; (void) s; (void) x; (void) y; (void) w; (void) h; (void) p; (void) m; (void) i; (void) v; return 0; }
 static BOOL GetMessage(MSG *m, HWND h, UINT a, UINT b) { (void) m; (void) h; (void) a; (void) b; return FALSE; }
+#define PM_REMOVE 1
+#define WM_QUIT 0x0012
+static BOOL PeekMessage(MSG *m, HWND h, UINT a, UINT b, UINT f) { (void) m; (void) h; (void) a; (void) b; (void) f; return FALSE; }
 static BOOL TranslateMessage(const MSG *m) { (void) m; return TRUE; }
 static LRESULT DispatchMessage(const MSG *m) { (void) m; return 0; }
 static int GetProfileInt(LPCSTR a, LPCSTR k, int d) { (void) a; (void) k; (void) d; return 3; }

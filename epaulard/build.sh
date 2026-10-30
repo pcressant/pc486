@@ -26,11 +26,15 @@ CFLAGS=(-q -bt=windows -ml -zw -zu -os -s -wx -we -DWINVER=0x030a -DSTRICT)
 wcc "${CFLAGS[@]}" -bd hook.c
 wcc "${CFLAGS[@]}" -bd osm.c
 wcc "${CFLAGS[@]}" -bd braille.c
-wlink op q system windows_dll name EPAUHOOK.DLL file hook.o,osm.o,braille.o \
+wcc "${CFLAGS[@]}" -bd page.c
+wlink op q system windows_dll name EPAUHOOK.DLL file hook.o,osm.o,braille.o,page.o \
     op implib=EPAUHOOK.LIB op map=EPAUHOOK.MAP \
     segment type code fixed
-wcc "${CFLAGS[@]}" epaulard.c
-wlink op q system windows name EPAULARD.EXE file epaulard.o library EPAUHOOK.LIB \
+# EPAULARD.EXE : un segment de code par module (liste dans epaulard/src/modules.lst,
+# reprise par le banc natif tests/win16/epaulard-test.c).
+mapfile -t MODULES < <(grep -v '^#' "$HERE/src/modules.lst" | sed '/^$/d')
+for m in "${MODULES[@]}"; do wcc "${CFLAGS[@]}" "$m.c"; done
+wlink op q system windows name EPAULARD.EXE file "$(IFS=,; echo "${MODULES[*]/%/.o}")" library EPAUHOOK.LIB \
     op stack=8k op heapsize=4k op map=EPAULARD.MAP
 # Aide de scripts/installer (--word) : jamais copiée par « install » ci-dessous.
 wcc "${CFLAGS[@]}" instauto.c

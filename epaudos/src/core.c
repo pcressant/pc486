@@ -7,6 +7,8 @@
 #include "dialog.h"
 
 volatile BYTE ed_windows, ed_disabled, ed_save, ed_resume;
+/* Mode invité : machine DOS de Windows, parole relayée par Épaulard. */
+volatile BYTE ed_guest;
 WORD ed_debug[12]; /* État consultable dans les scénarios QEMU. */
 BYTE ed_cfg[ED_CFG] = {3,8,1,1,0,0,1};
 int ed_cols = 80, ed_rows = 25, ed_x, ed_y, ed_flat;
@@ -377,7 +379,7 @@ int ed_scan(BYTE scan, BYTE shifts)
     if (code == 42 || code == 54) shift = (BYTE)!up;
     if (code == 56) alt = (BYTE)!up;
     if (up && swallowed[code]) { swallowed[code] = 0; if (code == 82) insert = 0; return 1; }
-    if (ed_windows || ed_disabled) { insert = 0; return 0; }
+    if ((ed_windows && hw_guest(1) != ED_RUN) || ed_disabled) { insert = 0; return 0; }
     if (code == 82 && (ext || !(shifts&32)) && !ctrl && !alt && !shift) {
         insert = (BYTE)!up; swallowed[82] = (BYTE)!up; return 1;
     }
@@ -468,28 +470,36 @@ static void br_receive(int b)
     br_rx[br_used++] = (BYTE)b;
     if (br_used == br_need) { br_response(); br_command = br_need = 0; }
 }
-static void serial(void)
+/* Émission : parole, trame braille en cours, sonde, nouvelle trame. Appelée aussi à
+   la fin de chaque passage : sous Windows, une machine DOS inactive (invite qui
+   attend une touche) n'a parfois plus de passage pendant des secondes, et la
+   cellule de la frappe attendait jusque-là, la parole partie depuis longtemps. */
+static void send(void)
 {
-    int i,b,n; BYTE data[80];
-    for (i = 0; i < 32 && (b = hw_rx(0)) >= 0; ++i)
-        if (awaiting && b == echo_id) { awaiting = 0; ++all_row; }
+    int i,b,n,k; BYTE data[80];
     for (i = 0; i < 64 && speech_pos < speech_n; ++i) {
         if (!hw_tx(0,(BYTE)speech[speech_pos])) break; ++speech_pos;
     }
+    for (k = 0; k < 4; ++k) {
+        while (br_pos < br_len) { if (!hw_tx(1,br_tx[br_pos])) return; ++br_pos; }
+        if ((unsigned)(ticks-probe) >= 54) { data[0] = 1; br_queue(0x15,data,1); probe = ticks; continue; }
+        if (!br_width || !br_dirty) return;
+        n = length(braille);
+        for (i = 0; i < br_width; ++i) {
+            b = br_offset+i; data[i] = b < n ? br850[(BYTE)braille[b]] : 0;
+            if (b == br_cursor) data[i] |= 0xc0;
+        }
+        br_queue(1,data,br_width); br_dirty = 0;
+    }
+}
+static void serial(void)
+{
+    int i,b;
+    for (i = 0; i < 32 && (b = hw_rx(0)) >= 0; ++i)
+        if (awaiting && b == echo_id) { awaiting = 0; ++all_row; }
     if (br_command && (unsigned)(ticks-br_rx_tick) > 10) br_command = br_need = 0;
     for (i = 0; i < 32 && (b = hw_rx(1)) >= 0; ++i) { br_rx_tick = ticks; br_receive(b); }
-    for (i = 0; i < 32 && br_pos < br_len; ++i) {
-        if (!hw_tx(1,br_tx[br_pos])) break; ++br_pos;
-    }
-    if (br_pos < br_len) return;
-    if ((unsigned)(ticks-probe) >= 54) { data[0] = 1; br_queue(0x15,data,1); probe = ticks; return; }
-    if (!br_width || !br_dirty) return;
-    n = length(braille);
-    for (i = 0; i < br_width; ++i) {
-        b = br_offset+i; data[i] = b < n ? br850[(BYTE)braille[b]] : 0;
-        if (b == br_cursor) data[i] |= 0xc0;
-    }
-    br_queue(1,data,br_width); br_dirty = 0;
+    send();
 }
 void ed_suspend(void)
 {
@@ -766,7 +776,15 @@ static void track(int cls, unsigned when, int moved, int vmoved, int curchg)
         line(ed_y,left,right); br_screen(ed_line,ed_x-left,left,ed_y);
     }
 }
+static int ran;                 /* passage où le moteur a travaillé : envoyer à la fin */
+static void tick(void);
 void ed_tick(void)
+{
+    ran = 0;
+    tick();
+    if (ran) send();
+}
+static void tick(void)
 {
     int x,y,cols,rows,i,moved,vmoved,was_disabled,cls,curchg,c;
     WORD hash,thash,ahash; int start;
@@ -775,7 +793,12 @@ void ed_tick(void)
     int hy = -1, hx = 0, he = 0, score = -1, value, b, letters, fills, k;
     ++ticks;
     ed_debug[0] = ticks; ed_debug[1] = 1;
-    if (ed_windows) { ed_suspend(); return; }
+    if (ed_windows) {
+        i = hw_guest(0);
+        if (i == ED_SKIP) return;
+        if (i == ED_SLEEP) { ed_guest = 0; ed_suspend(); return; }
+        if (!ed_guest) { ed_suspend(); ed_guest = 1; }      /* entrée : état neuf */
+    } else if (ed_guest) { ed_guest = 0; ed_suspend(); }
     if (ed_resume) { ed_suspend(); ed_resume = 0; }
     was_disabled = ed_disabled;
     ed_disabled = (BYTE)!hw_screen(&cols,&rows,&x,&y,screen);
@@ -795,7 +818,7 @@ void ed_tick(void)
         ed_debug[8] = cout; ed_debug[9] = (WORD)pending;
     }
     hw_unlock(flags);
-    serial();
+    serial(); ran = 1;
     ed_debug[1] = 2; ed_debug[4] = speech_pos; ed_debug[5] = speech_n;
     if ((ed_save == 2 || ed_save == 3) && !pending) {
         message(ed_save == 2 ? "Réglages enregistrés" : "Échec de sauvegarde des réglages");

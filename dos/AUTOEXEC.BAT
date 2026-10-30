@@ -15,6 +15,8 @@ C:\EPAUDOS.COM
 GOTO FIN
 
 :WIN
+REM Epaudos en veille sous Windows : il lit l'invite MS-DOS avec Epaulard
+C:\EPAUDOS.COM
 WIN
 
 :FIN

@@ -18,6 +18,12 @@ static DWORD probe_tick, rx_tick, tx_tick;
 static int command, need, used;
 static BYTE rx[16], keys;
 static int events[16], event_in, event_out;
+/* Relais d'Épaudos (invite MS-DOS, epaulard/src/dosbox.c) : cellules déjà traduites
+   par Épaudos ; touches, routage et largeur rendus en trames Baum pour lui. */
+static BOOL relay, relay_dirty;
+static BYTE relay_cells[MAXCELLS];
+static BYTE rq[64];
+static int rq_in, rq_out;
 
 static void push_key(int key)
 {
@@ -26,6 +32,23 @@ static void push_key(int key)
         events[event_in] = key;
         event_in = next;
     }
+}
+
+static void rq_put(BYTE b)
+{
+    int next = (rq_in + 1) % sizeof(rq);
+    if (next != rq_out) {
+        rq[rq_in] = b;
+        rq_in = next;
+    }
+}
+
+static void rq_frame(int cmd, BYTE v)
+{
+    rq_put(0x1b);
+    rq_put((BYTE) cmd);
+    rq_put(v);
+    if (v == 0x1b) rq_put(0x1b);
 }
 
 static void queue(int cmd, const BYTE *data, int n)
@@ -125,6 +148,41 @@ void BRAPI br_pan(int direction)
 }
 
 int BRAPI br_offset(void) { return offset; }
+int BRAPI br_width(void) { return width; }
+
+/* Relais : la plage affiche les cellules données par br_cells ; ses touches vont
+   dans les trames lues par br_relay_read. Fin : l'affichage d'Épaulard revient. */
+void BRAPI br_relay(BOOL on)
+{
+    relay = on;
+    rq_in = rq_out = 0;
+    keys = 0;
+    event_in = event_out = 0;
+    relay_dirty = FALSE;
+    valid = FALSE;
+    dirty = TRUE;
+    if (on && width)
+        rq_frame(1, (BYTE) width);
+}
+
+void BRAPI br_cells(const BYTE FAR *c, int n)
+{
+    if (n > MAXCELLS) n = MAXCELLS;
+    if (n < 0) n = 0;
+    _fmemcpy(relay_cells, c, n);
+    memset(relay_cells + n, 0, MAXCELLS - n);
+    relay_dirty = TRUE;
+}
+
+int BRAPI br_relay_read(BYTE FAR *out, int max)
+{
+    int n = 0;
+    while (n < max && rq_out != rq_in) {
+        out[n++] = rq[rq_out];
+        rq_out = (rq_out + 1) % sizeof(rq);
+    }
+    return n;
+}
 int BRAPI br_key(void)
 {
     int k;
@@ -142,7 +200,10 @@ static void response(void)
             if (width != rx[0]) { width = rx[0]; offset = 0; }
             valid = FALSE;
             dirty = TRUE;
+            if (relay) rq_frame(1, rx[0]);
         }
+    } else if (relay) {                 /* touches et routage : à Épaudos, tels quels */
+        if (command == 0x24 || command == 0x27) rq_frame(command, rx[0]);
     } else if (command == 0x24) {
         released = (BYTE) (keys & ~rx[0]);
         if (released) {
@@ -180,6 +241,17 @@ static void receive(BYTE b)
     }
 }
 
+/* Trame en cours vers la plage : ce que le pilote série accepte */
+static void send(void)
+{
+    COMSTAT st;
+    int n;
+    if (tx_pos >= tx_n) return;
+    n = WriteComm(port, tx + tx_pos, tx_n - tx_pos);
+    if (n < 0) { GetCommError(port, &st); n = -n; }
+    if (n > 0) tx_pos += n;
+}
+
 void BRAPI br_tick(void)
 {
     char buf[64];
@@ -205,16 +277,27 @@ void BRAPI br_tick(void)
         dirty = TRUE;
         probe_tick = now - 3000;
     }
-    if (tx_pos < tx_n) {
-        n = WriteComm(port, tx + tx_pos, tx_n - tx_pos);
-        if (n < 0) { GetCommError(port, &st); n = -n; }
-        if (n > 0) tx_pos += n;
+    /* Chaque trame part dans l'appel qui la prépare : en plein écran DOS, la machine
+       système est en arrière-plan et l'appel suivant peut venir une seconde après. */
+    send();
+    if (tx_pos < tx_n)
         return;
-    }
     /* Réinitialiser la passerelle après une reconnexion, même sans mouvement. */
     if (now - probe_tick >= 3000) {
         queue(0x15, &on, 1);
         probe_tick = now;
+        send();
+        if (tx_pos < tx_n)
+            return;
+    }
+    if (relay) {
+        if (!width || (!relay_dirty && !dirty)) return;
+        relay_dirty = dirty = FALSE;
+        if (valid && memcmp(relay_cells, sent, width) == 0) return;
+        memcpy(sent, relay_cells, width);
+        valid = TRUE;
+        queue(1, relay_cells, width);
+        send();
         return;
     }
     if (!width || !dirty) return;
@@ -230,4 +313,5 @@ void BRAPI br_tick(void)
     memcpy(sent, cells, width);
     valid = TRUE;
     queue(1, cells, width);
+    send();
 }

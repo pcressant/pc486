@@ -71,6 +71,10 @@ fraîchement compilé. Les comportements génériques sont couverts par les banc
 | Télécopie (`FAXMGR`, `FAXVIEW`), `KEYVIEW`, `SIGVIEW` | Messages et fenêtre principale lus ; `FAXVIEW` affiche des images (comme Paintbrush) ; `KEYVIEW`/`SIGVIEW` exigent Mail avec sécurité |
 | SmartDrive Monitor, MSInfo, Anti-Virus, Undelete, Backup (outils de MS-DOS 6) | Contrôles standard. Backup signale que VFINTD.386 n'est pas installé (configuration, pas Épaulard) |
 | `CLIPSRV`, `MSREMIND`, `RASSTART`, `MAILSPL`, `MWAVTSR` | Programmes de fond sans fenêtre à lire |
+| Excel 5.0 / 5.0c | Grille, formules, feuilles, plage sélectionnée, mise en forme : voir [Tableurs](tableur.md). Boîtes SDM comme Word |
+| Ami Pro 3.01 | Document (dessiné en twips) : lignes, mots, caractères, sélection, dire tout ; menus, boîtes standard (`AMIDIALOG`). Barre d'icônes non lue |
+| Access 2.0 | Boîtes, boutons à image nommés par leur libellé, fenêtre de base de données, grilles (création, propriétés, feuille de données) : voir [Grilles](tableur.md#grilles-à-éditeur-access). Conseiller non lu |
+| Invite MS-DOS | Lue par Épaudos, parole relayée : voir [Invite MS-DOS](invite-dos.md) |
 | Solitaire, Démineur, Dame de Pique | **Non accessibles** : cartes et cases sont des images (voir Limites) |
 
 ## Aide de Windows
@@ -96,6 +100,10 @@ sous la zone fixe `MS_WINNSR`.
 - **Inser+Maj+D** : toutes les fenêtres de la fenêtre de premier niveau du focus
   (profondeur, identifiant, classe, numéro, style, texte), dans la parole et donc dans
   `apolo-emu.log`. Sert à reconnaître la structure d'un programme inconnu.
+- **Inser+Maj+O** : le modèle hors écran de la fenêtre active (fenêtre, position,
+  taille, texte, police), les petites images notées (cases, boutons radio) et les huit
+  dernières opérations raster inhabituelles (`P` PatBlt, `B` BitBlt, `R` InvertRgn,
+  `I` InvertRect, avec le code et la taille en unités logiques).
 
 ## Limites
 
