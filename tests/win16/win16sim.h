@@ -86,6 +86,8 @@ static BYTE sim_patch_area[16];
 #define WS_VSCROLL    0x00200000L
 #define GWW_ID (-12)
 #define GWL_STYLE (-16)
+#define GW_HWNDFIRST 0
+#define GW_HWNDLAST 1
 #define GW_HWNDNEXT 2
 #define GW_HWNDPREV 3
 #define GW_OWNER 4
@@ -359,6 +361,15 @@ static HWND GetWindow(HWND h, UINT cmd)
             if (sim_win[i].used && sim_win[i].parent == h) return (HWND) i;
         return 0;
     }
+    if (cmd == GW_HWNDFIRST || cmd == GW_HWNDLAST) {
+        HWND found = 0;
+        for (i = 1; i < SIM_WN; i++)
+            if (sim_win[i].used && sim_win[i].parent == sim_win[h].parent) {
+                found = (HWND) i;
+                if (cmd == GW_HWNDFIRST) break;
+            }
+        return found;
+    }
     if (cmd == GW_HWNDPREV) {
         for (i = h - 1; i > 0; i--)
             if (sim_win[i].used && sim_win[i].parent == sim_win[h].parent) return (HWND) i;
@@ -367,6 +378,16 @@ static HWND GetWindow(HWND h, UINT cmd)
     for (i = h + 1; i < SIM_WN; i++)
         if (sim_win[i].used && sim_win[i].parent == sim_win[h].parent) return (HWND) i;
     return 0;
+}
+/* dernière fenêtre visible et active possédée par h (boîte modale), sinon h */
+static HWND GetLastActivePopup(HWND h)
+{
+    int i;
+    HWND p = h;
+    for (i = 1; i < SIM_WN; i++)
+        if (sim_win[i].used && sim_win[i].owner == h && (sim_win[i].style & WS_VISIBLE) &&
+            !(sim_win[i].style & WS_DISABLED)) p = (HWND) i;
+    return p;
 }
 static BOOL IsZoomed(HWND h) { (void) h; return FALSE; }
 static BOOL IsChild(HWND p, HWND h)

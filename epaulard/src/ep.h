@@ -239,6 +239,7 @@ void append(char *dst, const char *s);
 void fit_before(char *s, int max, const char *a, const char *b, const char *c);
 void append_keep(char *dst, const char *s, int max);
 int edit_line(HWND h, char *out, int n);
+BOOL edit_text(HWND h, char *out, int n);
 BOOL is_multiline(HWND h);
 void edit_range(HWND h, int a, int b, char *out, int max);
 void say_selection(const char *text, int count, BOOL selected);

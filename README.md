@@ -292,6 +292,11 @@ par Apolo-emu, comme Épaudos. Le dire tout attend l'écho `@E` renvoyé après 
   Inser+F4 quitter, Inser+D débogage (Inser+Maj+D : arbre des fenêtres), Ctrl seul = silence. Ctrl+Gauche/Droite lit le
   mot ; Maj+flèches annonce le texte sélectionné ou désélectionné (zones d'édition,
   Write, Word). La touche Inser est réservée à Épaulard.
+- Alt+Tab : tant qu'Alt est tenu, chaque Tab coupe la parole et dit le titre du
+  programme que la boîte de bascule de Windows affiche (Maj+Alt+Tab remonte, Échap
+  annule et relit la fenêtre active) ; au relâchement, la fenêtre activée est lue
+  comme d'habitude. Seulement avec la bascule rapide de Windows (`CoolSwitch`, actif
+  par défaut) ; sans elle, chaque fenêtre est activée et lue à son tour.
 - Autres programmes Windows (Aide, Fiches, Table de caractères, Panneau de
   configuration, Mail, Terminal, Didacticiel, Ami Pro…) : état et limites par
   programme dans [les programmes Windows](docs/programmes-windows.md).

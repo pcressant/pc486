@@ -483,8 +483,38 @@ static LRESULT xe_key(UINT vk)
     return 0;
 }
 
+/* Installateur de QEMM 8 : zone d'une ligne dont WM_GETTEXT reste vide (le texte
+   ne se lit que par EM_GETLINE) ; « Unité du disque : » */
+static struct {
+    HWND edit;
+    char text[40];
+    int pos;
+} qm;
+static LRESULT qm_proc(HWND h, UINT m, WPARAM w, LPARAM l)
+{
+    (void) h; (void) w;
+    switch (m) {
+    case EM_GETLINE:
+        strcpy((char *) l, qm.text);
+        return (LRESULT) strlen(qm.text);
+    case EM_GETSEL:
+        return MAKELONG(qm.pos, qm.pos);
+    }
+    return 0;
+}
+static LRESULT qm_key(UINT vk)
+{
+    int n = (int) strlen(qm.text);
+    if (vk == VK_LEFT && qm.pos > 0) qm.pos--;
+    else if (vk == VK_RIGHT && qm.pos < n) qm.pos++;
+    else if (vk == VK_HOME) qm.pos = 0;
+    else if (vk == VK_END) qm.pos = n;
+    return 0;
+}
+
 static LRESULT app_key(HWND h, UINT vk)
 {
+    if (h == qm.edit && qm.edit) return qm_key(vk);
     if (h == xe.ed && xe.ed) return xe_key(vk);
     if (h == hp.doc && hp.doc) return hp_key(vk);
     if (h == wr.doc && wr.doc) return wr_key(vk);
@@ -617,6 +647,7 @@ static void boot(void)
     memset(&pm, 0, sizeof(pm));
     memset(&wf, 0, sizeof(wf));
     memset(&hp, 0, sizeof(hp));
+    memset(&qm, 0, sizeof(qm));
     sim_focus = sim_active = 0;
     sim_qn = 0;
     osm_remove();
@@ -3223,8 +3254,96 @@ static void test_navweb(void)
     hp.doc = hp.topic = 0;
 }
 
+/* Zone d'édition qui ne répond pas à WM_GETTEXT (installateur de QEMM 8) : texte
+   lu par EM_GETLINE, au focus comme sous le curseur (avant : « fin de ligne »). */
+static void test_empty_gettext_edit(void)
+{
+    HWND dlg;
+    int from;
+
+    boot();
+    dlg = sim_create(0, "#32770", "Quarterdeck QEMM - Installation", 0, 0, 0, 400, 200);
+    sim_create(dlg, "STATIC", "&Unité du disque :", 0, 130, 140, 350, 160);
+    qm.edit = sim_create(dlg, "EDIT", "", 0x0088L, 90, 160, 380, 184);
+    sim_win[qm.edit].proc = qm_proc;
+    strcpy(qm.text, "E:\\QEMM\\DISK01");
+    qm.pos = (int) strlen(qm.text);
+    sim_active = dlg;
+    sim_focus = qm.edit;
+    run(800);
+    CHECK(spoken_n > 0 && strstr(spoken[spoken_n - 1], "DISK01"));
+    from = spoken_n;
+    key(VK_LEFT);
+    run(400);
+    CHECK(spoken_since(from, "1") >= 0);
+    from = spoken_n;
+    key(VK_LEFT);
+    run(400);
+    CHECK(spoken_since(from, "0") >= 0);
+    from = spoken_n;
+    key(VK_HOME);
+    run(400);
+    CHECK(spoken_since(from, "E") >= 0);
+    from = spoken_n;
+    key(VK_END);
+    run(400);
+    CHECK(spoken_since(from, "fin de ligne") >= 0);
+}
+
+/* Alt+Tab (bascule rapide de Windows 3.1) : le titre du programme suivant est dit à
+   chaque Tab, Alt tenu, dans l'ordre de Windows : fenêtres sans propriétaire, visibles,
+   de haut en bas ; une fenêtre bloquée par sa boîte modale reste un programme. */
+#define ALT_HELD 0x20000000L
+static void alt_down(void) { PostMessage(hwnd_main, EPM_KEY, VK_MENU, ALT_HELD | 1L); }
+static void alt_tab(BOOL shift)
+{
+    PostMessage(hwnd_main, EPM_KEY, VK_TAB, ALT_HELD | 1L | (shift ? EPK_SHIFT : 0));
+}
+static void test_alt_tab(void)
+{
+    HWND pm_top, hidden, qemm, box;
+    int from;
+
+    boot();
+    pm_top = sim_create(0, "Progman", "Gestionnaire de programmes", 0, 0, 0, 640, 480);
+    sim_create(0, "Notepad", "Bloc-notes - (Sans titre)", 0, 0, 0, 640, 480);
+    hidden = sim_create(0, "Cache", "Fenêtre cachée", 0, 0, 0, 10, 10);
+    sim_win[hidden].style &= ~WS_VISIBLE;
+    qemm = sim_create(0, "AfxFrame", "Quarterdeck QEMM - Installation", WS_DISABLED, 0, 0, 640, 480);
+    box = sim_create(0, "#32770", "", 0, 100, 100, 500, 400);
+    sim_win[box].owner = qemm;
+    sim_active = pm_top;
+    sim_focus = pm_top;
+    run(500);
+
+    from = spoken_n;
+    alt_down();
+    alt_tab(FALSE);
+    run(100);
+    CHECK(spoken_since(from, "Bloc-notes - (Sans titre)") >= 0);
+    from = spoken_n;
+    alt_tab(FALSE);
+    run(100);
+    CHECK(spoken_since(from, "Quarterdeck QEMM - Installation") >= 0);
+    from = spoken_n;
+    alt_tab(FALSE);
+    run(100);
+    CHECK(spoken_since(from, "Gestionnaire de programmes") >= 0);
+
+    /* Alt relâché puis rappuyé : nouvelle bascule depuis la fenêtre active ; Maj
+       remonte (la boîte possédée n'est pas un programme) */
+    from = spoken_n;
+    alt_down();
+    alt_tab(TRUE);
+    run(100);
+    CHECK(spoken_since(from, "Quarterdeck QEMM - Installation") >= 0);
+    CHECK(spoken_since(from, "Fenêtre cachée") < 0);
+}
+
 int main(void)
 {
+    { int f = failures; test_empty_gettext_edit(); if (failures > f) dump("test_empty_gettext_edit"); }
+    { int f = failures; test_alt_tab(); if (failures > f) dump("test_alt_tab"); }
     { int f = failures; test_navweb(); if (failures > f) dump("test_navweb"); }
     { int f = failures; test_disabled_controls(); if (failures > f) dump("test_disabled_controls"); }
     { int f = failures; test_calculator_states(); if (failures > f) dump("test_calculator_states"); }

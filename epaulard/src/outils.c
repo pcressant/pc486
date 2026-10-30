@@ -410,6 +410,27 @@ int edit_line(HWND h, char *out, int n)
     return line;
 }
 
+/* Texte d'une zone d'édition d'une ligne. Certains programmes répondent à WM_GETTEXT
+   par une chaîne vide (installateur de QEMM 8, pages de Netscape) : alors EM_GETLINE,
+   puis le texte dessiné (modèle hors écran). TRUE si le texte vient du dessin : ce
+   n'est que la partie visible, ses colonnes ne sont pas les positions d'EM_GETSEL. */
+BOOL edit_text(HWND h, char *out, int n)
+{
+    int len;
+    if (GetWindowText(h, out, n) > 0)
+        return FALSE;
+    *(WORD *) out = (WORD) (n - 1);
+    len = (int) SendMessage(h, EM_GETLINE, 0, (LPARAM) (LPSTR) out);
+    if (len > 0 && len < n) {
+        out[len] = 0;
+        return FALSE;
+    }
+    out[0] = 0;
+    if (!EpOsmWindow(h, out, n))
+        out[0] = 0;
+    return out[0] != 0;
+}
+
 /* Zone de plusieurs lignes : style, et hauteur de deux lignes au moins (les champs
    de Date/Heure sont ES_MULTILINE pour centrer un seul nombre) */
 BOOL is_multiline(HWND h)
@@ -430,7 +451,8 @@ void edit_range(HWND h, int a, int b, char *out, int max)
 
     out[0] = 0;
     if (!is_multiline(h)) {
-        GetWindowText(h, line, sizeof(line));
+        if (edit_text(h, line, sizeof(line)))
+            line[0] = 0;                /* (texte dessiné : positions inconnues) */
         n = lstrlen(line);
         if (b > n) b = n;
         if (a < b)

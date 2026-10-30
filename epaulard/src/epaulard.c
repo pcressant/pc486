@@ -75,7 +75,7 @@ void remember_value(HWND h)
     const char *role;
     last_etext[0] = 0;
     if (is_class(h, "EDIT") && !is_multiline(h) && !(GetWindowLong(h, GWL_STYLE) & ES_PASSWORD))
-        GetWindowText(h, last_etext, sizeof(last_etext));
+        edit_text(h, last_etext, sizeof(last_etext));
     if (!custom_value(h, custom_said, &role))
         custom_said[0] = 0;
     class_of(h, cls, sizeof(cls));
@@ -483,8 +483,19 @@ void check_value(void)
             if (is_multiline(h)) {
                 start = (int) SendMessage(h, EM_LINEINDEX, (WPARAM) -1, 0L);
                 edit_line(h, out, TXT);
-            } else
-                GetWindowText(h, out, TXT);
+            } else if (edit_text(h, out, TXT)) {
+                /* texte seulement dessiné : le caractère sous le curseur, à l'écran */
+                POINT pt;
+                int c;
+                word_key = FALSE;
+                caret_screen(h, &pt);
+                c = EpOsmCharAt(h, pt.x + 1, pt.y + 2);
+                if (c)
+                    say_char((char) c, TRUE);
+                else
+                    say("fin de ligne", TRUE);
+                return;
+            }
             col = pos - start;
             if (word_key && col >= 0) {
                 word_key = FALSE;
@@ -895,6 +906,59 @@ void say_status(void)
         say("pas de barre d'état", TRUE);
 }
 
+/* Alt+Tab, bascule rapide de Windows 3.1 (CoolSwitch) : tant qu'Alt est tenu, Windows
+   affiche seulement le titre du programme suivant et ne l'active qu'au relâchement.
+   On dit ce titre dès Tab, en suivant le même ordre : fenêtres principales (sans
+   propriétaire) visibles, de haut en bas ; une fenêtre désactivée par sa boîte modale
+   compte par cette boîte. Maj+Alt+Tab remonte. */
+static HWND switch_hwnd;        /* dernier programme annoncé ; NULL : nouvelle bascule */
+
+static HWND root_owner(HWND h)
+{
+    HWND o;
+    h = top_level(h);
+    while (h && (o = GetWindow(h, GW_OWNER)) != NULL)
+        h = o;
+    return h;
+}
+
+static BOOL switch_target(HWND w)
+{
+    HWND p;
+    if (w == hwnd_main || !IsWindowVisible(w) || GetWindow(w, GW_OWNER))
+        return FALSE;
+    if (IsWindowEnabled(w))
+        return TRUE;
+    p = GetLastActivePopup(w);
+    return p && p != w && IsWindowVisible(p) && IsWindowEnabled(p);
+}
+
+static void switch_next(BOOL back)
+{
+    HWND start, w;
+    char title[TXT];
+
+    if (!GetProfileInt("windows", "CoolSwitch", 1))
+        return;                         /* bascule sans boîte : chaque fenêtre est activée */
+    start = switch_hwnd && IsWindow(switch_hwnd) ? switch_hwnd : root_owner(GetActiveWindow());
+    if (!start)
+        return;
+    for (w = start;;) {
+        w = GetWindow(w, back ? GW_HWNDPREV : GW_HWNDNEXT);
+        if (!w)
+            w = GetWindow(start, back ? GW_HWNDLAST : GW_HWNDFIRST);
+        if (!w || w == start)
+            return;                     /* aucun autre programme */
+        if (switch_target(w))
+            break;
+    }
+    switch_hwnd = w;
+    if (!GetWindowText(w, title, sizeof(title)))
+        GetWindowText(GetLastActivePopup(w), title, sizeof(title));
+    sa_stop(TRUE);
+    say(title[0] ? title : "sans titre", TRUE);
+}
+
 void on_command(WPARAM vk, LPARAM lp)
 {
     char buf[TXT];
@@ -1197,6 +1261,7 @@ LRESULT CALLBACK __export MainProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         /* Toujours redire le titre : la nouvelle fenêtre a pu reprendre l'identifiant
            d'une fenêtre fermée. Les doublons sont écartés par announce_focus(). */
         sa_stop(TRUE);
+        switch_hwnd = NULL;
         new_active = TRUE;
         last_focus = NULL;
         review_window = NULL;
@@ -1210,6 +1275,20 @@ LRESULT CALLBACK __export MainProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             announce_focus(TRUE);
         return 0;
     case EPM_KEY:
+        /* lParam bit 29 : Alt tenu ; bit 30 : répétition */
+        if (wp == VK_MENU && !(lp & 0x40000000L))
+            switch_hwnd = NULL;         /* Alt appuyé : nouvelle bascule */
+        if (wp == VK_TAB && (lp & 0x20000000L) && !(lp & EPK_CTRL)) {
+            key_tick = GetTickCount();
+            switch_next((lp & EPK_SHIFT) != 0);
+            return 0;
+        }
+        if (wp == VK_ESCAPE && (lp & 0x20000000L) && switch_hwnd) {
+            switch_hwnd = NULL;         /* bascule annulée : on reste où l'on était */
+            last_active = NULL;
+            announce_focus(TRUE);
+            return 0;
+        }
         if (is_class(GetActiveWindow(), "SCICALC")) {
             calc_view = 0;
             calc_button = -1;

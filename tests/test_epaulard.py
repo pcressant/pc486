@@ -16,7 +16,8 @@ epaulard-test.c  lecteur complet face à une fausse Apollo II et une fausse plag
                  mémoire, bases, unités, Inv/Hyp, parcours/activation des boutons,
                  bilan braille et contrôles désactivés. Grille d'Excel (cellule, formule,
                  feuille, repeint découpé, gras après Ctrl+G, Suppr), invite MS-DOS
-                 relayée vers Épaudos, jauge et focus répété des installateurs ACME.
+                 relayée vers Épaudos, jauge et focus répété des installateurs ACME,
+                 zone d'édition sans WM_GETTEXT (QEMM 8), titres dits pendant Alt+Tab.
 Run: python3 -m unittest tests.test_epaulard -v
 """
 from pathlib import Path

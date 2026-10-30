@@ -457,6 +457,15 @@ Préférer `scripts/pc486-dev` aux préfixes de variables, que les règles ne co
   (profil de Communicator) : `dialog_text` ignore les contrôles cachés et
   `dialog_page` (empreinte des STATIC visibles) déclenche la lecture de la nouvelle
   page. `label_before` n'emprunte pas le libellé d'un autre champ (corps d'Eudora).
+- Zones d'édition d'une ligne : certains programmes rendent un `WM_GETTEXT` vide
+  (installateur MFC de QEMM 8, champs de Netscape). Lire leur texte par `edit_text`
+  (`outils.c` : `GetWindowText`, puis `EM_GETLINE` 0, puis modèle hors écran), jamais
+  par `GetWindowText` seul : sinon chaque flèche dit « fin de ligne ».
+- Alt+Tab : la bascule rapide de Windows 3.1 (`CoolSwitch`) n'active la fenêtre qu'au
+  relâchement d'Alt. `switch_next` (`epaulard.c`) dit le titre suivant dès Tab (bit 29
+  du lParam d'`EPM_KEY`), dans l'ordre de Windows : fenêtres sans propriétaire,
+  visibles, de haut en bas ; une fenêtre désactivée compte si sa dernière boîte
+  (`GetLastActivePopup`) est active. Vérifié contre la boîte affichée sous QEMU.
 - INSTAUTO joue ses réponses dans l'ordre : deux boîtes « Question » successives
   reçoivent chacune la leur ; ne pas dédoublonner les titres.
 - 86Box réécrit sa configuration à l'arrêt et supprime ce qu'il ne reconnaît pas

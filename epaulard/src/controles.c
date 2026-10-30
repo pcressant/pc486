@@ -44,9 +44,7 @@ void describe_value(HWND h, char *out)
         else if (is_multiline(h))
             edit_line(h, out, TXT);
         else
-            GetWindowText(h, out, TXT);
-        if (!out[0] && !is_multiline(h))
-            EpOsmWindow(h, out, TXT);   /* (Bureau : « Délai », texte non rendu) */
+            edit_text(h, out, TXT);     /* (Bureau : « Délai », texte non rendu) */
         if (!out[0] && !is_multiline(h) && GetUpdateRect(h, NULL, FALSE)) {
             /* Préférences de Netscape : texte rendu seulement en dessin, et boîte pas
                encore peinte quand le focus est annoncé */
