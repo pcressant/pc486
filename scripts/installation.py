@@ -136,6 +136,42 @@ def validate_suppl(path):
         run('mtype', '-i', path, '::/' + name)
 
 
+def collect_suppl(source, target):
+    """Disque supplémentaire : image seule, ou dossier ou ZIP local (celui de DOS 6.22, où
+    il s'appelle par exemple Dsuppl.IMA). Reconnu par son contenu, pas par son nom."""
+    source = source.resolve()
+    if source.is_file() and not zipfile.is_zipfile(source):
+        shutil.copyfile(source, target)
+        validate_suppl(target)
+        return target
+    if source.is_dir():
+        candidates = [p.read_bytes for p in sorted(source.rglob('*'))
+                      if p.is_file() and p.suffix.lower() in ('.ima', '.img')
+                      and p.stat().st_size == FLOPPY_SIZE]
+    elif source.is_file():
+        z = zipfile.ZipFile(source)
+        candidates = [lambda e=e: z.read(e) for e in z.infolist()
+                      if not e.is_dir() and Path(e.filename).suffix.lower() in ('.ima', '.img')
+                      and e.file_size == FLOPPY_SIZE]
+    else:
+        raise InstallError(f'disque supplémentaire introuvable : {source}')
+    found = 0
+    for read in candidates:
+        target.write_bytes(read())
+        try:
+            validate_suppl(target)
+        except (InstallError, subprocess.SubprocessError):
+            continue
+        found += 1
+        kept = target.read_bytes()
+    if found != 1:
+        target.unlink(missing_ok=True)
+        raise InstallError(f'disque supplémentaire de MS-DOS 6.22 : {"plusieurs" if found else "aucun"} '
+                           f'dans {source}')
+    target.write_bytes(kept)
+    return target
+
+
 def disk_partition(path):
     with path.open('rb') as f:
         mbr = f.read(512)
@@ -156,26 +192,26 @@ def volume_label(path):
     return m[1].upper() if m else ''
 
 
-def collect_word_dos(source, target):
-    """Disquettes de Word 6.0 pour DOS, reconnues par leur nom de volume.
-    Dossier ou ZIP local ; seules les images de disquette sont lues."""
+def collect_word_dos(source, target, volumes=WORD_DOS_VOLUMES):
+    """Disquettes de Word 6.0 pour DOS, reconnues par leur nom de volume (volumes,
+    dans cet ordre). Dossier ou ZIP local ; seules les images de disquette sont lues."""
     source = source.resolve()
     target.mkdir()
     if source.is_dir():
         candidates = [p.read_bytes for p in sorted(source.rglob('*'))
                       if p.is_file() and p.suffix.lower() in ('.ima', '.img')]
-        return keep_word_dos(source, target, candidates)
+        return keep_word_dos(source, target, candidates, volumes)
     if source.is_file() and zipfile.is_zipfile(source):
         # Toutes les lectures ont lieu dans keep_word_dos, archive encore ouverte.
         with zipfile.ZipFile(source) as z:
             candidates = [lambda e=e: z.read(e) for e in z.infolist()
                           if not e.is_dir() and Path(e.filename).suffix.lower() in ('.ima', '.img')]
-            return keep_word_dos(source, target, candidates)
+            return keep_word_dos(source, target, candidates, volumes)
     raise InstallError(f'dossier ou archive ZIP locale introuvable : {source}')
 
 
-def keep_word_dos(source, target, candidates):
-    """Copie de travail des disquettes reconnues, dans l'ordre de WORD_DOS_VOLUMES."""
+def keep_word_dos(source, target, candidates, volumes):
+    """Copie de travail des disquettes reconnues, dans l'ordre de volumes."""
     found = {}
     for i, read in enumerate(candidates):
         data = read()
@@ -184,16 +220,16 @@ def keep_word_dos(source, target, candidates):
         p = target / f'image{i}.img'
         p.write_bytes(data)
         label = volume_label(p)
-        if label not in WORD_DOS_VOLUMES:
+        if label not in volumes:
             p.unlink()
             continue
         if label in found:
             raise InstallError(f'Word pour DOS : plusieurs disquettes {label} dans {source}')
         found[label] = p
-    missing = [v for v in WORD_DOS_VOLUMES if v not in found]
+    missing = [v for v in volumes if v not in found]
     if missing:
         raise InstallError(f'Word pour DOS : disquettes manquantes dans {source} : {", ".join(missing)}')
-    return [found[v] for v in WORD_DOS_VOLUMES]
+    return [found[v] for v in volumes]
 
 
 # Fichiers sans lesquels INIT ne démarre pas ou n'installe pas WORD.EXE ; INIT1.EXE et
@@ -1487,7 +1523,8 @@ def parser():
     p.add_argument('--output', type=Path, help='nouvelle image brute 500 Mo (refus si elle existe)')
     p.add_argument('--name', type=user_text, default='Utilisateur', help='nom Windows (30 caractères)')
     p.add_argument('--company', type=user_text, default='', help='organisation, facultative')
-    p.add_argument('--suppl', type=Path, help='image du disque supplémentaire de MS-DOS 6.22 (SUPPL.IMG)')
+    p.add_argument('--suppl', type=Path, help='disque supplémentaire de MS-DOS 6.22 : image (SUPPL.IMG), ou '
+                   'dossier ou ZIP local qui la contient (ZIP de DOS 6.22)')
     p.add_argument('--word', type=Path, help='dossier ou ZIP local : Word 6.0c français, Disk01 à Disk11')
     p.add_argument('--excel', type=Path, help='dossier ou ZIP local : Excel 5.0c français (11 disquettes '
                    '1,2 Mo) ou Excel 5.0 français (10 disquettes 1,44 Mo)')
@@ -1659,9 +1696,7 @@ def main(argv=None):
             raise InstallError(str(e)) from None
         suppl = None
         if args.suppl:
-            suppl = stage / 'suppl.img'
-            shutil.copyfile(args.suppl, suppl)
-            validate_suppl(suppl)
+            suppl = collect_suppl(args.suppl, stage / 'suppl.img')
             manifest['media']['suppl'] = [dict(name=suppl.name, sha256=digest(suppl))]
         (stage / 'supports.json').write_text(json.dumps(manifest, indent=2) + '\n')
         if args.check:

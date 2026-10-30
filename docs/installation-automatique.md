@@ -30,12 +30,16 @@ Dispatcher et sa voix. Les dépendances de la passerelle braille et de 86Box son
 décrites dans le README et [le guide braille](braille.md). L'installation elle-même
 ne requiert ni serveur vocal, ni plage physique, ni ROM de 86Box.
 
-Préparer les supports que l'on est autorisé à utiliser :
+Préparer les supports que l'on est autorisé à utiliser. Chaque option accepte un
+ZIP ou un dossier ; les images sont lues dans l'archive sans l'extraire, et un ZIP
+suffit (inutile de garder ses images à côté).
 
-- DOS : `DISK1.IMG`, `DISK2.IMG`, `DISK3.IMG`.
-- Windows : `DISK1.IMA` à `DISK9.IMA`.
-- Facultatif, `--suppl` : l'image du disque supplémentaire de MS-DOS 6.22
-  (`SUPPL.IMG`, édition anglaise « Supplemental Disk », la seule publiée).
+- DOS : `DISK1` à `DISK3` (`.IMG` ou `.IMA`, zéros et casse indifférents).
+- Windows : `DISK1` à `DISK9`.
+- Facultatif, `--suppl` : le disque supplémentaire de MS-DOS 6.22 (édition anglaise
+  « Supplemental Disk », la seule publiée), en image seule ou dans un ZIP ou dossier,
+  par exemple le ZIP de DOS où il s'appelle `Dsuppl.IMA` : il est reconnu par son
+  contenu (`SETUP.BAT` et outils), pas par son nom.
 - Facultatif, `--word` : Word 6.0c pour Windows, édition française, `Disk01.ima`
   à `Disk11.ima` (dossier ou ZIP), étiquettes `WWRD60C_F01` à `F11`.
 - Facultatif, `--word-dos` : Word 6.0 pour MS-DOS, édition française, disquettes
@@ -56,8 +60,8 @@ dossier de travail ; les chemins internes de l'archive ne sont jamais extraits.
 Depuis la racine du projet :
 
 ```sh
-scripts/installer --dos media/msdos622 --windows media/wfw311 \
-  --suppl media/msdos622/SUPPL.IMG --check
+scripts/installer --dos media/msdos622/msdos622fr.zip --windows media/wfw311/wfw_3-11_fr.zip \
+  --suppl media/msdos622/msdos622fr.zip --check
 ```
 
 Cette commande vérifie les prérequis, le nombre et la taille des disquettes,
@@ -67,16 +71,36 @@ font échouer la vérification.
 
 ## Installer la machine de référence
 
+Machine complète, avec tous les logiciels pris en charge, le CD-ROM et le réseau
+isolé (supports locaux rangés dans `media/`, en ZIP) :
+
 ```sh
 scripts/installer \
-  --dos media/msdos622 \
-  --windows media/wfw311 \
-  --suppl media/msdos622/SUPPL.IMG \
-  --word media/word6-win \
-  --word-dos media/word6-dos-fr \
+  --dos media/msdos622/msdos622fr.zip \
+  --windows media/wfw311/wfw_3-11_fr.zip \
+  --suppl media/msdos622/msdos622fr.zip \
+  --word media/word6-win/msword6cfr.zip \
+  --excel media/excel5c-fr/msexcel50c_525hd_win31x_fr.zip \
+  --access media/access2-fr/msaccess20_525hd_win31x_fr.zip \
+  --access-an2000 media/access2-fr/acc2date.zip \
+  --amipro media/amipro-fr/lotusamifr.zip \
+  --netscape media/netscape3-fr/netscape301_win31x_fr.zip \
+  --communicator media/communicator408-fr/netscc16fr408.zip \
+  --eudora media/eudora306/eul306.zip \
+  --word-dos media/word6-dos-fr/msword60_525hd_dos_fr.zip \
+  --cdrom media/udvd2/udvd2.zip \
+  --reseau media/tcpip32/tcp32b.zip \
   --name 'Utilisateur' \
   --output vm/win311.img
 ```
+
+Chaque logiciel est facultatif : retirer son option suffit. Seuls `--dos` et
+`--windows` sont obligatoires ; `--access-an2000` suppose `--access`. Une seule
+version d'Excel s'installe : 5.0c (ci-dessus) ou 5.0 (`media/excel5-fr`). Pour
+Ami Pro, seul `lotusamifr.zip` est pris en charge, pas l'archive « bonus ».
+Ajouter `--check` vérifie d'abord tous les supports sans créer de disque. Sans
+`--reseau`, Netscape, Communicator et Eudora s'installent mais n'ont aucun réseau.
+Avec `--reseau`, démarrer par `scripts/pc486 start --reseau` (voir [reseau.md](reseau.md)).
 
 Le disque de sortie doit porter l'extension `.img` et **doit être absent** : un
 fichier existant, un dossier ou un lien symbolique, même cassé, est refusé.
@@ -89,7 +113,7 @@ Options :
 | Option | Effet |
 | --- | --- |
 | `--name`, `--company` | Utilisateur et organisation de Windows, 30 caractères au plus. |
-| `--suppl IMAGE` | Lance le `SETUP.BAT` d'origine du disque supplémentaire vers `C:\DOS` : tous les composants (AccessDOS, utilitaires clavier, DRVBOOT, outils de MS-DOS 5, fichiers réseau, MS-DOS Shell en VGA). |
+| `--suppl IMAGE` | Image, ZIP ou dossier (voir plus haut). Lance le `SETUP.BAT` d'origine du disque supplémentaire vers `C:\DOS` : tous les composants (AccessDOS, utilitaires clavier, DRVBOOT, outils de MS-DOS 5, fichiers réseau, MS-DOS Shell en VGA). |
 | `--word DOSSIER` | Installe Word 6.0c dans `C:\WINWORD` avec les options par défaut (WordArt, Graph, éditeur d'équations, convertisseurs et filtres, aide), sans clipart. Les supports restent dans `C:\INSTALL\DISK1` à `DISK11`, comme dans la VM de référence. |
 | `--excel DOSSIER` | Installe Excel dans `C:\EXCEL` avec les options par défaut. Deux supports sont reconnus, d'après leurs images : Excel 5.0c (11 disquettes 1,2 Mo, cabinets `EXCEL*.CAB`) ou Excel 5.0 (10 disquettes 1,44 Mo). Sources dans `C:\INSTALL\EXCEL\DISKn`. |
 | `--access DOSSIER` | Installe Access 2.0 dans `C:\ACCESS` (10 disquettes de 1,2 ou 1,44 Mo), sources dans `C:\INSTALL\ACCESS\DISKn`. |
@@ -263,6 +287,57 @@ QEMU, que si cette image existe ; l'installateur ne la crée pas. La CMOS de
 référence `86box/nvr/hot433a_v451pg.nvr.ok` laisse le BIOS détecter les disques : elle
 convient avec ou sans D: (voir le README). Le script n'installe pas les paquets de
 l'hôte et ne télécharge pas de ROM.
+
+## ISO des supports décompressés
+
+Pour installer ou réinstaller un logiciel à la main, depuis Windows ou DOS, les
+mêmes supports peuvent être réunis dans une ISO locale, lue en E: par une VM dont
+le CD-ROM est installé (`--cdrom`, ou `scripts/options-vm --cdrom`) :
+
+```sh
+nix run .#iso -- --sortie work/supports.iso \
+  --dos media/msdos622/msdos622fr.zip --suppl media/msdos622/msdos622fr.zip \
+  --windows media/wfw311/wfw_3-11_fr.zip --word media/word6-win/msword6cfr.zip \
+  --word-dos media/word6-dos-fr/msword60_525hd_dos_fr.zip --reseau media/tcpip32/tcp32b.zip \
+  --autres media
+scripts/pc486 start --cdrom "$PWD/work/supports.iso"
+```
+
+Les options sont celles de l'installateur (`--excel`, `--access`, `--access-an2000`,
+`--amipro`, `--netscape`, `--communicator`, `--eudora`…), toutes facultatives ; les
+supports sont reconnus et vérifiés de la même façon. `scripts/iso-supports` fait la
+même chose hors de Nix (mtools et xorriso nécessaires, 7zz et unar pour `.7z` et `.rar`). Le contenu des disquettes est
+extrait, fichiers cachés compris, et rangé comme l'installateur le range dans
+`C:\INSTALL` :
+
+| Dossier de E: | Contenu | Programme à lancer |
+| --- | --- | --- |
+| `DOS622` | images `DISK1..3.IMG` (amorçage sur disquette), `SUPPL.IMG` et `SUPPL\` | `SUPPL\SETUP.BAT` |
+| `WFW311` | les 9 disquettes réunies | `INSTALL.EXE` |
+| `WORD6`, `EXCEL`, `ACCESS` | un dossier `DISKn` par disquette (ACME) | `DISK1\INSTALL.EXE` |
+| `ACCESS\AN2000` | DLL du correctif ACC2DATE | à copier à la main |
+| `AMIPRO`, `WORDDOS` | toutes les disquettes réunies | `INSTALL.EXE`, `INIT.EXE` |
+| `WORDDOS\GRAMMAT` | Grammatik, installateur séparé (ignoré par l'installateur) | `INSTALLE.EXE` |
+| `NETSCAPE`, `COMMUNIC`, `EUDORA` | dossier d'installation de l'archive | `SETUP.EXE`, `CC16F408.EXE`, `EUL306.EXE` |
+| `TCPIP32` | TCP/IP-32 3.11b | « disquette du constructeur » |
+| `AUTRES\…` | `--autres DOSSIER` : toute autre archive du dossier | selon le logiciel |
+
+`--autres` ramasse, sous-dossiers compris, les `.zip`, `.7z` et `.rar` qui ne sont pas
+déjà donnés par une option de produit (versions anglaises, utilitaires, FreeDOS…), pour
+les essayer. Chaque archive devient un dossier de `AUTRES` nommé d'après son dossier
+de `media/` (ou l'archive elle-même s'il en contient plusieurs), version et langue
+gardées : `COM405EN`, `QEMM75FR`, `EXCEL5FR`… Les images de disquettes FAT et les ZIP
+imbriqués sont décompressés dans un dossier de même nom ; les EXE autoextractibles et
+les images de disque dur restent tels quels. Les noms longs sont ramenés en 8.3 ; les
+caractères permis par DOS sont gardés (`NBWIN.EX!` de Norton, `WORD.EX$`), car un
+installateur cherche ses fichiers sous leur nom exact. `NOMS.TXT`, dans le dossier de
+l'archive, donne le nom d'origine de tout ce qui a été renommé ou décompressé.
+
+`LISEZMOI.TXT`, à la racine, rappelle ce tableau. ACME lit l'emplacement de
+chaque fichier dans sa liste : il veut un dossier par disquette ; SETUP de Windows,
+Lotus et INIT trouvent tout dans un seul dossier. L'ISO contient des logiciels
+tiers : elle est écrite dans la copie de travail, jamais dans `/nix/store`, et ne doit
+pas être diffusée. La sortie existante n'est jamais remplacée.
 
 ## Fin, erreurs et diagnostics
 

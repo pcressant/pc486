@@ -47,6 +47,35 @@ class MediaTests(unittest.TestCase):
             self.assertEqual(images, [p / 'supports/disk1.img'])
             self.assertEqual(set(p.iterdir()), {source, p / 'supports'})
 
+    def test_supplemental_disk_found_by_content_in_dos_zip(self):
+        def only_suppl(path):
+            if not path.read_bytes().startswith(b'SUPPL'):
+                raise install.InstallError('pas le disque supplémentaire')
+        blob = lambda tag: tag + b'\0' * (install.FLOPPY_SIZE - len(tag))
+        with tempfile.TemporaryDirectory() as d, patch.object(install, 'validate_suppl', only_suppl):
+            p = Path(d)
+            source = p / 'msdos622fr.zip'
+            with zipfile.ZipFile(source, 'w') as z:
+                z.writestr('msdos622fr/Disk1.IMA', blob(b'DISK1'))
+                z.writestr('msdos622fr/Dsuppl.IMA', blob(b'SUPPL'))
+                z.writestr('msdos622fr/win3xorg.txt', b'texte')
+            out = install.collect_suppl(source, p / 'suppl.img')
+            self.assertTrue(out.read_bytes().startswith(b'SUPPL'))
+            self.assertEqual(set(p.iterdir()), {source, out})
+            image = p / 'SUPPL.IMG'                 # image seule : comme avant
+            image.write_bytes(blob(b'SUPPL'))
+            self.assertEqual(install.collect_suppl(image, p / 'copie.img').read_bytes(), image.read_bytes())
+            with zipfile.ZipFile(p / 'deux.zip', 'w') as z:
+                z.writestr('a.ima', blob(b'SUPPL'))
+                z.writestr('b.ima', blob(b'SUPPL'))
+            with self.assertRaisesRegex(install.InstallError, 'plusieurs'):
+                install.collect_suppl(p / 'deux.zip', p / 'x.img')
+            with zipfile.ZipFile(p / 'aucun.zip', 'w') as z:
+                z.writestr('Disk1.IMA', blob(b'DISK1'))
+            with self.assertRaisesRegex(install.InstallError, 'aucun'):
+                install.collect_suppl(p / 'aucun.zip', p / 'y.img')
+            self.assertFalse((p / 'y.img').exists())
+
     def test_missing_duplicate_and_wrong_size_are_rejected(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d)

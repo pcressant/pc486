@@ -27,8 +27,8 @@ nix run .#run               # démarrage 86Box ; ajouter -- --qemu pour QEMU
 nix run .#run -- status
 ```
 
-Pour une installation neuve : `nix run .#prepare -- --dos media/msdos622
---windows media/wfw311 --output vm/win311.img` (sur une seule ligne).
+Pour une installation neuve : `nix run .#prepare -- --dos media/msdos622/msdos622fr.zip
+--windows media/wfw311/wfw_3-11_fr.zip --output vm/win311.img` (sur une seule ligne).
 Les supports restent locaux. Voir [le guide Nix](docs/nix.md) pour les commandes,
 les services hôte et le démarrage d'une installation neuve avec QEMU.
 
@@ -36,19 +36,19 @@ les services hôte et le démarrage d'une installation neuve avec QEMU.
 
 L'installateur utilise les supports **locaux** de l'utilisateur : DOS 6.22 français
 (trois disquettes) et Windows pour Workgroups 3.11 français (neuf disquettes), sous
-forme d'images IMG/IMA ou de ZIP. Facultativement : le disque supplémentaire de
+forme de ZIP (ou de dossiers d'images IMG/IMA). Facultativement : le disque supplémentaire de
 DOS 6.22, Word 6.0c, Excel 5, Access 2.0, Ami Pro 3.01, Word 6.0 pour DOS,
 Netscape Navigator 3.01, Communicator 4.08, Eudora Light 3.06, le pilote de CD-ROM et
 TCP/IP-32. Ces logiciels ne sont ni inclus dans les sources ni téléchargés par le
 script.
 
 ```sh
-scripts/installer --dos media/msdos622 --windows media/wfw311 \
-  --suppl media/msdos622/SUPPL.IMG --check
-scripts/installer --dos media/msdos622 --windows media/wfw311 \
-  --suppl media/msdos622/SUPPL.IMG \
-  --word media/word6-win --word-dos media/word6-dos-fr --name 'Utilisateur' \
-  --output vm/win311.img
+scripts/installer --dos media/msdos622/msdos622fr.zip --windows media/wfw311/wfw_3-11_fr.zip \
+  --suppl media/msdos622/msdos622fr.zip --check
+scripts/installer --dos media/msdos622/msdos622fr.zip --windows media/wfw311/wfw_3-11_fr.zip \
+  --suppl media/msdos622/msdos622fr.zip \
+  --word media/word6-win/msword6cfr.zip --word-dos media/word6-dos-fr/msword60_525hd_dos_fr.zip --name 'Utilisateur' \
+  --output vm/win311.img          # machine minimale : DOS, Windows, Word
 ```
 
 La sortie doit être absente. Le script crée un nouveau disque, installe DOS
@@ -57,14 +57,16 @@ son pilote Sound Blaster, les logiciels fournis, Épaulard et le braille Baum su
 COM3, avec le menu et les fichiers de démarrage du dépôt. Il vérifie ensuite le
 démarrage de chaque lecteur. Les options `--excel`, `--access`, `--amipro`,
 `--netscape`, `--communicator`, `--eudora`, `--cdrom` et `--reseau` sont décrites
-avec les autres.
+avec les autres ; la commande d'une machine complète, réseau compris, est dans le
+guide ci-dessous. `nix run .#iso` réunit les mêmes supports, décompressés, dans une
+ISO locale lue en E: pour installer un logiciel à la main.
 Voir [les prérequis, options et diagnostics](docs/installation-automatique.md).
 
 ## Commandes
 
     cd ~/pc486
     scripts/pc486 start            # VM 86Box + synthèse Apollo II (Apolo-emu)
-    scripts/pc486 start --floppy media/msdos622/DISK1.IMG   # avec une disquette dans A:
+    scripts/pc486 start --floppy DISK1.IMG   # avec une image de disquette dans A:
     scripts/pc486 start --qemu     # même disque sous QEMU
     scripts/pc486 stop             # arrête VM et synthèse (attendre l'invite C:\> avant)
     scripts/pc486 status

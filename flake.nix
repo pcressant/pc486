@@ -112,6 +112,21 @@
             fi
           '';
       };
+      # ISO des supports décompressés : écrite dans la copie de travail, jamais dans
+      # /nix/store (logiciels tiers, à garder locaux).
+      iso = pkgs.writeShellApplication {
+        name = "pc486-iso";
+        runtimeInputs = with pkgs; [
+          python3
+          mtools
+          xorriso
+          _7zz
+          unar
+        ];
+        text = checkout + ''
+          exec python3 "$root/scripts/iso_supports.py" "$@"
+        '';
+      };
       epaulard = pkgs.stdenvNoCC.mkDerivation {
         pname = "epaulard";
         version = "0.1.0";
@@ -187,6 +202,7 @@
           epaudos
           prepare
           run
+          iso
           ;
         default = epaulard;
         "86box" = box;
@@ -196,6 +212,7 @@
       apps.${system} = {
         prepare = app prepare;
         run = app run;
+        iso = app iso;
         default = app run;
       };
       devShells.${system} = {
@@ -222,7 +239,10 @@
         regression =
           pkgs.runCommand "pc486-regression"
             {
-              nativeBuildInputs = dependencies ++ [ pkgs.brltty ];
+              nativeBuildInputs = dependencies ++ [
+                pkgs.brltty
+                pkgs.xorriso
+              ];
               WATCOM = watcom;
               source = lib.fileset.toSource {
                 root = ./.;

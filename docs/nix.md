@@ -45,8 +45,8 @@ Elle peut être relancée ; elle n'installe pas les binaires compilés sur un C:
 Pour créer un **nouveau** C: à partir de supports locaux :
 
 ```sh
-nix run .#prepare -- --dos media/msdos622 --windows media/wfw311 \
-  --suppl media/msdos622/SUPPL.IMG \
+nix run .#prepare -- --dos media/msdos622/msdos622fr.zip --windows media/wfw311/wfw_3-11_fr.zip \
+  --suppl media/msdos622/msdos622fr.zip \
   --output vm/win311.img --name 'Utilisateur'
 ```
 
@@ -54,6 +54,11 @@ nix run .#prepare -- --dos media/msdos622 --windows media/wfw311 \
 préparation des outils. Un disque existant n'est jamais remplacé. `--check`
 vérifie les supports sans installer ; `--help` affiche les options sans préparer.
 L'installation se déroule dans une VM QEMU privée, sans D: partagé.
+
+`nix run .#iso -- --sortie work/supports.iso --dos … --windows … --autres media` réunit les
+supports, et toute autre archive de `media/`, décompressés dans une ISO locale à lire en E: (voir
+[l'installateur](installation-automatique.md#iso-des-supports-décompressés)). Elle
+n'est pas une dérivation : les logiciels tiers n'entrent jamais dans `/nix/store`.
 
 ## Démarrer et contrôler
 

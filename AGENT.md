@@ -56,6 +56,7 @@ seulement l'analyse de son protocole.
 | --- | --- |
 | Environnement Nix, préparation et lancement | `flake.nix`, `flake.lock` ; `docs/nix.md` |
 | Installation neuve (DOS, outils suppl., Épaudos, Windows, Word, Excel, Access, Ami Pro, Netscape, Communicator, Eudora, Épaulard, braille) | `scripts/installer`, `scripts/installation.py` (`ACME`, `stage_acme`, `install_acme`) ; `docs/installation-automatique.md` |
+| ISO locale des supports décompressés (lecteur E:) | `scripts/iso_supports.py`, `scripts/iso-supports`, `nix run .#iso` |
 | Bac à sable : installer un logiciel sur une copie, journal de ce qu'Épaulard dit | `scripts/bac-a-sable` ; `docs/bac-a-sable.md` |
 | Démarrage, arrêt, relais série, supervision, options VM | `scripts/pc486` (Bash) |
 | Essai QEMU muet isolé (copie de C:, work/dev/run, work/dev/logs) | `scripts/pc486-dev` |
