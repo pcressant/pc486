@@ -86,10 +86,29 @@ void clean_label(char *s, char **accel)
     }
 }
 
-void class_of(HWND h, char *cls, int n)
+/* Classes de programmes qui sous-classent un contrôle standard et en gardent les
+   messages : traitées comme lui. Norton Desktop 3.0 : listes des fenêtres de
+   disque (arbre et fichiers, dessinées, sans LBS_HASSTRINGS). */
+static const char *const class_alias[][2] = {
+    { "NLBCLASSV1", "LISTBOX" },
+};
+
+/* Nom de classe en majuscules, tel que Windows le donne (diagnostic) */
+void raw_class(HWND h, char *cls, int n)
 {
     GetClassName(h, cls, n);
     AnsiUpper(cls);
+}
+
+void class_of(HWND h, char *cls, int n)
+{
+    int i;
+    raw_class(h, cls, n);
+    for (i = 0; i < (int) (sizeof(class_alias) / sizeof(class_alias[0])); i++)
+        if (lstrcmp(cls, class_alias[i][0]) == 0) {
+            lstrcpyn(cls, class_alias[i][1], n);
+            break;
+        }
 }
 
 /* Style WS_VISIBLE etc. du contrôle lui-même : IsWindowVisible() répond non tant que
@@ -228,6 +247,33 @@ BOOL is_sdm(HWND h)
    intermédiaires (« Longue », « Courte » aux extrémités d'un curseur du Clavier).
    La géométrie, ensuite, peut désigner un texte plus proche mais étranger
    (« Bienvenue… » au-dessus de « Quel est votre nom? » dans la Dame de Pique). */
+/* Le texte statique p est collé à un autre champ que h, plus près de lui que h : juste
+   au-dessus de lui ou sur sa rangée, à sa gauche. C'est alors son libellé, même s'il
+   précède h dans l'ordre des fenêtres (KeyFinder de Norton place chaque libellé
+   après son champ). */
+static BOOL labels_other(HWND p, HWND h)
+{
+    HWND c;
+    RECT rp, rh, rc;
+    int dh;
+    GetWindowRect(p, &rp);
+    GetWindowRect(h, &rh);
+    dh = rh.top >= rp.bottom ? rh.top - rp.bottom : 0;
+    for (c = GetWindow(GetParent(p), GW_CHILD); c; c = GetWindow(c, GW_HWNDNEXT)) {
+        if (c == h || !has_style(c, WS_VISIBLE) ||
+            !(is_class(c, "EDIT") || is_class(c, "LISTBOX") || is_class(c, "COMBOBOX")))
+            continue;
+        GetWindowRect(c, &rc);
+        if (rc.left < rp.left - 4 || rc.left >= rp.right + 40 && rc.top >= rp.bottom - 2)
+            continue;               /* ni sous lui, ni à sa droite */
+        if (rc.top < rp.top - 4 || rc.top > rp.bottom + 8)
+            continue;
+        if ((rc.top >= rp.bottom ? rc.top - rp.bottom : 0) < dh)
+            return TRUE;
+    }
+    return FALSE;
+}
+
 BOOL label_zorder(HWND h, char *out, int n)
 {
     HWND p = GetWindow(h, GW_HWNDPREV);
@@ -251,11 +297,14 @@ BOOL label_zorder(HWND h, char *out, int n)
         if (no_word(out))
             break;                      /* séparateur : pas un libellé */
         if (ends_colon(out) || _fstrchr(out, '&') || _fstrchr(out, '?')) {
+            if (labels_other(p, h))
+                break;                  /* libellé d'un autre champ : géométrie */
             clean_label(out, NULL);
             return TRUE;
         }
         out[0] = 0;
     }
+    out[0] = 0;
     return FALSE;
 }
 
@@ -284,7 +333,12 @@ void label_before(HWND h, char *out, int n)
                corps d'un message d'Eudora) */
             HWND nx = GetWindow(p, GW_HWNDNEXT);
             if (nx && nx != h && has_style(nx, WS_VISIBLE) &&
-                (is_class(nx, "EDIT") || is_class(nx, "LISTBOX") || is_class(nx, "COMBOBOX")))
+                (is_class(nx, "EDIT") || is_class(nx, "LISTBOX") || is_class(nx, "COMBOBOX")) &&
+                !(is_class(GetWindow(p, GW_HWNDPREV), "EDIT") ||
+                  is_class(GetWindow(p, GW_HWNDPREV), "LISTBOX") ||
+                  is_class(GetWindow(p, GW_HWNDPREV), "COMBOBOX")))
+                continue;
+            if (labels_other(p, h))
                 continue;
         }
         GetWindowRect(p, &r);
@@ -303,6 +357,13 @@ void label_before(HWND h, char *out, int n)
     if (best) {
         GetWindowText(best, out, n);
         clean_label(out, NULL);
+    } else {
+        /* contrôle seul dans une fenêtre d'enveloppe (NGDRVLIST de Norton) : le
+           libellé de l'enveloppe */
+        HWND w = GetParent(h);
+        if (w && (GetWindowLong(w, GWL_STYLE) & WS_CHILD) && !is_class(w, "#32770") &&
+            GetWindow(w, GW_CHILD) == h && !GetWindow(h, GW_HWNDNEXT))
+            label_before(w, out, n);
     }
 }
 
@@ -356,8 +417,11 @@ BOOL label_right(HWND h, char *out, int n)
    l'image sans « # » (« #Play » : Lecture). */
 void picture_label(HWND h, char *name, int n)
 {
-    char lab[TXT];
-    if (label_right(h, lab, sizeof(lab)) || label_zorder(h, lab, sizeof(lab)))
+    char lab[TXT], cls[32];
+    class_of(GetParent(h), cls, sizeof(cls));
+    if (_fstrncmp(cls, "NGTUNNELTUNNELER", 16) == 0)      /* (« …:2 ») */
+        lstrcpyn(name, "Parcourir les répertoires", n);     /* « tunnel » de Norton */
+    else if (label_right(h, lab, sizeof(lab)) || label_zorder(h, lab, sizeof(lab)))
         lstrcpyn(name, lab, n);
     else if (name[0] == '#')
         media_button_name(name);

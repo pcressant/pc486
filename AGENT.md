@@ -55,7 +55,7 @@ seulement l'analyse de son protocole.
 | Besoin | Point d'entrée |
 | --- | --- |
 | Environnement Nix, préparation et lancement | `flake.nix`, `flake.lock` ; `docs/nix.md` |
-| Installation neuve (DOS, outils suppl., Épaudos, Windows, Word, Excel, Access, Ami Pro, Netscape, Communicator, Eudora, Épaulard, braille) | `scripts/installer`, `scripts/installation.py` (`ACME`, `stage_acme`, `install_acme`) ; `docs/installation-automatique.md` |
+| Installation neuve (DOS, outils suppl., Épaudos, Windows, Word, Excel, Access, Ami Pro, Norton Desktop, Netscape, Communicator, Eudora, Épaulard, braille) | `scripts/installer`, `scripts/installation.py` (`ACME`, `stage_acme`, `install_acme`) ; `docs/installation-automatique.md` |
 | ISO locale des supports décompressés (lecteur E:) | `scripts/iso_supports.py`, `scripts/iso-supports`, `nix run .#iso` |
 | Bac à sable : installer un logiciel sur une copie, journal de ce qu'Épaulard dit | `scripts/bac-a-sable` ; `docs/bac-a-sable.md` |
 | Démarrage, arrêt, relais série, supervision, options VM | `scripts/pc486` (Bash) |
@@ -68,6 +68,7 @@ seulement l'analyse de son protocole.
 | Description des contrôles, libellés | `controles.c` (`describe`), `outils.c` (`label_*`), `programmes.c` (Aide, Fiches, Horloge…) |
 | Boîtes SDM (Word, Excel), revue au pavé, souris, dire tout | `boites.c`, `revue.c` (`on_review`), `diretout.c` (`sa_*`) |
 | Calculatrice Windows : afficheurs standard/scientifique, résultats et erreurs | `calc.c` : `calc_*` ; `docs/calculatrice.md` |
+| Norton Desktop 3.0 : arbre et listes `NLBCLASSV1`, calculatrices, SuperFind, SIW, boîtes « Attention » | `class_alias` (`outils.c`), `tree_level` (`controles.c`), `ncalc_*` (`calc.c`), `message_button` (`epaulard.c`) ; `docs/norton.md` |
 | Tableurs (Excel 5) : cellule, formule, feuille, plage, mise en forme ; grilles à éditeur (Access) ; profils | `tableur.c` (`sheet_*`, `grid_*`) ; `docs/tableur.md` |
 | Invite MS-DOS sous Windows : relais de la parole et du braille d'Épaudos | `dosbox.c` (`dos_spin`), `br_relay` (`braille.c`), `EpPassKeys` (`hook.c`) ; côté DOS `hw_guest`, `ed_box` (`dos.c`), INT 2Fh ED02h ; `docs/invite-dos.md` |
 | Réglages Inser+E, `EPAULARD.INI`, ponctuation, écho par mots | `reglages.c` (`cfg_*`), `parole.c` (`voice_apply`, `punct_words`, `say_char`, `echo_char`) ; `docs/reglages.md` |
@@ -387,6 +388,12 @@ Préférer `scripts/pc486-dev` aux préfixes de variables, que les règles ne co
   touches vont à la machine virtuelle sans passer par le crochet clavier, en
   fenêtre comme en plein écran : Épaulard n'y a pas de commandes, Épaudos (mode
   invité) les reçoit. Le relais suppose Épaudos chargé avant `WIN`.
+- Réactivation d'une même fenêtre non détruite (boîtes de Norton, à chaque Tab) :
+  le crochet CBT le signale dans le lParam d'`EPM_ACTIVATE`, le titre n'est pas redit.
+  Une fenêtre détruite dont l'identifiant est repris reste annoncée comme neuve.
+- Texte d'un contexte inconnu attribué par `WindowFromPoint` : seulement si son centre
+  est visible dans le contexte (`vis_pt`) ; sinon les icônes d'un groupe caché de Norton
+  passaient dans la fenêtre du dessus.
 - Annonce de focus identique, sans touche depuis (ACME rend le focus à « Annuler »
   à chaque fichier) : pas redite (`announce_focus`, quatre dernières annonces).
   Toute touche réarme.

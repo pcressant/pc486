@@ -803,6 +803,9 @@ static struct { const char *name; HMENU sub; UINT id; } sim_menu[SIM_MN][8];
 static int sim_menu_n[SIM_MN];
 static int GetMenuItemCount(HMENU m) { return m < SIM_MN ? sim_menu_n[m] : 0; }
 static HMENU GetSubMenu(HMENU m, int i) { return m < SIM_MN && i < sim_menu_n[m] ? sim_menu[m][i].sub : 0; }
+static UINT sim_menu_state[SIM_MN][8];    /* MF_GRAYED… par position */
+static UINT GetMenuState(HMENU m, UINT i, UINT f)
+{ (void) f; return m < SIM_MN && (int) i < sim_menu_n[m] ? sim_menu_state[m][i] : (UINT) -1; }
 static int GetMenuString(HMENU m, UINT i, LPSTR s, int n, UINT f)
 {
     int k, j;

@@ -37,7 +37,7 @@ les services hôte et le démarrage d'une installation neuve avec QEMU.
 L'installateur utilise les supports **locaux** de l'utilisateur : DOS 6.22 français
 (trois disquettes) et Windows pour Workgroups 3.11 français (neuf disquettes), sous
 forme de ZIP (ou de dossiers d'images IMG/IMA). Facultativement : le disque supplémentaire de
-DOS 6.22, Word 6.0c, Excel 5, Access 2.0, Ami Pro 3.01, Word 6.0 pour DOS,
+DOS 6.22, Word 6.0c, Excel 5, Access 2.0, Ami Pro 3.01, Norton Desktop 3.0, Word 6.0 pour DOS,
 Netscape Navigator 3.01, Communicator 4.08, Eudora Light 3.06, le pilote de CD-ROM et
 TCP/IP-32. Ces logiciels ne sont ni inclus dans les sources ni téléchargés par le
 script.
@@ -55,7 +55,7 @@ La sortie doit être absente. Le script crée un nouveau disque, installe DOS
 (clavier français, page 850), les outils supplémentaires, Épaudos, Windows,
 son pilote Sound Blaster, les logiciels fournis, Épaulard et le braille Baum sur
 COM3, avec le menu et les fichiers de démarrage du dépôt. Il vérifie ensuite le
-démarrage de chaque lecteur. Les options `--excel`, `--access`, `--amipro`,
+démarrage de chaque lecteur. Les options `--excel`, `--access`, `--amipro`, `--norton`,
 `--netscape`, `--communicator`, `--eudora`, `--cdrom` et `--reseau` sont décrites
 avec les autres ; la commande d'une machine complète, réseau compris, est dans le
 guide ci-dessous. `nix run .#iso` réunit les mêmes supports, décompressés, dans une

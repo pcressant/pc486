@@ -6,6 +6,8 @@
  *   etat=                                            vide, lance, fini (écrit ici)
  *   reponse1=Titre de boîte|texte{TAB}texte{ENTREE}  réponses aux installateurs à
  *   reponse2=...                                     questions (Lotus), dans l'ordre
+ *   residents=NAVTSRW FASSIST                        modules laissés résidents par
+ *                                                    l'installateur (Norton), ignorés
  * Une réponse est jouée quand la fenêtre active a un titre qui commence par le sien :
  * texte (WM_CHAR), {TAB}, {ENTREE}, {ECHAP}, {ESPACE}, {BAS}, une touche toutes les 250 ms, postée
  * à la fenêtre qui a alors le focus (IsDialogMessage de l'installateur la traite
@@ -13,7 +15,7 @@
  * l'installateur Lotus, qui porte le titre de son dernier message, ne l'est qu'un
  * instant entre deux boîtes. Les réponses jouées sont comptées dans « faites ».
  * Premier démarrage : lance la commande. Toutes les tâches autres que le
- * Gestionnaire de programmes et INSTAUTO terminées depuis 10 s : quitte
+ * Gestionnaire de programmes, INSTAUTO et les résidents terminées depuis 10 s : quitte
  * Windows. Si l'installateur redémarre Windows (état « lance »), attend de
  * même puis quitte. Les titres des fenêtres visibles sont notés dans
  * C:\INSTAUTO.LOG, pour le diagnostic hors de la VM.
@@ -35,6 +37,7 @@ static HWND answered;           /* fenêtre de la dernière réponse */
 static char answered_title[80]; /* et son titre : Windows réutilise aussitôt le handle
                                    d'une boîte détruite pour la suivante */
 static int done;                /* réponses jouées */
+static char residents[128];     /* modules à ignorer, séparés par des espaces */
 
 static void log_line(LPCSTR text)
 {
@@ -74,8 +77,29 @@ static void log_windows(void)
     }
 }
 
-/* Nombre de tâches autres que le Gestionnaire de programmes, INSTAUTO et le lecteur
-   d'écran (bac à sable : Épaulard reste chargé pendant l'installation). */
+/* Module cité dans residents= */
+static BOOL resident(LPCSTR module)
+{
+    char name[16];
+    const char *p = residents;
+    int n;
+    while (*p) {
+        while (*p == ' ')
+            p++;
+        for (n = 0; p[n] && p[n] != ' ' && n < (int)sizeof(name) - 1; n++)
+            name[n] = p[n];
+        name[n] = '\0';
+        if (n && lstrcmpi(name, module) == 0)
+            return TRUE;
+        while (*p && *p != ' ')
+            p++;
+    }
+    return FALSE;
+}
+
+/* Nombre de tâches autres que le Gestionnaire de programmes, INSTAUTO, le lecteur
+   d'écran (bac à sable : Épaulard reste chargé pendant l'installation) et les
+   résidents déclarés. */
 static int other_tasks(void)
 {
     TASKENTRY te;
@@ -85,7 +109,7 @@ static int other_tasks(void)
         return 0;
     do {
         if (te.hTask != self_task && lstrcmpi(te.szModule, "PROGMAN") != 0 &&
-            lstrcmpi(te.szModule, "EPAULARD") != 0)
+            lstrcmpi(te.szModule, "EPAULARD") != 0 && !resident(te.szModule))
             n++;
     } while (TaskNext(&te));
     return n;
@@ -208,6 +232,7 @@ int PASCAL WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     self_task = GetCurrentTask();
     GetProfileString("pc486", "commande", "", command, sizeof(command));
     GetProfileString("pc486", "etat", "", state, sizeof(state));
+    GetProfileString("pc486", "residents", "", residents, sizeof(residents));
     if (command[0] == '\0' || lstrcmp(state, "fini") == 0)
         return 0;
 

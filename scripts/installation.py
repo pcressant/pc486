@@ -266,18 +266,29 @@ SETUP_CODEPAGE = ('MODE CON CODEPAGE PREPARE=((850) C:\\DOS\\EGA.CPI)\n'
                   'MODE CON CODEPAGE SELECT=850\nKEYB FR,,C:\\DOS\\KEYBOARD.SYS\n')
 
 
-def final_boot_files(word_dos=False, cdrom=False, reseau=False):
+# Lignes demandées par Norton Desktop, sauf NAVTSR.EXE (antivirus résident non gardé).
+NORTON_AUTOEXEC = 'SET SYMANTEC=C:\\SYMANTEC\nC:\\NDW\\IMAGE.EXE\n'
+
+
+def final_boot_files(word_dos=False, cdrom=False, reseau=False, norton=False):
     """CONFIG.SYS et AUTOEXEC.BAT de la VM de référence (modèles de dos/) :
     1 = DOS avec Épaudos (défaut après 10 s), 2 = Windows avec Épaulard.
     Avec Word pour DOS, C:\\WORD s'ajoute au PATH, seul changement demandé par INIT.
+    Avec Norton Desktop : C:\\NDW au PATH, NORTON_AUTOEXEC et FILES=50.
     Options --cdrom et --reseau : lignes de options_vm.boot_files, sinon aucune."""
     config, autoexec = ((ROOT / 'dos' / name).read_bytes().decode('cp850').replace('\r\n', '\n')
                         for name in ('CONFIG.SYS', 'AUTOEXEC.BAT'))
     path = 'PATH C:\\WINDOWS;C:\\DOS\n'
     if 'C:\\EPAUDOS.COM\n' not in autoexec or 'MENUDEFAULT=DOS,10' not in config or path not in autoexec:
         raise InstallError('modèles dos/CONFIG.SYS ou dos/AUTOEXEC.BAT inattendus')
-    if word_dos:
-        autoexec = autoexec.replace(path, path[:-1] + ';C:\\WORD\n')
+    extra = (';C:\\WORD' if word_dos else '') + (';C:\\NDW' if norton else '')
+    autoexec = autoexec.replace(path, path[:-1] + extra + '\n')
+    if norton:
+        temp = 'SET TEMP=C:\\TEMP\n'
+        if temp not in autoexec or 'FILES=40\n' not in config:
+            raise InstallError('modèles dos/CONFIG.SYS ou dos/AUTOEXEC.BAT inattendus')
+        autoexec = autoexec.replace(temp, temp + NORTON_AUTOEXEC)
+        config = config.replace('FILES=40\n', 'FILES=50\n')
     config, autoexec = options_vm.boot_files(config, autoexec, cdrom, reseau)
     return tuple(t.replace('\n', '\r\n').encode('cp850') for t in (config, autoexec))
 
@@ -559,14 +570,17 @@ class Acme:
     archive : dossier d'installation dans un ZIP (Netscape) au lieu de disquettes ;
     setup : programme lancé dans le dossier de la disquette 1. settings : réglages
     écrits après l'installation, (fichier INI de C:, section, clé, valeur) ; {NOM}
-    remplacé. files : fichiers texte créés ensuite, (chemin sur C:, texte)."""
+    remplacé. files : fichiers texte créés ensuite, (chemin sur C:, texte).
+    residents : modules laissés en mémoire par l'installateur, ignorés par INSTAUTO
+    pour juger la fin ; unload : programmes retirés ensuite de load=."""
     def __init__(self, key, title, folder, disks, sizes, signature, program, marker,
                  quiet=True, merge=False, answers=(), archive=None, setup='INSTALL.EXE',
-                 settings=(), files=()):
+                 settings=(), files=(), residents=(), unload=()):
         self.key, self.title, self.folder, self.disks = key, title, folder, disks
         self.sizes, self.signature, self.program, self.marker = sizes, signature, program, marker
         self.quiet, self.merge, self.answers = quiet, merge, answers
         self.archive, self.setup, self.settings, self.files = archive, setup, settings, files
+        self.residents, self.unload = residents, unload
 
     def source(self, n):
         if self.merge:
@@ -659,6 +673,24 @@ ACME = {
                        ("Installation d'Ami Pro", '{ENTREE}'),      # « terminée »
                        ('Menu principal', '{TAB}{TAB}{TAB}{ENTREE}'),  # Quitter
                    )),
+    # Norton Desktop 3.0 pour Windows français : Symantec Install 3.2 (INSTALL.INF),
+    # type Automatique, disquettes 6 et 7 (réparation DOS) comprises, toutes dans un
+    # dossier : aucune demande de disquette. Le Gestionnaire de programmes reste
+    # l'interface (Épaulard est validé avec lui) ; pas de disquette de sauvetage.
+    # « Redémarrer » relance le PC : INSTAUTO reprend puis quitte Windows. La
+    # protection antivirus résidente (NAVTSRW, et NAVTSR.EXE de CONFIG.SYS) n'est
+    # pas gardée ; FileAssist (FASSIST) reste dans load=. Fichiers de démarrage :
+    # NORTON_AUTOEXEC.
+    'norton': Acme('norton', 'Norton Desktop 3.0', 'NORTON', 7, SIZES_35,
+                   ('INSTALL.INF', (b'Norton Desktop Version 3.0', b'&Automatique')),
+                   'NDW/NDW.EXE', 'PC486_NORTON_OK', quiet=False, merge=True, answers=(
+                       ('Norton Desktop - Enregistrement', '{NOM}{TAB}{SOCIETE}{ENTREE}'),
+                       ("Sélection du type d'installation", '{ENTREE}'),     # Automatique
+                       ("Norton Desktop 3.0 - Sélection du chemin", '{ENTREE}'),  # C:\NDW
+                       ('Norton Desktop - Modification du Shell', '{TAB}{ENTREE}'),  # Non
+                       ('Création de disquette du sauvetage', '{TAB}{ENTREE}'),     # Non
+                       ('Norton Desktop - Installation terminée', '{ENTREE}'),      # Redémarrer
+                   ), residents=('NAVTSRW', 'FASSIST'), unload=(r'C:\NDW\NAVTSRW.EXE',)),
     # Netscape Navigator 3.01 français (16 bits) : InstallShield 3, dossier N16FR31 du ZIP.
     # Réglages : services de l'hôte de « pc486 start --reseau » (docs/reseau.md).
     'netscape': Acme('netscape', 'Netscape Navigator 3.01', 'NETSCAPE', 1, (),
@@ -883,6 +915,8 @@ def stage_acme(stage, image, product, media, name, company, binaries, extra_load
         text = ini.setting(text, 'windows', 'load', r'C:\INSTAUTO.EXE')
     text = ini.setting(text, 'pc486', 'commande', command)
     text = ini.setting(text, 'pc486', 'etat', '')
+    if product.residents:
+        text = ini.setting(text, 'pc486', 'residents', ' '.join(product.residents))
     for i, (title, keys) in enumerate(product.answers, 1):
         keys = keys.replace('{NOM}', name).replace('{SOCIETE}', company or name)
         text = ini.setting(text, 'pc486', f'reponse{i}', f'{title}|{keys}')
@@ -927,7 +961,8 @@ def install_acme(stage, disk, image, product, timeout, voice=False):
     if exe[:2] != b'MZ':
         raise InstallError(f'{product.title} non installé ; voir {product.key}-instauto.log '
                            f'et {product.key}-screen.png')
-    text = epaulard_ini().edit_load(remove_section(text, 'pc486'), remove=(r'C:\INSTAUTO.EXE',))
+    text = epaulard_ini().edit_load(remove_section(text, 'pc486'),
+                                    remove=(r'C:\INSTAUTO.EXE',) + product.unload)
     run('mdel', '-i', image, '::/INSTAUTO.EXE', '::/INSTAUTO.LOG')
     return text
 
@@ -1314,7 +1349,8 @@ def epaulard_ini():
     return load_script('configure_epaulard', 'configure-epaulard.py')
 
 
-def configure(stage, image, binaries, braille, epaudos, word_dos=False, cdrom=False, reseau=False):
+def configure(stage, image, binaries, braille, epaudos, word_dos=False, cdrom=False, reseau=False,
+              norton=False):
     ini = load_ini_editor()
     for name in ('WIN.INI', 'SYSTEM.INI'):
         p = stage / name
@@ -1338,7 +1374,7 @@ def configure(stage, image, binaries, braille, epaudos, word_dos=False, cdrom=Fa
     # Réglages vocaux d'Épaulard de la VM de référence (débit 5, sans écho clavier).
     write_dos_file(stage, image, 'EPAULARD/EPAULARD.INI', (ROOT / 'dos/EPAULARD.INI').read_text(), 'cp1252')
     run('mdel', '-i', image, '::/PC486.SHH')     # réponses de Setup, plus utiles
-    config, autoexec = final_boot_files(word_dos, cdrom, reseau)
+    config, autoexec = final_boot_files(word_dos, cdrom, reseau, norton)
     write_dos_file(stage, image, 'CONFIG.SYS', config)
     write_dos_file(stage, image, 'AUTOEXEC.BAT', autoexec)
     required = ['IO.SYS', 'MSDOS.SYS', 'DOS/POWER.EXE', 'DOS/EMM386.EXE', 'WINDOWS/HIMEM.SYS',
@@ -1533,6 +1569,8 @@ def parser():
                    '(MSABC200.DLL, MSAJU200.DLL), appliqué après --access')
     p.add_argument('--amipro', type=Path, help='dossier ou ZIP local : Ami Pro 3.01 français, 8 disquettes '
                    '(installateur Lotus, réponses jouées par INSTAUTO)')
+    p.add_argument('--norton', type=Path, help='dossier ou ZIP local : Norton Desktop 3.0 pour Windows '
+                   'français, 7 disquettes (installation automatique, Gestionnaire de programmes gardé)')
     p.add_argument('--netscape', type=Path, help='ZIP local de Netscape Navigator 3.01 français 16 bits '
                    '(dossier N16FR31) : réglé sur le proxy de « pc486 start --reseau »')
     p.add_argument('--communicator', type=Path, help='ZIP local de Netscape Communicator 4.08 '
@@ -1550,7 +1588,7 @@ def parser():
                    help='ne pas configurer la plage Baum (par défaut : COM3, base 03E8, IRQ9)')
     p.add_argument('--braille', dest='braille', action='store_true', help=argparse.SUPPRESS)
     p.add_argument('--binaries', type=Path, help='EPAULARD.EXE, EPAUHOOK.DLL, EPAUDOS.COM (et INSTAUTO.EXE pour '
-                   '--word, --excel, --access, --amipro, --netscape, --communicator, --eudora, '
+                   '--word, --excel, --access, --amipro, --norton, --netscape, --communicator, --eudora, '
                    'RESEAU.EXE pour '
                    '--reseau) déjà compilés ; '
                    'sinon compilation')
@@ -1574,7 +1612,7 @@ def prerequisites(args):
     if args.access_an2000 and not args.access:
         raise InstallError('--access-an2000 demande --access')
     if args.binaries:
-        acme = (args.word or args.excel or args.access or args.amipro or args.netscape or
+        acme = (args.word or args.excel or args.access or args.amipro or args.norton or args.netscape or
                 args.communicator or args.eudora)
         for name in ('EPAULARD.EXE', 'EPAUHOOK.DLL', 'EPAUDOS.COM') + (('INSTAUTO.EXE',) if acme else ()) \
                 + (('RESEAU.EXE',) if args.reseau else ()):
@@ -1620,6 +1658,8 @@ def main(argv=None):
             steps.append('Installation d’Access 2.0 (options par défaut)')
         if args.amipro:
             steps.append('Installation d’Ami Pro 3.01 (installation complète)')
+        if args.norton:
+            steps.append('Installation de Norton Desktop 3.0 (installation automatique)')
         if args.netscape:
             steps.append('Installation de Netscape Navigator 3.01 (proxy pc486)')
         if args.communicator:
@@ -1655,7 +1695,7 @@ def main(argv=None):
             word = collect_media(args.word, 11, stage / 'word')
             validate_word(word)
             manifest['media']['word'] = [dict(name=p.name, sha256=digest(p)) for p in word]
-        excel = access = amipro = netscape = communicator = eudora = (None, None)
+        excel = access = amipro = norton = netscape = communicator = eudora = (None, None)
         y2k = None
         if args.excel:
             excel = collect_acme(args.excel, stage / 'excel', ('excel', 'excel50'))
@@ -1666,6 +1706,9 @@ def main(argv=None):
         if args.amipro:
             amipro = collect_acme(args.amipro, stage / 'amipro', ('amipro',))
             manifest['media']['amipro'] = [dict(name=p.name, sha256=digest(p)) for p in amipro[1]]
+        if args.norton:
+            norton = collect_acme(args.norton, stage / 'norton', ('norton',))
+            manifest['media']['norton'] = [dict(name=p.name, sha256=digest(p)) for p in norton[1]]
         if args.netscape:
             netscape = collect_acme(args.netscape, stage / 'netscape', ('netscape',))
             manifest['media']['netscape'] = [dict(name=args.netscape.name, sha256=digest(args.netscape))]
@@ -1727,7 +1770,7 @@ def main(argv=None):
             step()
             stage_word(stage, image, word, args.name, args.company, binaries)
             install_word(stage, disk, image, args.timeout, args.name, args.company)
-        for product, media in (excel, access, amipro, netscape, communicator, eudora):
+        for product, media in (excel, access, amipro, norton, netscape, communicator, eudora):
             if product is None:
                 continue
             step()
@@ -1746,7 +1789,8 @@ def main(argv=None):
             step()
             install_reseau(stage, disk, image, tcp, reseau_exe, args.timeout)
         step()
-        configure(stage, image, binaries, args.braille, epaudos, bool(word_dos), bool(cd_driver), bool(tcp))
+        configure(stage, image, binaries, args.braille, epaudos, bool(word_dos), bool(cd_driver), bool(tcp),
+                  bool(args.norton))
         step()
         verify_boot(stage, disk, args.timeout)
         if tcp:
@@ -1761,7 +1805,7 @@ def main(argv=None):
             verified.insert(1, 'suppl-tools')
         if word:
             verified.insert(-2, 'word-setup')
-        for product, _ in (excel, access, amipro):
+        for product, _ in (excel, access, amipro, norton):
             if product:
                 verified.insert(-2, f'{product.key}-setup')
         step()

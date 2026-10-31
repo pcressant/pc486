@@ -413,6 +413,12 @@ LRESULT CALLBACK __export EpWndProc(int code, WPARAM wp, LPARAM lp)
     return CallNextHookEx(hk_wnd, code, wp, lp);
 }
 
+/* Dernière fenêtre activée, et sa destruction depuis : une réactivation de la même
+   fenêtre (boîtes de Norton Desktop, à chaque Tab) n'est pas une fenêtre neuve qui
+   aurait repris l'identifiant d'une fenêtre fermée. */
+static HWND act_last;
+static BOOL act_gone;
+
 LRESULT CALLBACK __export EpCbtProc(int code, WPARAM wp, LPARAM lp)
 {
     if ((code == HCBT_SETFOCUS || code == HCBT_ACTIVATE) && ep_hwnd_main && wp &&
@@ -420,10 +426,15 @@ LRESULT CALLBACK __export EpCbtProc(int code, WPARAM wp, LPARAM lp)
         sysmodal_say(code, (HWND) wp);
     else if (code == HCBT_SETFOCUS && ep_hwnd_main && wp)
         PostMessage(ep_hwnd_main, EPM_FOCUS, wp, 0L);
-    else if (code == HCBT_ACTIVATE && ep_hwnd_main && wp)
-        PostMessage(ep_hwnd_main, EPM_ACTIVATE, wp, 0L);
-    else if (code == HCBT_DESTROYWND && wp)
+    else if (code == HCBT_ACTIVATE && ep_hwnd_main && wp) {
+        PostMessage(ep_hwnd_main, EPM_ACTIVATE, wp, (HWND) wp == act_last && !act_gone);
+        act_last = (HWND) wp;
+        act_gone = FALSE;
+    } else if (code == HCBT_DESTROYWND && wp) {
+        if ((HWND) wp == act_last)
+            act_gone = TRUE;
         osm_destroyed((HWND) wp);
+    }
     return CallNextHookEx(hk_cbt, code, wp, lp);
 }
 

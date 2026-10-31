@@ -760,6 +760,29 @@ class OfficeMediaTests(unittest.TestCase):
                          ('UseACAPServer', '0'), ('RealName', '{NOM}')} <= settings)
         self.assertEqual(install.ACME['eudora'].answers[-1], ('Question', '{TAB}{ENTREE}'))
 
+    def test_norton_keeps_program_manager_and_skips_the_rescue_disk(self):
+        norton = install.ACME['norton']
+        answers = dict(norton.answers)
+        self.assertEqual(answers['Norton Desktop - Modification du Shell'], '{TAB}{ENTREE}')   # Non
+        self.assertEqual(answers['Création de disquette du sauvetage'], '{TAB}{ENTREE}')      # Non
+        self.assertEqual(norton.answers[-1][0], 'Norton Desktop - Installation terminée')
+        self.assertTrue(norton.merge and not norton.quiet)
+        self.assertEqual(norton.residents, ('NAVTSRW', 'FASSIST'))
+        # load= écrit par l'installateur Norton : seule la protection antivirus est retirée
+        text = ('[windows]\r\nload=C:\\EPAULARD\\EPAULARD.EXE C:\\INSTAUTO.EXE c:\\ndw\\navtsrw.exe '
+                'c:\\ndw\\fassist.exe\r\n')
+        out = install.epaulard_ini().edit_load(text, remove=(r'C:\INSTAUTO.EXE',) + norton.unload)
+        self.assertIn('load=C:\\EPAULARD\\EPAULARD.EXE c:\\ndw\\fassist.exe\r\n', out)
+
+    def test_norton_boot_lines_without_the_resident_antivirus(self):
+        config, autoexec = install.final_boot_files(norton=True)
+        self.assertIn(b'PATH C:\\WINDOWS;C:\\DOS;C:\\NDW\r\n', autoexec)
+        self.assertIn(b'SET TEMP=C:\\TEMP\r\nSET SYMANTEC=C:\\SYMANTEC\r\nC:\\NDW\\IMAGE.EXE\r\n', autoexec)
+        self.assertIn(b'FILES=50\r\n', config)
+        self.assertNotIn(b'NAVTSR', config + autoexec)
+        _, both = install.final_boot_files(word_dos=True, norton=True)
+        self.assertIn(b'PATH C:\\WINDOWS;C:\\DOS;C:\\WORD;C:\\NDW\r\n', both)
+
     def test_y2k_fix_requires_access(self):
         args = install.parser().parse_args(['--dos', 'd', '--windows', 'w', '--access-an2000', 'x'])
         with self.assertRaises(install.InstallError):

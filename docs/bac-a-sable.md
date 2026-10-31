@@ -11,6 +11,7 @@ scripts/bac-a-sable installer excel media/excel5c-fr/…zip   # 5.0c, 1,2 Mo
 scripts/bac-a-sable installer excel50 media/excel5-fr/…zip  # 5.0, 1,44 Mo
 scripts/bac-a-sable installer access media/access2-fr/…zip
 scripts/bac-a-sable installer amipro media/amipro-fr/lotusamifr.zip --timeout 900
+scripts/bac-a-sable installer norton media/archives-utilitaires-fr/norton-desktop-3.0-fr-win3x.zip
 scripts/bac-a-sable maj        # recompile Épaulard/Épaudos, les copie avec AUTOEXEC.BAT
 ```
 
@@ -57,6 +58,7 @@ position et police).
 | Communicator 4.08, utilisation | — | Assistant de profil : titre et bouton seuls (EDIT cachés des pages suivantes) → texte lu ; pages suivantes muettes → lues au changement. Pages comme Netscape 3. |
 | Eudora Light 3.06 (anglais) | réponses d'INSTAUTO, 6 boîtes | « DlgcacWinName » annoncé entre deux boîtes (fenêtre interne d'InstallShield). |
 | Eudora Light, utilisation | — | Corps du message nommé « Attachments: » (libellé du champ au-dessus) → corrigé. Liste des messages, lecture, envoi, relève lus. |
+| Norton Desktop 3.0 FR (Symantec Install) | réponses d'INSTAUTO, 6 boîtes, redémarrage du PC, 1 min 30 | Boîtes, boutons et pourcentages de copie lus. Résidents laissés par l'installateur (NAVTSRW, FASSIST) → ignorés par INSTAUTO (`residents=`). Programmes de Norton : voir [Norton Desktop](norton.md). |
 
 À faire : formulaires et états d'Access, Conseiller d'Access, barres d'outils d'Ami Pro
 (icônes sans texte), Présentation rapide d'Excel, Orientation du Format de cellule.

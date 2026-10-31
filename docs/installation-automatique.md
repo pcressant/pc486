@@ -4,7 +4,8 @@
 page de code 850) avec **Épaudos**, lecteur d'écran DOS du projet, puis **Windows pour
 Workgroups 3.11 français** avec **Épaulard** et la plage braille Baum sur COM3.
 Selon les supports fournis, il ajoute les **outils du disque supplémentaire** de DOS,
-**Word 6.0c**, **Excel 5**, **Access 2.0**, **Ami Pro 3.01**, **Word 6.0 pour DOS**
+**Word 6.0c**, **Excel 5**, **Access 2.0**, **Ami Pro 3.01**, **Norton Desktop 3.0**,
+**Word 6.0 pour DOS**
 (mode Texte, lu par Épaudos), **Netscape Navigator 3.01**, **Communicator 4.08**,
 **Eudora Light 3.06**, le lecteur de CD-ROM et le réseau isolé (options ci-dessous).
 Le disque obtenu ne dépend que des sources du dépôt et des supports d'installation :
@@ -84,6 +85,7 @@ scripts/installer \
   --access media/access2-fr/msaccess20_525hd_win31x_fr.zip \
   --access-an2000 media/access2-fr/acc2date.zip \
   --amipro media/amipro-fr/lotusamifr.zip \
+  --norton media/archives-utilitaires-fr/norton-desktop-3.0-fr-win3x.zip \
   --netscape media/netscape3-fr/netscape301_win31x_fr.zip \
   --communicator media/communicator408-fr/netscc16fr408.zip \
   --eudora media/eudora306/eul306.zip \
@@ -97,7 +99,9 @@ scripts/installer \
 Chaque logiciel est facultatif : retirer son option suffit. Seuls `--dos` et
 `--windows` sont obligatoires ; `--access-an2000` suppose `--access`. Une seule
 version d'Excel s'installe : 5.0c (ci-dessus) ou 5.0 (`media/excel5-fr`). Pour
-Ami Pro, seul `lotusamifr.zip` est pris en charge, pas l'archive « bonus ».
+Ami Pro, seul `lotusamifr.zip` est pris en charge, pas l'archive « bonus ». Pour
+Norton Desktop, l'archive Win3x (ZIP de 7 images IMA) ; la copie WinWorld en `.7z`
+n'est pas lue par l'installateur.
 Ajouter `--check` vérifie d'abord tous les supports sans créer de disque. Sans
 `--reseau`, Netscape, Communicator et Eudora s'installent mais n'ont aucun réseau.
 Avec `--reseau`, démarrer par `scripts/pc486 start --reseau` (voir [reseau.md](reseau.md)).
@@ -119,6 +123,7 @@ Options :
 | `--access DOSSIER` | Installe Access 2.0 dans `C:\ACCESS` (10 disquettes de 1,2 ou 1,44 Mo), sources dans `C:\INSTALL\ACCESS\DISKn`. |
 | `--access-an2000 DOSSIER` | Avec `--access` : correctif ACC2DATE de Microsoft. `MSABC200.DLL` va dans `C:\WINDOWS\SYSTEM`, `MSAJU200.DLL` dans `C:\ACCESS` ; les deux DLL sont lues dans le dossier, le ZIP ou l'`ACC2DATE.EXE` qu'il contient (ZIP autoextractible, jamais exécuté). |
 | `--amipro DOSSIER` | Installe Ami Pro 3.01 (installation complète, monoposte, Windows) dans `C:\AMIPRO`. Les 8 disquettes sont regroupées dans `C:\INSTALL\AMIPRO` : l'installateur Lotus, sans mode silencieux, ne demande aucune disquette ; ses boîtes reçoivent les réponses d'`INSTAUTO.EXE` (voir plus bas). |
+| `--norton DOSSIER` | Installe Norton Desktop 3.0 pour Windows français (7 disquettes, réunies dans `C:\INSTALL\NORTON` : aucune demande de disquette) dans `C:\NDW`, type « Automatique », réponses d'`INSTAUTO.EXE`. Le Gestionnaire de programmes reste l'interface de Windows (Norton n'est pas installé comme shell) ; pas de disquette de sauvetage. Groupe « Applications Norton Desktop ». La protection antivirus résidente n'est pas gardée (`NAVTSR.EXE` de CONFIG.SYS, `navtsrw.exe` de `load=`) ; Norton AntiVirus reste utilisable à la demande. FileAssist reste dans `load=`. Fichiers de démarrage : `C:\NDW` au PATH, `SET SYMANTEC=C:\SYMANTEC`, `C:\NDW\IMAGE.EXE`, `FILES=50`. |
 | `--netscape ZIP` | Installe Netscape Navigator 3.01 français 16 bits (dossier `N16FR31` du ZIP) dans `C:\NETSCAPE`, réglé pour `pc486 start --reseau` : proxy 10.0.2.2:8080, page d'accueil `http://pc486/`, courrier 10.0.2.2, signets pc486. Réponses d'`INSTAUTO.EXE`. |
 | `--communicator ZIP` | Installe Netscape Communicator 4.08 français 16 bits (`netscc16fr408.zip`, auto-extracteur InstallShield) dans `C:\NETSCAPE\COMM`. Les mêmes réglages sont écrits par défaut pour tout profil dans `NETSCAPE.CFG` (voir plus bas) ; le profil lui-même est créé par l'assistant de Communicator au premier lancement (lu par Épaulard). |
 | `--eudora ZIP` | Installe Eudora Light 3.06 (anglais, `eul306.zip`) dans `C:\EUDORA` : compte `pc486@10.0.2.2`, SMTP 10.0.2.2 (boîte locale de `--reseau`, mot de passe quelconque). Au premier lancement, Eudora ouvre ses Options, puis signale une table des matières de la boîte In à recréer (« Create new ») : fichiers livrés ainsi. |
@@ -126,7 +131,7 @@ Options :
 | `--cdrom FICHIER` | `UDVD2.SYS` ou le paquet `udvd2.zip` de FreeDOS (`media/udvd2/`) : pilote ATAPI dans `C:\DOS`, `MSCDEX` en E:. Sans lecteur (lancement sans `--cdrom`), UDVD2 ne se charge pas et MSCDEX est sauté. Voir [reseau.md](reseau.md). |
 | `--reseau FICHIER` | `tcp32b.zip` (TCP/IP-32 3.11b) : carte NE2000 (0x300, IRQ10) et TCP/IP de WfW, adresse 10.0.2.15. `RESEAU.EXE`, avant `WIN`, retire le réseau de SYSTEM.INI quand la carte manque. Vérifié en démarrant Windows sans puis avec carte. Voir [reseau.md](reseau.md). |
 | `--sans-braille` | Ne configure pas la plage. Par défaut, Épaulard utilise une plage Baum sur COM3, base 03E8, IRQ9 (`BraillePort=3`, ports de SYSTEM.INI), comme la VM de référence ; la plage n'est pas contactée pendant l'installation. `--braille`, ancienne option, reste accepté. |
-| `--binaries DOSSIER` | Utilise des binaires déjà compilés : `EPAULARD.EXE`, `EPAUHOOK.DLL`, `EPAUDOS.COM` (et `INSTAUTO.EXE` avec `--word`, `--excel`, `--access`, `--amipro`, `--netscape`, `--communicator` ou `--eudora` ; `RESEAU.EXE` avec `--reseau`). Sinon `epaulard/build.sh` et `epaudos/build.sh` sont lancés. |
+| `--binaries DOSSIER` | Utilise des binaires déjà compilés : `EPAULARD.EXE`, `EPAUHOOK.DLL`, `EPAUDOS.COM` (et `INSTAUTO.EXE` avec `--word`, `--excel`, `--access`, `--amipro`, `--norton`, `--netscape`, `--communicator` ou `--eudora` ; `RESEAU.EXE` avec `--reseau`). Sinon `epaulard/build.sh` et `epaudos/build.sh` sont lancés. |
 | `--icount N` | Bridage du processeur QEMU : `off` (défaut, pleine vitesse, installation complète en 5 min environ) ou `N`, 2^N ns par instruction (`7`, environ 7,8 MIPS, comme `pc486 start --qemu`, plus de 20 min). |
 | `--timeout S` | Délai maximal par étape VM (défaut 1200 s). |
 
@@ -177,7 +182,10 @@ Les étapes s'affichent dans le terminal, numérotées selon les options :
    installation complète, Windows, `C:\AMIPRO`, fin, Quitter) sont dans
    `ACME['amipro']` de `scripts/installation.py`. Une boîte inattendue arrête la
    suite des réponses : l'étape échoue alors au délai, capture d'écran et journal
-   conservés. Netscape, Communicator et Eudora (InstallShield) suivent la même
+   conservés. Norton Desktop (Symantec Install) redémarre le PC à la fin :
+   `INSTAUTO.EXE` reprend au démarrage suivant ; les programmes qu'il laisse
+   résidents (`residents=NAVTSRW FASSIST` de `[pc486]`) ne retardent pas la fin.
+   Netscape, Communicator et Eudora (InstallShield) suivent la même
    méthode ; deux boîtes de même titre (« Question ») reçoivent chacune leur
    réponse, dans l'ordre. Leurs réglages (INI, signets) sont écrits après
    l'installation (`configure_product`).
@@ -246,6 +254,8 @@ Le disque final est une image brute de **500 Mo**, compatible avec la géométri
 - Avec `--excel`, `--access`, `--amipro` : Excel dans `C:\EXCEL`, Access dans
   `C:\ACCESS` (groupe Microsoft Office), Ami Pro dans `C:\AMIPRO` (groupe
   Applications Lotus).
+- Avec `--norton` : Norton Desktop dans `C:\NDW`, groupe « Applications Norton
+  Desktop » du Gestionnaire de programmes.
 - Avec `--netscape`, `--communicator`, `--eudora` : groupes « Netscape Navigator
   3.0 », « Netscape Communicator », « Eudora Light » ; à utiliser avec `--reseau` et
   `pc486 start --reseau`.
@@ -304,7 +314,7 @@ scripts/pc486 start --cdrom "$PWD/work/supports.iso"
 ```
 
 Les options sont celles de l'installateur (`--excel`, `--access`, `--access-an2000`,
-`--amipro`, `--netscape`, `--communicator`, `--eudora`…), toutes facultatives ; les
+`--amipro`, `--norton`, `--netscape`, `--communicator`, `--eudora`…), toutes facultatives ; les
 supports sont reconnus et vérifiés de la même façon. `scripts/iso-supports` fait la
 même chose hors de Nix (mtools et xorriso nécessaires, 7zz et unar pour `.7z` et `.rar`). Le contenu des disquettes est
 extrait, fichiers cachés compris, et rangé comme l'installateur le range dans
@@ -316,7 +326,7 @@ extrait, fichiers cachés compris, et rangé comme l'installateur le range dans
 | `WFW311` | les 9 disquettes réunies | `INSTALL.EXE` |
 | `WORD6`, `EXCEL`, `ACCESS` | un dossier `DISKn` par disquette (ACME) | `DISK1\INSTALL.EXE` |
 | `ACCESS\AN2000` | DLL du correctif ACC2DATE | à copier à la main |
-| `AMIPRO`, `WORDDOS` | toutes les disquettes réunies | `INSTALL.EXE`, `INIT.EXE` |
+| `AMIPRO`, `NORTON`, `WORDDOS` | toutes les disquettes réunies | `INSTALL.EXE`, `INIT.EXE` |
 | `WORDDOS\GRAMMAT` | Grammatik, installateur séparé (ignoré par l'installateur) | `INSTALLE.EXE` |
 | `NETSCAPE`, `COMMUNIC`, `EUDORA` | dossier d'installation de l'archive | `SETUP.EXE`, `CC16F408.EXE`, `EUL306.EXE` |
 | `TCPIP32` | TCP/IP-32 3.11b | « disquette du constructeur » |

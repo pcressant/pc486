@@ -244,6 +244,58 @@ void calc_poll(void)
     calc_force = calc_queue = FALSE;
 }
 
+/* Calculatrices de Norton Desktop : scientifique (NSCI_CALC) et financière
+   (NFIN_CALC), en notation polonaise inverse, afficheur STATIC ; imprimante
+   (NTAPE_CALC), afficheur TEDIT dessiné. Les touches sont des boutons dessinés
+   qui ne prennent pas le focus : seule la valeur affichée est dite, quand elle
+   change. */
+static HWND ncalc_owner;
+static char ncalc_last[TXT];
+
+BOOL ncalc_window(HWND h)
+{
+    return is_class(h, "NSCI_CALC") || is_class(h, "NFIN_CALC") || is_class(h, "NTAPE_CALC");
+}
+
+static BOOL ncalc_value(HWND act, char *out)
+{
+    HWND c = NULL;
+    int n;
+    out[0] = 0;
+    if (is_class(act, "NSCI_CALC"))
+        c = GetDlgItem(act, 3000);
+    else if (is_class(act, "NFIN_CALC"))
+        c = GetDlgItem(act, 31261);
+    else if (is_class(act, "NTAPE_CALC"))
+        c = GetDlgItem(act, 2002);
+    if (!c)
+        return FALSE;
+    /* texte dessiné d'abord : le STATIC des calculatrices RPN garde « 0.0000 » */
+    if (!EpOsmWindow(c, out, TXT))
+        GetWindowText(c, out, TXT);
+    while (out[0] == ' ')
+        _fmemmove(out, out + 1, lstrlen(out));
+    n = lstrlen(out);
+    while (n && out[n - 1] == ' ')
+        out[--n] = 0;
+    return TRUE;
+}
+
+void ncalc_poll(void)
+{
+    char value[TXT];
+    HWND act = GetActiveWindow();
+    BOOL first = ncalc_owner != act;
+    if (!ncalc_value(act, value)) {
+        ncalc_owner = NULL;
+        return;
+    }
+    if (value[0] && (first || lstrcmp(value, ncalc_last) != 0))
+        calc_say(value, !first);
+    lstrcpyn(ncalc_last, value, sizeof(ncalc_last));
+    ncalc_owner = act;
+}
+
 /* Appelé seulement pour une commande Inser, jamais depuis le crochet de l'appli.
    SendMessage laisse CALC.EXE faire son calcul avant la prochaine scrutation. */
 BOOL calc_command(WPARAM vk)

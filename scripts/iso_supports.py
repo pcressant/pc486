@@ -9,7 +9,7 @@ et rangé comme l'installateur le range dans C:\\INSTALL :
               SUPPL\\ (contenu du disque supplémentaire)
   WFW311\\    toutes les disquettes de Windows dans un seul dossier (INSTALL.EXE)
   WORD6\\, EXCEL\\, ACCESS\\   un dossier DISKn par disquette (ACME) ; ACCESS\\AN2000\\
-  AMIPRO\\, WORDDOS\\         toutes les disquettes dans un seul dossier ;
+  AMIPRO\\, NORTON\\, WORDDOS\\   toutes les disquettes dans un seul dossier ;
               WORDDOS\\GRAMMAT\\ : Grammatik, installateur séparé (INSTALLE.EXE)
   NETSCAPE\\, COMMUNIC\\, EUDORA\\   dossier d'installation de l'archive
   TCPIP32\\   fichiers de TCP/IP-32 3.11b (disquette « fournie par le constructeur »)
@@ -110,7 +110,8 @@ def build_tree(args, root, work):
         per_disk(word, root / 'WORD6', work)
         notes.append('WORD6      Word 6.0c : DISK1\\' + inst.ACME['word'].setup)
     acme = (('excel', ('excel', 'excel50')), ('access', ('access',)), ('amipro', ('amipro',)),
-            ('netscape', ('netscape',)), ('communicator', ('communicator',)), ('eudora', ('eudora',)))
+            ('norton', ('norton',)), ('netscape', ('netscape',)), ('communicator', ('communicator',)),
+            ('eudora', ('eudora',)))
     for option, keys in acme:
         source = getattr(args, option)
         if not source:
@@ -353,7 +354,7 @@ def iso_names(path):
 
 
 PRODUCTS = ('dos', 'windows', 'suppl', 'word', 'excel', 'access', 'access-an2000', 'amipro',
-            'netscape', 'communicator', 'eudora', 'word-dos', 'reseau')
+            'norton', 'netscape', 'communicator', 'eudora', 'word-dos', 'reseau')
 
 
 def parser():

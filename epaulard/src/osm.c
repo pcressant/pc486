@@ -1118,6 +1118,15 @@ static void record(HDC hdc, int x, int y, UINT opts, const RECT FAR *rc,
             return;
         c.x = pt.x + (w > 2 ? 1 : 0);
         c.y = pt.y + h / 2;
+        /* texte entièrement caché par une autre fenêtre (icônes d'un groupe de Norton
+           Desktop sous la fenêtre de disque) : il n'est pas à celle qui est dessus */
+        vis_dc = hdc;
+        vis_org = org;
+        if (!vis_pt(pt.x + w / 2, c.y) && !vis_pt(c.x, c.y)) {
+            vis_dc = NULL;
+            return;
+        }
+        vis_dc = NULL;
         hwnd = WindowFromPoint(c);
     }
     if (!hwnd)

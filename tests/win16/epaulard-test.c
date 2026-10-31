@@ -3340,10 +3340,137 @@ static void test_alt_tab(void)
     CHECK(spoken_since(from, "Fenêtre cachée") < 0);
 }
 
+/* Norton Desktop 3.0 : listes NLBCLASSV1 (LISTBOX dessinée), niveau dans l'arbre des
+   répertoires, « .. » dessiné en image, disques d'AntiVirus à sélection multiple,
+   champ d'une liste déroulante modifiable, libellés placés après leur champ
+   (KeyFinder), message dans un bouton désactivé (boîte « Attention »), texte d'une
+   fenêtre cachée sous une autre. */
+static int nl_sel, nl_sel_on;
+static LRESULT nl_proc(HWND h, UINT m, WPARAM w, LPARAM l)
+{
+    (void) h;
+    if (m == LB_GETCOUNT) return 3;
+    if (m == LB_GETCURSEL || m == LB_GETCARETINDEX) return nl_sel;
+    if (m == LB_GETSEL) return (int) w == 0 && sim_win[h].style & LBS_MULTIPLESEL ? nl_sel_on : 0;
+    if (m == LB_GETITEMRECT) SetRect((RECT *) l, 0, (int) w * 16, 200, (int) w * 16 + 16);
+    return 0;
+}
+static BOOL heard_since(int from, const char *t)
+{
+    for (; from < spoken_n; from++)
+        if (strstr(spoken[from], t)) return TRUE;
+    return FALSE;
+}
+
+static void test_norton(void)
+{
+    HWND frame, tree, list, files, dlg, combo, edit, hidden, top, msg, ok;
+    HDC dc;
+    char out[TXT * 2];
+    int from;
+
+    boot();
+    frame = sim_create(0, "NFRAMEWNDCLASSV1", "C:\\NDW\\*.*", 0, 0, 0, 600, 400);
+    tree = sim_create(frame, "NTREECLASSV1", "", 0, 0, 40, 200, 300);
+    list = sim_create(tree, "NLBCLASSV1", "", LBS_OWNERDRAWFIXED, 0, 40, 200, 300);
+    sim_win[list].proc = nl_proc;
+    dc = EpGetDC(list);
+    sim_dc[dc].bkmode = TRANSPARENT;
+    EpExtTextOut(dc, 4, 0, 0, NULL, "c:\\", 3, NULL);
+    EpExtTextOut(dc, 24, 16, 0, NULL, "dos", 3, NULL);
+    EpExtTextOut(dc, 44, 32, 0, NULL, "norton", 6, NULL);
+    class_of(list, out, sizeof(out));
+    CHECK_STR(out, "LISTBOX");
+    sim_active = frame;
+    sim_focus = list;
+    nl_sel = 1;
+    describe_value(list, out);
+    CHECK(strstr(out, "dos") && strstr(out, "niveau 2"));
+    nl_sel = 2;
+    describe_value(list, out);
+    CHECK(strstr(out, "norton") && strstr(out, "niveau 3"));
+
+    /* liste des fichiers : « .. » sans texte */
+    files = sim_create(frame, "NLBCLASSV1", "", LBS_OWNERDRAWFIXED, 200, 40, 600, 300);
+    sim_win[files].proc = nl_proc;
+    nl_sel = 0;
+    describe_value(files, out);
+    CHECK_STR(out, "dossier parent");
+
+    /* disques d'AntiVirus : sélectionné ou non à chaque Espace */
+    dlg = sim_create(0, "#32770", "Norton AntiVirus", 0, 0, 0, 400, 300);
+    sim_create(dlg, "STATIC", "&Disques :", 0, 10, 10, 100, 26);
+    list = sim_create(dlg, "LISTBOX", "", LBS_OWNERDRAWFIXED | LBS_MULTIPLESEL, 10, 30, 100, 130);
+    sim_win[list].proc = nl_proc;
+    dc = EpGetDC(list);
+    sim_dc[dc].bkmode = TRANSPARENT;
+    EpExtTextOut(dc, 4, 0, 0, NULL, "A:", 2, NULL);
+    nl_sel_on = 0;
+    describe_value(list, out);
+    CHECK_STR(out, "A:, non sélectionné");
+    nl_sel_on = 1;
+    describe_value(list, out);
+    CHECK_STR(out, "A:, sélectionné");
+
+    /* boîte Copie : le focus est dans l'EDIT de la liste déroulante modifiable */
+    dlg = sim_create(0, "#32770", "Copie", 0, 0, 0, 400, 300);
+    sim_create(dlg, "STATIC", "&Vers :", 0, 10, 10, 100, 26);
+    combo = sim_create(dlg, "COMBOBOX", "", 0x0002L, 10, 30, 300, 50);
+    edit = sim_create(combo, "EDIT", "", 0, 12, 32, 280, 48);
+    describe(edit, out);
+    CHECK(strstr(out, "Vers :") && strstr(out, "liste déroulante modifiable"));
+
+    /* KeyFinder : chaque libellé est placé après son champ, au-dessus de lui */
+    dlg = sim_create(0, "KEYFIND", "KeyFinder", 0, 0, 0, 600, 400);
+    edit = sim_create(dlg, "EDIT", "", 0, 400, 240, 570, 260);
+    sim_create(dlg, "STATIC", "&Texte témoin:", 0, 400, 220, 500, 236);
+    list = sim_create(dlg, "LISTBOX", "", 0, 400, 290, 570, 360);
+    sim_create(dlg, "STATIC", "&Polices disponibles:", 0, 400, 270, 540, 286);
+    describe(edit, out);
+    CHECK(strstr(out, "Texte témoin") != NULL);
+    describe(list, out);
+    CHECK(strstr(out, "Polices disponibles") && !strstr(out, "Texte témoin"));
+
+    /* boîte Attention : message dans un bouton dessiné et désactivé */
+    dlg = sim_create(0, "#32770", "Attention", 0, 50, 150, 590, 300);
+    msg = sim_create(dlg, "BUTTON", "Le fichier C:\\TEMP\\BATCHRUN.EXE existe déjà. Voulez-vous l'écraser ?",
+                     BS_OWNERDRAW | WS_DISABLED, 100, 160, 580, 200);
+    ok = sim_create(dlg, "BUTTON", "&Oui", BS_DEFPUSHBUTTON, 70, 220, 180, 240);
+    from = spoken_n;
+    sim_active = dlg;
+    sim_focus = ok;
+    run(800);
+    CHECK(heard_since(from, "existe déjà. Voulez-vous"));
+    (void) msg;
+    /* même boîte réactivée sans avoir été détruite (Norton, à chaque Tab) : pas redite */
+    from = spoken_n;
+    PostMessage(hwnd_main, EPM_ACTIVATE, (WPARAM) dlg, 1L);
+    sim_focus = dlg;
+    run(300);
+    sim_focus = ok;
+    run(800);
+    CHECK(!heard_since(from, "Attention"));
+
+    /* icône d'un groupe sous la fenêtre de disque : son texte, découpé, n'est pas
+       attribué à la fenêtre du dessus (contexte inconnu, attribution par position) */
+    for (from = 1; from < SIM_WN; from++)
+        sim_win[from].style &= ~WS_VISIBLE;
+    hidden = sim_create(0, "QUICKACCESSGROUP", "Groupe", 0, 300, 100, 600, 400);
+    top = sim_create(0, "NFRAMEWNDCLASSV1", "Disque", 0, 250, 50, 640, 450);
+    dc = GetDC(hidden);
+    sim_clip(dc, 0, 0, 0, 0);
+    EpExtTextOut(dc, 20, 60, 0, NULL, "Jeux", 4, NULL);
+    CHECK(EpOsmWindow(top, out, sizeof(out)) == 0 || !strstr(out, "Jeux"));
+    sim_clip(dc, 0, 0, 300, 300);
+    EpExtTextOut(dc, 20, 100, 0, NULL, "Outils", 6, NULL);
+    CHECK(EpOsmWindow(top, out, sizeof(out)) > 0 && strstr(out, "Outils"));
+}
+
 int main(void)
 {
     { int f = failures; test_empty_gettext_edit(); if (failures > f) dump("test_empty_gettext_edit"); }
     { int f = failures; test_alt_tab(); if (failures > f) dump("test_alt_tab"); }
+    { int f = failures; test_norton(); if (failures > f) dump("test_norton"); }
     { int f = failures; test_navweb(); if (failures > f) dump("test_navweb"); }
     { int f = failures; test_disabled_controls(); if (failures > f) dump("test_disabled_controls"); }
     { int f = failures; test_calculator_states(); if (failures > f) dump("test_calculator_states"); }

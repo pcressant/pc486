@@ -19,6 +19,57 @@ BOOL osm_item(HWND h, int i, char *out)
 
 BOOL item_unknown;        /* describe_value() n'a trouvé que « élément n » */
 
+/* Arbre des répertoires de Norton Desktop (liste NLBCLASSV1 dans NTREECLASSV1) :
+   niveau d'un dossier d'après le retrait de son nom, 20 points par niveau ; la racine
+   (élément 0) donne l'origine, gardée tant qu'elle est hors de vue. */
+#define TREE_STEP 20
+static HWND tree_hwnd;
+static int tree_x0, tree_said, tree_item = -1;
+
+static BOOL item_x(HWND h, int i, int *x)
+{
+    RECT r, at;
+    POINT a, b;
+    char buf[TXT];
+    if (SendMessage(h, LB_GETITEMRECT, i, (LPARAM) (LPRECT) &r) == LB_ERR)
+        return FALSE;
+    a.x = r.left; a.y = r.top;
+    b.x = r.right; b.y = r.bottom;
+    ClientToScreen(h, &a);
+    ClientToScreen(h, &b);
+    if (!EpOsmStartIn(h, a.x, a.y, b.x, b.y, buf, sizeof(buf), &at))
+        return FALSE;
+    *x = at.left;
+    return TRUE;
+}
+
+static void tree_level(HWND h, int i, char *out)
+{
+    int x, x0, level;
+    char buf[24];
+    if (!is_class(GetParent(h), "NTREECLASSV1"))
+        return;
+    if (h != tree_hwnd) {
+        tree_hwnd = h;
+        tree_x0 = -1;
+        tree_said = 0;
+        tree_item = -1;
+    }
+    if (item_x(h, 0, &x0))
+        tree_x0 = x0;
+    if (tree_x0 < 0 || !item_x(h, i, &x) || x < tree_x0)
+        return;
+    level = (x - tree_x0 + TREE_STEP / 2) / TREE_STEP + 1;
+    if (level == tree_said && i != tree_item && GetFocus() == h && last_focus == h) {
+        tree_item = i;
+        return;                         /* autre dossier du même niveau : pas redit */
+    }
+    tree_said = level;
+    tree_item = i;                      /* (même élément annoncé de nouveau : identique) */
+    wsprintf(buf, "niveau %d", level);
+    append_keep(out, buf, TXT);
+}
+
 /* Valeur seule (ce qui change pendant qu'on manipule le contrôle) */
 void describe_value(HWND h, char *out)
 {
@@ -74,8 +125,21 @@ void describe_value(HWND h, char *out)
         } else if (i < 0)
             lstrcpy(out, "aucun élément");
         else if (!osm_item(h, i, out)) {
-            wsprintf(out, "élément %d", i + 1);
-            item_unknown = TRUE;        /* pas encore dessiné : relu par TIMER_LB */
+            char raw[32];
+            raw_class(h, raw, sizeof(raw));
+            if (i == 0 && lstrcmp(raw, "NLBCLASSV1") == 0 &&
+                !is_class(GetParent(h), "NTREECLASSV1"))
+                lstrcpy(out, "dossier parent");     /* « .. » de Norton, dessiné en image */
+            else {
+                wsprintf(out, "élément %d", i + 1);
+                item_unknown = TRUE;    /* pas encore dessiné : relu par TIMER_LB */
+            }
+        } else {
+            tree_level(h, i, out);
+            /* liste dessinée à sélection multiple (disques d'AntiVirus, cochés) */
+            if (style & LBS_MULTIPLESEL)
+                append_keep(out, SendMessage(h, LB_GETSEL, i, 0L) > 0 ?
+                            "sélectionné" : "non sélectionné", TXT);
         }
     } else if (lstrcmp(cls, "COMBOBOX") == 0) {
         /* liste dessinée par le programme : ce qu'elle affiche (le texte de l'élément
@@ -101,7 +165,10 @@ void describe_value(HWND h, char *out)
 /* Texte d'un contrôle enfant de la fenêtre active, d'après son identifiant */
 BOOL child_text(HWND parent, int id, char *out, int n)
 {
-    HWND c = GetDlgItem(parent, id);
+    HWND c = GetDlgItem(parent, id), d;
+    /* sinon dans une boîte enfant (SuperFind de Norton) */
+    for (d = GetWindow(parent, GW_CHILD); !c && d; d = GetWindow(d, GW_HWNDNEXT))
+        c = GetDlgItem(d, id);
     out[0] = 0;
     if (c)
         GetWindowText(c, out, n);
@@ -230,6 +297,11 @@ void describe(HWND h, char *out)
             if (!name[0] || picture_button(h))
                 picture_label(h, name, sizeof(name));
         }
+    } else if (lstrcmp(cls, "EDIT") == 0 && is_class(GetParent(h), "COMBOBOX")) {
+        /* zone d'une liste déroulante modifiable (CBS_DROPDOWN) : le libellé est
+           celui de la liste, sa voisine dans la boîte (SuperFind de Norton) */
+        label_before(GetParent(h), name, sizeof(name));
+        role = "liste déroulante modifiable";
     } else if (lstrcmp(cls, "EDIT") == 0) {
         if (page_view(GetParent(h))) {
             RECT rc;                    /* champ d'une page : libellé dessiné à gauche, */

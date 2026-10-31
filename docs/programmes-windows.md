@@ -75,6 +75,7 @@ fraîchement compilé. Les comportements génériques sont couverts par les banc
 | Ami Pro 3.01 | Document (dessiné en twips) : lignes, mots, caractères, sélection, dire tout ; menus, boîtes standard (`AMIDIALOG`). Barre d'icônes non lue |
 | Access 2.0 | Boîtes, boutons à image nommés par leur libellé, fenêtre de base de données, grilles (création, propriétés, feuille de données) : voir [Grilles](tableur.md#grilles-à-éditeur-access). Conseiller non lu |
 | Invite MS-DOS | Lue par Épaudos, parole relayée : voir [Invite MS-DOS](invite-dos.md) |
+| Norton Desktop 3.0 | Bureau, fenêtres de disque, éditeur, SuperFind, SIW, calculatrices, AntiVirus, Backup… : voir [Norton Desktop](norton.md). Organiseur non lu |
 | Solitaire, Démineur, Dame de Pique | **Non accessibles** : cartes et cases sont des images (voir Limites) |
 
 ## Aide de Windows

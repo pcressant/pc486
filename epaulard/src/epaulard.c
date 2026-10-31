@@ -81,10 +81,13 @@ void remember_value(HWND h)
     class_of(h, cls, sizeof(cls));
     last_sel = last_line = last_check = -2;
     last_esel = 0;
-    if (lstrcmp(cls, "LISTBOX") == 0)
-        last_sel = (int) SendMessage(h, LB_GETCURSEL, 0, 0L) * 1000 +
-                   (int) SendMessage(h, LB_GETCARETINDEX, 0, 0L);
-    else if (lstrcmp(cls, "COMBOBOX") == 0)
+    if (lstrcmp(cls, "LISTBOX") == 0) {
+        int caret = (int) SendMessage(h, LB_GETCARETINDEX, 0, 0L);
+        last_sel = (int) SendMessage(h, LB_GETCURSEL, 0, 0L) * 1000 + caret;
+        /* liste à sélection multiple : élément courant coché ou non (Espace) */
+        if ((GetWindowLong(h, GWL_STYLE) & LBS_MULTIPLESEL) && caret >= 0)
+            last_check = SendMessage(h, LB_GETSEL, caret, 0L) > 0;
+    } else if (lstrcmp(cls, "COMBOBOX") == 0)
         last_sel = (int) SendMessage(h, CB_GETCURSEL, 0, 0L);
     else if (lstrcmp(cls, "BUTTON") == 0)
         last_check = (int) SendMessage(h, BM_GETCHECK, 0, 0L);
@@ -117,6 +120,18 @@ DWORD dialog_page(HWND dlg)
     return sig;
 }
 
+/* Message dessiné par le programme dans un bouton désactivé, sans raccourci (boîtes
+   « Attention » de Norton Desktop) : un texte de la boîte, pas un bouton */
+static BOOL message_button(HWND c)
+{
+    char t[40];
+    if (!is_class(c, "BUTTON") || !has_style(c, WS_VISIBLE) || IsWindowEnabled(c) ||
+        (GetWindowLong(c, GWL_STYLE) & 0x0F) != BS_OWNERDRAW)
+        return FALSE;
+    GetWindowText(c, t, sizeof(t));
+    return lstrlen(t) >= 20 && !_fstrchr(t, '&');
+}
+
 /* page : nouvelle page d'un assistant, formulaire compris ; ses explications sont
    dites, pas les libellés (terminés par « : »), dits avec leur contrôle */
 static void dialog_texts(HWND dlg, char *out, int max, BOOL page)
@@ -136,6 +151,12 @@ static void dialog_texts(HWND dlg, char *out, int max, BOOL page)
              is_class(c, "SCROLLBAR")))
             return;                     /* (Souris : « Lente », « Rapide » des curseurs) */
     for (c = GetWindow(dlg, GW_CHILD); c; c = GetWindow(c, GW_HWNDNEXT)) {
+        if (message_button(c)) {
+            GetWindowText(c, buf, sizeof(buf));
+            clean_label(buf, NULL);
+            append_n(out, buf, max);
+            continue;
+        }
         if (!is_class(c, "STATIC") || !has_style(c, WS_VISIBLE) ||
             (GetWindowLong(c, GWL_STYLE) & 0x0F) > SS_RIGHT)
             continue;
@@ -227,7 +248,9 @@ void announce_focus(BOOL cut)
         new_active = FALSE;
         GetWindowText(act, title, sizeof(title));
         append_n(out, title, sizeof(out));
-        if (is_class(act, "#32770") || has_child_class(act, "STATIC"))
+        if (ncalc_window(act))
+            ;                           /* calculatrice de Norton : sa valeur (ncalc_poll) */
+        else if (is_class(act, "#32770") || has_child_class(act, "STATIC"))
             dialog_text(act, out, sizeof(out));      /* boîte de dialogue, même d'une autre classe */
         else if (is_class(act, "SDI") && GetWindow(act, GW_CHILD)) {
             /* boîte de Microsoft Mail : texte dessiné dans sa fenêtre fille */
@@ -298,8 +321,10 @@ void announce_focus(BOOL cut)
             status_hwnd = act;
         }
         append_n(out, d, sizeof(out));
-    } else if (!out[0] && act && !is_sdm(act)) {
-        /* (boîte de Word : l'élément qui a le focus est annoncé par son rectangle) */
+    } else if (!out[0] && act && !is_sdm(act) &&
+               !(foc == act && act == last_active && is_class(act, "#32770"))) {
+        /* (boîte de Word : l'élément qui a le focus est annoncé par son rectangle ;
+           cadre d'une boîte déjà annoncée, où le focus ne fait que passer : Norton) */
         GetWindowText(act, title, sizeof(title));
         append_n(out, title, sizeof(out));
     }
@@ -505,6 +530,9 @@ void check_value(void)
             else
                 say("fin de ligne", TRUE);
         }
+    } else if (lstrcmp(cls, "LISTBOX") == 0 && last_sel == sel && last_check != check &&
+               check >= 0 && last_check >= 0) {
+        say(last_check ? "sélectionné" : "non sélectionné", TRUE);
     } else if ((last_sel != sel || last_check != check) && !nav_owns(h)) {
         describe_value(h, out);
         if (out[0])
@@ -572,6 +600,21 @@ void status_poll(void)
                     sa_start();
             }
         }
+    } else if (is_class(act, "SUPERFIND")) {
+        /* SuperFind de Norton : état de la recherche (« Recherche terminée »), avec le
+           nombre de fichiers trouvés, quand il change ; pas à chaque fichier trouvé */
+        char n[24];
+        child_text(act, 28572, buf, sizeof(buf));
+        if (act == status_hwnd && buf[0] && lstrcmp(buf, status_said) != 0) {
+            lstrcpy(line, buf);
+            if (child_text(act, 28504, n, sizeof(n))) {
+                char t[24];
+                if (child_text(act, 28514, t, sizeof(t)))
+                    wsprintf(n + lstrlen(n), " %s", (LPSTR) t);
+                append(line, n);
+            }
+            say(line, FALSE);
+        }
     } else if (GetFocus() && GetFocus() == card_edit(act) && card_title(act, buf, sizeof(buf))) {
         /* autre fiche (Page suivante, Rechercher) : son titre et sa ligne courante */
         if (act == status_hwnd && lstrcmp(buf, status_said) != 0) {
@@ -603,7 +646,8 @@ HWND auto_scope(HWND act)
 {
     HWND c;
     for (c = GetWindow(act, GW_CHILD); c; c = GetWindow(c, GW_HWNDNEXT))
-        if ((is_class(c, "DC_TERM") || is_class(c, "TUTCLIENT")) && IsWindowVisible(c))
+        if ((is_class(c, "DC_TERM") || is_class(c, "TUTCLIENT") ||
+             is_class(c, "SIOUTPUTCHILD")) && IsWindowVisible(c))
             return c;
     return NULL;
 }
@@ -620,6 +664,18 @@ DWORD row_hash(const char *s)
    « 45 % » dans la fenêtre active. Dit par paliers de 10, et à 100, sans couper. */
 static HWND prog_hwnd;
 static int prog_said;
+
+/* Menu dont tous les titres sont grisés : fenêtre occupée par une opération
+   (Disk Doctor de Norton pendant un test), sa jauge peut être lue */
+static BOOL menu_idle(HMENU m)
+{
+    int i, n = GetMenuItemCount(m);
+    for (i = 0; i < n; i++)
+        if (!(GetMenuState(m, i, MF_BYPOSITION) & (MF_GRAYED | MF_DISABLED)))
+            return FALSE;
+    return n > 0;
+}
+
 void progress_poll(void)
 {
     static char big[1024];
@@ -648,7 +704,8 @@ void progress_poll(void)
             v = v * 10 + *q - '0';
         break;
     }
-    if (v < 0 || v > 100 || GetMenu(act)) {   /* (fenêtre à menus : zone Zoom…) */
+    if (v < 0 || v > 100 || (GetMenu(act) && !menu_idle(GetMenu(act)))) {
+        /* (fenêtre à menus : zone Zoom…) */
         prog_hwnd = NULL;
         return;
     }
@@ -688,6 +745,30 @@ void auto_poll(void)
     } else if (auto_tick == 0 || GetTickCount() - auto_tick < 400)
         return;
     auto_tick = 0;
+    if (is_class(h, "SIOUTPUTCHILD")) {
+        /* Informations système de Norton : la page entière, rangée par rangée, quand
+           elle a fini de se dessiner et à chaque changement de page */
+        if (first) {
+            auto_hwnd = h;
+            auto_rows[0] = 0;
+            auto_tick = GetTickCount();         /* attendre le dessin complet */
+            return;
+        }
+        GetWindowRect(h, &r);
+        pt.x = r.left + 2;
+        pt.y = r.top - 1;
+        said[0] = 0;
+        while (n++ < AUTO_ROWS && EpOsmReviewLine(h, &pt, 1, row, sizeof(row), &col) &&
+               pt.y < r.bottom && lstrlen(said) + lstrlen(row) + 3 < (int) sizeof(said)) {
+            if (said[0])
+                lstrcat(said, ". ");
+            lstrcat(said, row);
+        }
+        if (said[0] && row_hash(said) != auto_rows[0])
+            say(said, FALSE);
+        auto_rows[0] = row_hash(said);
+        return;
+    }
     if (!term) {
         /* Didacticiel : la colonne de texte principale (pas la fausse fenêtre de
            démonstration à côté), quand elle change */
@@ -740,10 +821,12 @@ void poll(void)
         auto_poll();
         status_poll();
         progress_poll();              /* (avant check_value : fiche changée) */
-        if (!sheet_poll() && !grid_poll() && !is_class(GetActiveWindow(), "SCICALC"))
+        if (!sheet_poll() && !grid_poll() && !is_class(GetActiveWindow(), "SCICALC") &&
+            !ncalc_window(GetActiveWindow()))
             check_value();      /* (grille de tableur : cellule lue par sheet_poll) */
     }
     calc_poll();
+    ncalc_poll();
 }
 
 /* -------------------------------------------------------------------- menus */
@@ -838,8 +921,9 @@ void on_hilite(void)
     HWND foc = GetFocus(), h = hilite_hwnd;
     int i;
 
-    if (!h || !IsWindow(h) || in_menu || !foc || is_standard(foc) || sa_active())
-        return;
+    if (!h || !IsWindow(h) || in_menu || !foc || is_standard(foc) || sa_active() ||
+        ncalc_window(top_level(h)))
+        return;     /* (calculatrices de Norton : étiquettes claires sur fond sombre) */
     {
         const char *role;
         if (custom_value(foc, buf, &role))
@@ -1029,12 +1113,12 @@ void on_command(WPARAM vk, LPARAM lp)
             HWND c, a = GetFocus() ? top_level(GetFocus()) : GetActiveWindow();
             char cls[32], txt[40];
             int n = 0, depth = 1;
-            class_of(a, cls, sizeof(cls));
+            raw_class(a, cls, sizeof(cls));
             wsprintf(buf, "fenêtre %x %s, actif %x.", (UINT) a, (LPSTR) cls,
                      (UINT) GetActiveWindow());
             say(buf, TRUE);
             for (c = GetWindow(a, GW_CHILD); c && n < 40; n++) {
-                class_of(c, cls, sizeof(cls));
+                raw_class(c, cls, sizeof(cls));
                 GetWindowText(c, txt, sizeof(txt));
                 wsprintf(buf, "%d: %x %s id %d style %lx %s.", depth, (UINT) c, (LPSTR) cls,
                          GetWindowWord(c, GWW_ID), GetWindowLong(c, GWL_STYLE), (LPSTR) txt);
@@ -1081,7 +1165,7 @@ void on_command(WPARAM vk, LPARAM lp)
                 if (!EpOsmEntry(i, &w, &r, t, sizeof(t)) || !IsWindow(w) ||
                     top_level(w) != a)
                     continue;
-                class_of(w, cls, sizeof(cls));
+                raw_class(w, cls, sizeof(cls));
                 wsprintf(buf, "%x %s %d %d %d %d: %s.", (UINT) w, (LPSTR) cls, r.left, r.top,
                          r.right - r.left, r.bottom - r.top, (LPSTR) t);
                 say(buf, FALSE);
@@ -1259,7 +1343,11 @@ LRESULT CALLBACK __export MainProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case EPM_ACTIVATE:
         /* Toujours redire le titre : la nouvelle fenêtre a pu reprendre l'identifiant
-           d'une fenêtre fermée. Les doublons sont écartés par announce_focus(). */
+           d'une fenêtre fermée. Les doublons sont écartés par announce_focus(). Sauf
+           la même fenêtre réactivée sans avoir été détruite (lParam), toujours active
+           pour Épaulard : boîtes de Norton Desktop, à chaque Tab. */
+        if (lp && (HWND) wp == last_active)
+            return 0;
         sa_stop(TRUE);
         switch_hwnd = NULL;
         new_active = TRUE;
