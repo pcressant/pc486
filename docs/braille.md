@@ -97,6 +97,11 @@ la désactive explicitement. Si AT-SPI est indisponible,
 le mode automatique ne doit pas être remplacé par une prise de contrôle permanente
 pour un usage normal.
 
+Une machine sans plage braille peut garder le lancement automatique : si BrlAPI
+indique zéro cellule, la passerelle journalise une seule fois son attente, puis
+réessaie chaque seconde. Elle se connecte dès qu'une plage devient disponible.
+Une plage de plus de 80 cellules reste signalée comme non prise en charge.
+
 ## Architecture et référence NVDA
 
 ```text

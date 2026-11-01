@@ -8,12 +8,13 @@ import sys
 import tempfile
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from braille.baum import Baum, packet
 from braille.gateway import Output, Focus
+from braille import gateway
 sys.path.insert(0, str(ROOT / 'tests'))
 import native
 spec = importlib.util.spec_from_file_location('configure_braille', ROOT / 'scripts/configure-braille.py')
@@ -134,6 +135,35 @@ class HostTests(unittest.TestCase):
         with patch.dict(sys.modules, brlapi=self.api), self.assertRaises(ValueError):
             Output()
         self.assertEqual(self.connection.events[-1], 'close')
+
+    def test_no_display_waits_quietly_then_connects(self):
+        connections = [FakeConnection() for _ in range(3)]
+        for connection in connections[:2]:
+            connection.displaySize = (0, 0)
+        self.api.Connection = Mock(side_effect=connections)
+        handlers = {}
+        close = Mock()
+
+        def select_then_stop(*args):
+            handlers[gateway.signal.SIGTERM]()
+            return [], [], []
+
+        with patch.dict(sys.modules, brlapi=self.api), \
+                patch.dict(os.environ, CONTROLVT='1'), \
+                patch.object(sys, 'argv', ['braille', '--device', '/unused', '--focus', 'always']), \
+                patch.object(gateway.signal, 'signal', side_effect=lambda sig, fn: handlers.update({sig: fn})), \
+                patch.object(gateway.time, 'sleep') as sleep, \
+                patch.object(gateway, 'connect', return_value=(123, close)) as connect, \
+                patch.object(gateway.select, 'select', side_effect=select_then_stop), \
+                self.assertLogs('braille', level='INFO') as logs:
+            gateway.main()
+        self.assertEqual(sleep.call_count, 2)
+        connect.assert_called_once()
+        close.assert_called_once()
+        self.assertTrue(all(c.events[-1] == 'close' for c in connections))
+        self.assertEqual(sum('en attente de connexion' in line for line in logs.output), 1)
+        self.assertTrue(any('Baum connecté, 40 cellules' in line for line in logs.output))
+        self.assertFalse(any('WARNING' in line for line in logs.output))
 
     def test_terminal_title_cannot_claim_the_display(self):
         window = types.SimpleNamespace(name='pc486 — terminal',

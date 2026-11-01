@@ -42,6 +42,14 @@ puis compile Épaulard dans `epaulard/build/`. Un fichier ordinaire à la place 
 lien provoque un refus. Elle ne démarre aucune VM et ne modifie aucun disque.
 Elle peut être relancée ; elle n'installe pas les binaires compilés sur un C: existant.
 
+Si 86Box quitte immédiatement sans message (notamment code 255), vérifier que
+`tools/86box` est bien un lien vers le magasin Nix. Copier le répertoire d'un
+paquet ne le rend pas autonome : son lanceur conserve des chemins absolus vers
+`/nix/store`. Après un déplacement du projet, conserver ces copies à part sous
+`work/`, puis relancer `nix run .#prepare` pour recréer les liens et leurs racines
+Nix. L'absence de `vm/transfert.img` désactive seulement D: et n'empêche pas le
+démarrage.
+
 Pour créer un **nouveau** C: à partir de supports locaux :
 
 ```sh

@@ -66,6 +66,10 @@ class Focus:
         self.thread.join(timeout=1)
 
 
+class NoDisplay(Exception):
+    """BrlAPI fonctionne, mais aucune plage n'est actuellement disponible."""
+
+
 class Output:
     def __init__(self):
         import brlapi
@@ -75,6 +79,8 @@ class Output:
             self.connection.enterTtyModeWithPath()
             self.connection.setParameter(brlapi.PARAM_CLIENT_PRIORITY, 0, False, 0)
             self.size = self.connection.displaySize[0] * self.connection.displaySize[1]
+            if self.size == 0:
+                raise NoDisplay()
             if not 1 <= self.size <= 80:
                 raise ValueError('cette version accepte 1 à 80 cellules')
             self.connection.ignoreKeys(brlapi.rangeType_all, (0,))
@@ -177,10 +183,12 @@ def main():
     focus = Focus() if args.focus == 'auto' else None
     output = None
     close = None
+    waiting_display = False
     try:
         while running:
             try:
                 output = Output()
+                waiting_display = False
                 fd, close = connect(args)
                 protocol = Baum(output.size, output.display)
                 pending = bytearray()
@@ -212,6 +220,10 @@ def main():
                             del pending[:sent]
                         except BlockingIOError:
                             pass
+            except NoDisplay:
+                if not waiting_display:
+                    LOG.info('aucune plage braille connectée ; en attente de connexion')
+                    waiting_display = True
             except Exception as error:
                 LOG.warning('connexion braille : %s', error)
             finally:

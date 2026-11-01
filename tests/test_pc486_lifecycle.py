@@ -215,7 +215,9 @@ class LifecycleTests(unittest.TestCase):
 
     def test_start_failure_cleans_manager(self):
         (self.root / 'fail-start').touch()
-        self.launch('start', '--no-gateway', success=False)
+        result = self.launch('start', '--no-gateway', success=False)
+        self.assertIn("86Box a quitté avant l'ouverture de COM1 (code 1)", result.stderr)
+        self.assertIn('outils Nix', (self.root / 'logs/86box.log').read_text())
         self.wait_clean()
 
     TEMPLATE = ('[General]\nhost_cpu = autre hôte\nuuid = 11111111-2222-5333-8444-555555555555\n'

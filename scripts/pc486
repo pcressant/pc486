@@ -418,7 +418,19 @@ run_86box() {
         running 86box || break
         sleep 0.1
     done
-    [[ -n "$pts" ]] || { echo "échec du démarrage de 86Box, voir logs/86box.log" >&2; tail -5 "$LOGS/86box.log" >&2; exit 1; }
+    if [[ -z "$pts" ]]; then
+        if ! running 86box; then
+            local box_status=0
+            wait "$(cat "$RUN/86box.pid")" || box_status=$?
+            echo "86Box a quitté avant l'ouverture de COM1 (code $box_status)." >>"$LOGS/86box.log"
+            echo "Si aucun autre message n'apparaît, vérifier les outils Nix : voir docs/nix.md." >>"$LOGS/86box.log"
+        else
+            echo "86Box ne signale aucun pseudo-terminal COM1 après 10 secondes." >>"$LOGS/86box.log"
+        fi
+        echo "échec du démarrage de 86Box, voir $LOGS/86box.log" >&2
+        tail -5 "$LOGS/86box.log" >&2
+        exit 1
+    fi
     # une connexion d'Apolo-emu = une ouverture du pseudo-terminal (reconnexion possible)
     "$SOCAT" "UNIX-LISTEN:$RUN/com1.sock,fork,unlink-early" "FILE:$pts,rawer,nonblock" \
         >>"$LOGS/socat.log" 2>&1 &
