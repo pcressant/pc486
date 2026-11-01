@@ -50,7 +50,8 @@ typedef char res_layout[(offsetof(RES_SB, ready) == 8 && offsetof(RES_SB, played
     offsetof(AP_LINK, cut_at) == 6 && offsetof(AP_LINK, dropped) == 12 &&
     offsetof(AP_LINK, echo) == 14 && offsetof(AP_LINK, buf) == 46 && AP_INPUT == 1024 && offsetof(RES_INFO, state) == 22 &&
     offsetof(RES_INFO, clients) == 78 && offsetof(RES_INFO, isr[2]) == 88 &&
-    offsetof(RES_INFO, vector_irq) == 104) ? 1 : -1];
+    offsetof(RES_INFO, vector_irq) == 104 &&
+    offsetof(RES_INFO, pic_was_masked) == 106) ? 1 : -1];
 
 static short pcm[RES_BANK];
 static unsigned staged, queued, was_running, measuring, measured;

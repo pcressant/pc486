@@ -175,10 +175,21 @@ class Synthe3EpaulardVMTests(unittest.TestCase):
             self.run_program('command')
             self.wait_speech('paudos pr', 60)
             self.mark()
-            self.type('echo salut\n')
-            self.wait_speech('salut', 20)
+            for word in ('salut', 'encore', 'fin'):
+                self.type(f'echo {word}\n')
+                self.wait_speech(word, 20)
+            # Tampons rendus par le pilote (WHDR_DONE), puis périphérique fermé : sans
+            # cela, l'IRQ de la Sound Blaster partait à la machine DOS, le DMA du
+            # pilote rebouclait sur son tampon (première phrase répétée sans fin).
+            self.wait_until(lambda i: i['queued'] == 0 and not i['opened'], 20,
+                            'waveOut rendu pendant la fenêtre DOS')
             self.type('exit\n')
             time.sleep(6)
+            self.mark()
+            self.key('insert-t')
+            self.wait_speech('Gestionnaire', 15)
+            self.wait_until(lambda i: i['queued'] == 0 and not i['opened'], 20,
+                            'waveOut rendu après la fenêtre DOS')
             print('Invite MS-DOS relayée par Épaulard vers Synthé3', flush=True)
 
             self.assertTrue(baum.frames, 'aucune trame braille')

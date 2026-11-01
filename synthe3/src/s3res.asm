@@ -42,6 +42,7 @@ RI_STATE      equ 22              ; offsetof(RES_INFO, state), vérifié dans s3
 RI_CLIENTS    equ 78              ; offsetof(RES_INFO, clients)
 RI_ISR_IRQ    equ 88              ; offsetof(RES_INFO, isr[2])
 RI_VECTOR     equ 104             ; offsetof(RES_INFO, vector_irq)
+RI_PIC_MASKED equ 106             ; offsetof(RES_INFO, pic_was_masked)
 STACK_SIZE    equ 1536              ; 242 octets utilisés au plus mesurés (RES_INFO.stack_low)
 
 .data?
@@ -62,6 +63,7 @@ res_old2f dd 0
 res_oldirq dd 0
 busy db 0
 lent db 0                           ; vecteur de l'IRQ rendu pendant Windows
+pic_lent db 0                       ; IRQ remasquée au PIC pendant Windows
 saved_ss dw 0
 saved_esp dd 0
 
@@ -164,6 +166,21 @@ quiet_sb proc near
     ret
 quiet_sb endp
 
+; Port de masque du PIC de l'IRQ de la carte (DX) et son bit (AH). DS = DGROUP ;
+; CX détruit.
+pic_port proc near
+    mov cx, word ptr res_sb[RS_IRQ]
+    mov dx, 21h
+    cmp cx, 8
+    jb pic_bit
+    mov dx, 0a1h
+    sub cx, 8
+pic_bit:
+    mov ah, 1
+    shl ah, cl
+    ret
+pic_port endp
+
 ; INT 2Fh : D300h présence (ES:DI entrée de l'API), D301h ES:DI = RES_INFO ;
 ; 1605h/1606h : Windows prend puis rend la Sound Blaster.
 res_isr2f proc far
@@ -218,6 +235,24 @@ f_slept:
     mov es:[di+2], ax
     mov cs:lent, 1
 f_kept:
+    ; Remasquer l'IRQ au PIC si S3RES l'a démasquée : VPICD tient pour « globale »
+    ; une IRQ démasquée au démarrage de Windows et la renvoie à la machine qui
+    ; tourne. Avec une fenêtre DOS active, la fin de bloc de la Sound Blaster
+    ; n'arrivait plus à SNDBLST2.DRV : son DMA rebouclait sur le même tampon
+    ; (première phrase répétée sans fin, même après la fenêtre DOS). Masquée, elle
+    ; appartient à la machine système, dont le pilote la démasque.
+    cmp word ptr res_info[RI_PIC_MASKED], 0
+    je f_pic_kept                      ; IRQ déjà démasquée avant S3RES : laissée
+    push cx
+    push dx
+    call pic_port
+    in al, dx
+    or al, ah
+    out dx, al
+    mov cs:pic_lent, 1
+    pop dx
+    pop cx
+f_pic_kept:
     popf
     pop di
     pop ax
@@ -237,6 +272,25 @@ f_end:
     cli
     mov word ptr res_sb[RS_FLAGS], 0
     mov word ptr res_sb[RS_WINDOWS], 0
+    cmp cs:pic_lent, 0
+    je f_pic_back
+    push cx
+    push dx
+    call pic_port                     ; Windows terminé : démasquer comme avant
+    not ah
+    in al, dx
+    and al, ah
+    out dx, al
+    cmp dx, 21h
+    je f_pic_master
+    in al, 21h                        ; IRQ 8 à 15 : cascade (IRQ 2) aussi
+    and al, 0fbh
+    out 21h, al
+f_pic_master:
+    mov cs:pic_lent, 0
+    pop dx
+    pop cx
+f_pic_back:
     cmp cs:lent, 0
     je f_back
     xor ax, ax                        ; Windows terminé : reprendre l'IRQ

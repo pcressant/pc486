@@ -528,7 +528,10 @@ Préférer `scripts/pc486-dev` aux préfixes de variables, que les règles ne co
   DGROUP (INT 8h chaîné vers 0000:0000, machine figée). S3RES **rend le vecteur
   de son IRQ** à 1605h et le reprend à 1606h : posé avant Windows, il détournait
   l'IRQ de la Sound Blaster vers la machine DOS active et `waveOut` se figeait en
-  fenêtre DOS plein écran. Chargé par `LH`, il est dans un UMB paginé par EMM386 :
+  fenêtre DOS plein écran. Il **remasque aussi l'IRQ au PIC** pendant Windows
+  (`pic_lent`) : démasquée au démarrage, VPICD la jugeait globale et la donnait à
+  la machine DOS active ; le DMA de SNDBLST2.DRV rebouclait (première phrase répétée
+  sans fin). Chargé par `LH`, il est dans un UMB paginé par EMM386 :
   le lire par QMP `memsave` (linéaire), pas `pmemsave`.
 - EPAUS3.DLL : pompe dans la boucle de messages d'Épaulard, jamais dans un crochet ;
   pas de chaîne sans borne de messages postés (`EPM_S3`, trois au plus) : Windows

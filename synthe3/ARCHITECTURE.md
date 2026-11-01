@@ -259,6 +259,11 @@ octet à octet du corpus), les variantes C des noyaux et `S3_SCALAR_WINDOW`.
   reprend. Sans cela, l'interruption de la carte était renvoyée à la machine DOS
   active (S3RES endormi) et la restitution `waveOut` se figeait dès qu'une fenêtre
   DOS plein écran était active (constaté sous QEMU, voir `tests/test_synthe3_win_vm.py`).
+  Il **remasque aussi l'IRQ au PIC** si elle l'était avant lui (`pic_was_masked`),
+  et la démasque à 1606h : VPICD tient pour globale une IRQ démasquée au démarrage
+  de Windows et la renvoie à la machine qui tourne. Avec une fenêtre DOS active, la
+  fin de bloc n'arrivait plus à SNDBLST2.DRV, dont le DMA rebouclait sur son tampon :
+  première phrase répétée sans fin, même après la fermeture de la fenêtre.
 - Retrait : `S3RES /U`, refusé si un lecteur est attaché ou si un vecteur a changé.
 
 ### Windows (`EPAUS3.DLL`, `src/s3win.c`)
