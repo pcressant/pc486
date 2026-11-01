@@ -1,0 +1,2202 @@
+{
+ "variantes": {
+  "reference": {
+   "options": []
+  },
+  "bloc": {
+   "options": [
+    "-DS3_BLOCK"
+   ]
+  },
+  "entier": {
+   "options": [
+    "-DS3_BLOCK",
+    "-DS3_INTEGER_PERIOD"
+   ]
+  }
+ },
+ "cas": [
+  {
+   "numero": 0,
+   "texte": "Bonjour Michel. Un élève prend un café.",
+   "debit": 3,
+   "hauteur": 5,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/00-r3-p5.wav",
+     "echantillons": 33380,
+     "duree_ms": 3338.0,
+     "crete": 15362,
+     "ecretes": 0,
+     "rms": 1777.6
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/00-r3-p5.wav",
+     "echantillons": 33380,
+     "duree_ms": 3338.0,
+     "crete": 15362,
+     "ecretes": 0,
+     "rms": 1777.6,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/00-r3-p5.wav",
+     "echantillons": 33380,
+     "duree_ms": 3338.0,
+     "crete": 15362,
+     "ecretes": 0,
+     "rms": 1777.6,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 1,
+   "texte": "Le prix est de 12,50 francs.",
+   "debit": 3,
+   "hauteur": 5,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/01-r3-p5.wav",
+     "echantillons": 30261,
+     "duree_ms": 3026.1,
+     "crete": 15320,
+     "ecretes": 0,
+     "rms": 1683.5
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/01-r3-p5.wav",
+     "echantillons": 30261,
+     "duree_ms": 3026.1,
+     "crete": 15320,
+     "ecretes": 0,
+     "rms": 1683.5,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/01-r3-p5.wav",
+     "echantillons": 30262,
+     "duree_ms": 3026.2,
+     "crete": 15320,
+     "ecretes": 0,
+     "rms": 1683.5,
+     "contre_reference": {
+      "identique": false,
+      "ecart_echantillons": 1,
+      "ecart_duree_ms": 0.1,
+      "ecart_max": 1872,
+      "snr_db": 36.3,
+      "premier_ecart": 26747
+     }
+    }
+   }
+  },
+  {
+   "numero": 2,
+   "texte": "café, élève, fête, où, çà et là.",
+   "debit": 3,
+   "hauteur": 5,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/02-r3-p5.wav",
+     "echantillons": 30081,
+     "duree_ms": 3008.1,
+     "crete": 13388,
+     "ecretes": 0,
+     "rms": 1596.6
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/02-r3-p5.wav",
+     "echantillons": 30081,
+     "duree_ms": 3008.1,
+     "crete": 13388,
+     "ecretes": 0,
+     "rms": 1596.6,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/02-r3-p5.wav",
+     "echantillons": 30081,
+     "duree_ms": 3008.1,
+     "crete": 13388,
+     "ecretes": 0,
+     "rms": 1596.6,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 3,
+   "texte": "12,50 francs; C:\\DOS\\CONFIG.SYS !",
+   "debit": 3,
+   "hauteur": 5,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/03-r3-p5.wav",
+     "echantillons": 44692,
+     "duree_ms": 4469.2,
+     "crete": 15320,
+     "ecretes": 0,
+     "rms": 1482.4
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/03-r3-p5.wav",
+     "echantillons": 44692,
+     "duree_ms": 4469.2,
+     "crete": 15320,
+     "ecretes": 0,
+     "rms": 1482.4,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/03-r3-p5.wav",
+     "echantillons": 44692,
+     "duree_ms": 4469.2,
+     "crete": 15320,
+     "ecretes": 0,
+     "rms": 1482.4,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 4,
+   "texte": "Bonjour, comment allez-vous ?",
+   "debit": 3,
+   "hauteur": 5,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/04-r3-p5.wav",
+     "echantillons": 21722,
+     "duree_ms": 2172.2,
+     "crete": 14023,
+     "ecretes": 0,
+     "rms": 1762.4
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/04-r3-p5.wav",
+     "echantillons": 21722,
+     "duree_ms": 2172.2,
+     "crete": 14023,
+     "ecretes": 0,
+     "rms": 1762.4,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/04-r3-p5.wav",
+     "echantillons": 21722,
+     "duree_ms": 2172.2,
+     "crete": 14023,
+     "ecretes": 0,
+     "rms": 1762.4,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 5,
+   "texte": "Le lecteur d'écran lit la fenêtre active, les menus et les boîtes de dialogue.",
+   "debit": 3,
+   "hauteur": 5,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/05-r3-p5.wav",
+     "echantillons": 58339,
+     "duree_ms": 5833.9,
+     "crete": 14023,
+     "ecretes": 0,
+     "rms": 1832.3
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/05-r3-p5.wav",
+     "echantillons": 58339,
+     "duree_ms": 5833.9,
+     "crete": 14023,
+     "ecretes": 0,
+     "rms": 1832.3,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/05-r3-p5.wav",
+     "echantillons": 58339,
+     "duree_ms": 5833.9,
+     "crete": 14023,
+     "ecretes": 0,
+     "rms": 1832.3,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 6,
+   "texte": "En 1994, Windows pour Workgroups 3.11 tourne sur un 486 à 100 mégahertz.",
+   "debit": 3,
+   "hauteur": 5,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/06-r3-p5.wav",
+     "echantillons": 91979,
+     "duree_ms": 9197.9,
+     "crete": 15256,
+     "ecretes": 0,
+     "rms": 1838.1
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/06-r3-p5.wav",
+     "echantillons": 91979,
+     "duree_ms": 9197.9,
+     "crete": 15256,
+     "ecretes": 0,
+     "rms": 1838.1,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/06-r3-p5.wav",
+     "echantillons": 91979,
+     "duree_ms": 9197.9,
+     "crete": 15256,
+     "ecretes": 0,
+     "rms": 1838.1,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 7,
+   "texte": "Appuyez sur Entrée pour continuer, ou sur Échap pour annuler l'opération.",
+   "debit": 3,
+   "hauteur": 5,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/07-r3-p5.wav",
+     "echantillons": 54684,
+     "duree_ms": 5468.4,
+     "crete": 14139,
+     "ecretes": 0,
+     "rms": 1840.8
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/07-r3-p5.wav",
+     "echantillons": 54684,
+     "duree_ms": 5468.4,
+     "crete": 14139,
+     "ecretes": 0,
+     "rms": 1840.8,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/07-r3-p5.wav",
+     "echantillons": 54684,
+     "duree_ms": 5468.4,
+     "crete": 14139,
+     "ecretes": 0,
+     "rms": 1840.8,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 8,
+   "texte": "Les voyelles longues : pâte, fête, côte ; les nasales : an, on, un, in.",
+   "debit": 3,
+   "hauteur": 5,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/08-r3-p5.wav",
+     "echantillons": 56524,
+     "duree_ms": 5652.4,
+     "crete": 15068,
+     "ecretes": 0,
+     "rms": 1682.0
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/08-r3-p5.wav",
+     "echantillons": 56524,
+     "duree_ms": 5652.4,
+     "crete": 15068,
+     "ecretes": 0,
+     "rms": 1682.0,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/08-r3-p5.wav",
+     "echantillons": 56524,
+     "duree_ms": 5652.4,
+     "crete": 15068,
+     "ecretes": 0,
+     "rms": 1682.0,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 9,
+   "texte": "Il y a 1 234 567 habitants dans cette région, soit 33,3 pour cent.",
+   "debit": 3,
+   "hauteur": 5,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/09-r3-p5.wav",
+     "echantillons": 89871,
+     "duree_ms": 8987.1,
+     "crete": 15405,
+     "ecretes": 0,
+     "rms": 1877.1
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/09-r3-p5.wav",
+     "echantillons": 89871,
+     "duree_ms": 8987.1,
+     "crete": 15405,
+     "ecretes": 0,
+     "rms": 1877.1,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/09-r3-p5.wav",
+     "echantillons": 89885,
+     "duree_ms": 8988.5,
+     "crete": 15405,
+     "ecretes": 0,
+     "rms": 1878.7,
+     "contre_reference": {
+      "identique": false,
+      "ecart_echantillons": 14,
+      "ecart_duree_ms": 1.4,
+      "ecart_max": 17017,
+      "snr_db": 7.71,
+      "premier_ecart": 74311
+     }
+    }
+   }
+  },
+  {
+   "numero": 10,
+   "texte": "AAAAAAAAAAAA",
+   "debit": 3,
+   "hauteur": 5,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/10-r3-p5.wav",
+     "echantillons": 7422,
+     "duree_ms": 742.2,
+     "crete": 13388,
+     "ecretes": 0,
+     "rms": 2004.0
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/10-r3-p5.wav",
+     "echantillons": 7422,
+     "duree_ms": 742.2,
+     "crete": 13388,
+     "ecretes": 0,
+     "rms": 2004.0,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/10-r3-p5.wav",
+     "echantillons": 7422,
+     "duree_ms": 742.2,
+     "crete": 13388,
+     "ecretes": 0,
+     "rms": 2004.0,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 11,
+   "texte": "zzzzzzzz vvvvvvv jjjjjjj",
+   "debit": 3,
+   "hauteur": 5,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/11-r3-p5.wav",
+     "echantillons": 27648,
+     "duree_ms": 2764.8,
+     "crete": 13388,
+     "ecretes": 0,
+     "rms": 1829.6
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/11-r3-p5.wav",
+     "echantillons": 27648,
+     "duree_ms": 2764.8,
+     "crete": 13388,
+     "ecretes": 0,
+     "rms": 1829.6,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/11-r3-p5.wav",
+     "echantillons": 27648,
+     "duree_ms": 2764.8,
+     "crete": 13388,
+     "ecretes": 0,
+     "rms": 1829.6,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 12,
+   "texte": "Bonjour, comment allez-vous ?",
+   "debit": 0,
+   "hauteur": 0,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/12-r0-p0.wav",
+     "echantillons": 30722,
+     "duree_ms": 3072.2,
+     "crete": 13993,
+     "ecretes": 0,
+     "rms": 1533.1
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/12-r0-p0.wav",
+     "echantillons": 30722,
+     "duree_ms": 3072.2,
+     "crete": 13993,
+     "ecretes": 0,
+     "rms": 1533.1,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/12-r0-p0.wav",
+     "echantillons": 30722,
+     "duree_ms": 3072.2,
+     "crete": 13993,
+     "ecretes": 0,
+     "rms": 1533.1,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 13,
+   "texte": "Bonjour, comment allez-vous ?",
+   "debit": 0,
+   "hauteur": 5,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/13-r0-p5.wav",
+     "echantillons": 30773,
+     "duree_ms": 3077.3,
+     "crete": 14023,
+     "ecretes": 0,
+     "rms": 1773.8
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/13-r0-p5.wav",
+     "echantillons": 30773,
+     "duree_ms": 3077.3,
+     "crete": 14023,
+     "ecretes": 0,
+     "rms": 1773.8,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/13-r0-p5.wav",
+     "echantillons": 30773,
+     "duree_ms": 3077.3,
+     "crete": 14023,
+     "ecretes": 0,
+     "rms": 1773.8,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 14,
+   "texte": "Bonjour, comment allez-vous ?",
+   "debit": 0,
+   "hauteur": 8,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/14-r0-p8.wav",
+     "echantillons": 30761,
+     "duree_ms": 3076.1,
+     "crete": 14032,
+     "ecretes": 0,
+     "rms": 1904.3
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/14-r0-p8.wav",
+     "echantillons": 30761,
+     "duree_ms": 3076.1,
+     "crete": 14032,
+     "ecretes": 0,
+     "rms": 1904.3,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/14-r0-p8.wav",
+     "echantillons": 30761,
+     "duree_ms": 3076.1,
+     "crete": 14032,
+     "ecretes": 0,
+     "rms": 1904.3,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 15,
+   "texte": "Bonjour, comment allez-vous ?",
+   "debit": 0,
+   "hauteur": 15,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/15-r0-p15.wav",
+     "echantillons": 30762,
+     "duree_ms": 3076.2,
+     "crete": 13755,
+     "ecretes": 0,
+     "rms": 2122.1
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/15-r0-p15.wav",
+     "echantillons": 30762,
+     "duree_ms": 3076.2,
+     "crete": 13755,
+     "ecretes": 0,
+     "rms": 2122.1,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/15-r0-p15.wav",
+     "echantillons": 30762,
+     "duree_ms": 3076.2,
+     "crete": 13755,
+     "ecretes": 0,
+     "rms": 2122.1,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 16,
+   "texte": "Bonjour, comment allez-vous ?",
+   "debit": 3,
+   "hauteur": 0,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/16-r3-p0.wav",
+     "echantillons": 21766,
+     "duree_ms": 2176.6,
+     "crete": 13993,
+     "ecretes": 0,
+     "rms": 1527.6
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/16-r3-p0.wav",
+     "echantillons": 21766,
+     "duree_ms": 2176.6,
+     "crete": 13993,
+     "ecretes": 0,
+     "rms": 1527.6,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/16-r3-p0.wav",
+     "echantillons": 21766,
+     "duree_ms": 2176.6,
+     "crete": 13993,
+     "ecretes": 0,
+     "rms": 1527.6,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 17,
+   "texte": "Bonjour, comment allez-vous ?",
+   "debit": 3,
+   "hauteur": 5,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/17-r3-p5.wav",
+     "echantillons": 21722,
+     "duree_ms": 2172.2,
+     "crete": 14023,
+     "ecretes": 0,
+     "rms": 1762.4
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/17-r3-p5.wav",
+     "echantillons": 21722,
+     "duree_ms": 2172.2,
+     "crete": 14023,
+     "ecretes": 0,
+     "rms": 1762.4,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/17-r3-p5.wav",
+     "echantillons": 21722,
+     "duree_ms": 2172.2,
+     "crete": 14023,
+     "ecretes": 0,
+     "rms": 1762.4,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 18,
+   "texte": "Bonjour, comment allez-vous ?",
+   "debit": 3,
+   "hauteur": 8,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/18-r3-p8.wav",
+     "echantillons": 21756,
+     "duree_ms": 2175.6,
+     "crete": 14032,
+     "ecretes": 0,
+     "rms": 1899.9
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/18-r3-p8.wav",
+     "echantillons": 21756,
+     "duree_ms": 2175.6,
+     "crete": 14032,
+     "ecretes": 0,
+     "rms": 1899.9,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/18-r3-p8.wav",
+     "echantillons": 21756,
+     "duree_ms": 2175.6,
+     "crete": 14032,
+     "ecretes": 0,
+     "rms": 1899.9,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 19,
+   "texte": "Bonjour, comment allez-vous ?",
+   "debit": 3,
+   "hauteur": 15,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/19-r3-p15.wav",
+     "echantillons": 21711,
+     "duree_ms": 2171.1,
+     "crete": 13755,
+     "ecretes": 0,
+     "rms": 2124.0
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/19-r3-p15.wav",
+     "echantillons": 21711,
+     "duree_ms": 2171.1,
+     "crete": 13755,
+     "ecretes": 0,
+     "rms": 2124.0,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/19-r3-p15.wav",
+     "echantillons": 21711,
+     "duree_ms": 2171.1,
+     "crete": 13755,
+     "ecretes": 0,
+     "rms": 2124.0,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 20,
+   "texte": "Bonjour, comment allez-vous ?",
+   "debit": 9,
+   "hauteur": 0,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/20-r9-p0.wav",
+     "echantillons": 10976,
+     "duree_ms": 1097.6,
+     "crete": 13993,
+     "ecretes": 0,
+     "rms": 1490.7
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/20-r9-p0.wav",
+     "echantillons": 10976,
+     "duree_ms": 1097.6,
+     "crete": 13993,
+     "ecretes": 0,
+     "rms": 1490.7,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/20-r9-p0.wav",
+     "echantillons": 10976,
+     "duree_ms": 1097.6,
+     "crete": 13993,
+     "ecretes": 0,
+     "rms": 1490.7,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 21,
+   "texte": "Bonjour, comment allez-vous ?",
+   "debit": 9,
+   "hauteur": 5,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/21-r9-p5.wav",
+     "echantillons": 10932,
+     "duree_ms": 1093.2,
+     "crete": 13819,
+     "ecretes": 0,
+     "rms": 1748.0
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/21-r9-p5.wav",
+     "echantillons": 10932,
+     "duree_ms": 1093.2,
+     "crete": 13819,
+     "ecretes": 0,
+     "rms": 1748.0,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/21-r9-p5.wav",
+     "echantillons": 10932,
+     "duree_ms": 1093.2,
+     "crete": 13819,
+     "ecretes": 0,
+     "rms": 1748.0,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 22,
+   "texte": "Bonjour, comment allez-vous ?",
+   "debit": 9,
+   "hauteur": 8,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/22-r9-p8.wav",
+     "echantillons": 10869,
+     "duree_ms": 1086.9,
+     "crete": 13449,
+     "ecretes": 0,
+     "rms": 1871.2
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/22-r9-p8.wav",
+     "echantillons": 10869,
+     "duree_ms": 1086.9,
+     "crete": 13449,
+     "ecretes": 0,
+     "rms": 1871.2,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/22-r9-p8.wav",
+     "echantillons": 10869,
+     "duree_ms": 1086.9,
+     "crete": 13449,
+     "ecretes": 0,
+     "rms": 1871.2,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 23,
+   "texte": "Bonjour, comment allez-vous ?",
+   "debit": 9,
+   "hauteur": 15,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/23-r9-p15.wav",
+     "echantillons": 10863,
+     "duree_ms": 1086.3,
+     "crete": 13755,
+     "ecretes": 0,
+     "rms": 2119.1
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/23-r9-p15.wav",
+     "echantillons": 10863,
+     "duree_ms": 1086.3,
+     "crete": 13755,
+     "ecretes": 0,
+     "rms": 2119.1,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/23-r9-p15.wav",
+     "echantillons": 10863,
+     "duree_ms": 1086.3,
+     "crete": 13755,
+     "ecretes": 0,
+     "rms": 2119.1,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 24,
+   "texte": "Bonjour, comment allez-vous ?",
+   "debit": 15,
+   "hauteur": 0,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/24-r15-p0.wav",
+     "echantillons": 5488,
+     "duree_ms": 548.8,
+     "crete": 13807,
+     "ecretes": 0,
+     "rms": 1454.1
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/24-r15-p0.wav",
+     "echantillons": 5488,
+     "duree_ms": 548.8,
+     "crete": 13807,
+     "ecretes": 0,
+     "rms": 1454.1,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/24-r15-p0.wav",
+     "echantillons": 5488,
+     "duree_ms": 548.8,
+     "crete": 13807,
+     "ecretes": 0,
+     "rms": 1454.1,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 25,
+   "texte": "Bonjour, comment allez-vous ?",
+   "debit": 15,
+   "hauteur": 5,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/25-r15-p5.wav",
+     "echantillons": 5496,
+     "duree_ms": 549.6,
+     "crete": 13444,
+     "ecretes": 0,
+     "rms": 1719.2
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/25-r15-p5.wav",
+     "echantillons": 5496,
+     "duree_ms": 549.6,
+     "crete": 13444,
+     "ecretes": 0,
+     "rms": 1719.2,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/25-r15-p5.wav",
+     "echantillons": 5496,
+     "duree_ms": 549.6,
+     "crete": 13444,
+     "ecretes": 0,
+     "rms": 1719.2,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 26,
+   "texte": "Bonjour, comment allez-vous ?",
+   "debit": 15,
+   "hauteur": 8,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/26-r15-p8.wav",
+     "echantillons": 5486,
+     "duree_ms": 548.6,
+     "crete": 13443,
+     "ecretes": 0,
+     "rms": 1853.2
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/26-r15-p8.wav",
+     "echantillons": 5486,
+     "duree_ms": 548.6,
+     "crete": 13443,
+     "ecretes": 0,
+     "rms": 1853.2,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/26-r15-p8.wav",
+     "echantillons": 5486,
+     "duree_ms": 548.6,
+     "crete": 13443,
+     "ecretes": 0,
+     "rms": 1853.2,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 27,
+   "texte": "Bonjour, comment allez-vous ?",
+   "debit": 15,
+   "hauteur": 15,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/27-r15-p15.wav",
+     "echantillons": 5467,
+     "duree_ms": 546.7,
+     "crete": 13238,
+     "ecretes": 0,
+     "rms": 2093.9
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/27-r15-p15.wav",
+     "echantillons": 5467,
+     "duree_ms": 546.7,
+     "crete": 13238,
+     "ecretes": 0,
+     "rms": 2093.9,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/27-r15-p15.wav",
+     "echantillons": 5467,
+     "duree_ms": 546.7,
+     "crete": 13238,
+     "ecretes": 0,
+     "rms": 2093.9,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 28,
+   "texte": "Bonjour Michel. Un élève prend un café.",
+   "debit": 0,
+   "hauteur": 15,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/28-r0-p15.wav",
+     "echantillons": 47201,
+     "duree_ms": 4720.1,
+     "crete": 15232,
+     "ecretes": 0,
+     "rms": 2159.7
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/28-r0-p15.wav",
+     "echantillons": 47201,
+     "duree_ms": 4720.1,
+     "crete": 15232,
+     "ecretes": 0,
+     "rms": 2159.7,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/28-r0-p15.wav",
+     "echantillons": 47201,
+     "duree_ms": 4720.1,
+     "crete": 15232,
+     "ecretes": 0,
+     "rms": 2159.7,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 29,
+   "texte": "Bonjour Michel. Un élève prend un café.",
+   "debit": 15,
+   "hauteur": 0,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/29-r15-p0.wav",
+     "echantillons": 8519,
+     "duree_ms": 851.9,
+     "crete": 14936,
+     "ecretes": 0,
+     "rms": 1474.5
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/29-r15-p0.wav",
+     "echantillons": 8519,
+     "duree_ms": 851.9,
+     "crete": 14936,
+     "ecretes": 0,
+     "rms": 1474.5,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/29-r15-p0.wav",
+     "echantillons": 8519,
+     "duree_ms": 851.9,
+     "crete": 14936,
+     "ecretes": 0,
+     "rms": 1474.5,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 30,
+   "texte": "Bonjour Michel. Un élève prend un café.",
+   "debit": 7,
+   "hauteur": 11,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/30-r7-p11.wav",
+     "echantillons": 21031,
+     "duree_ms": 2103.1,
+     "crete": 15268,
+     "ecretes": 0,
+     "rms": 1935.4
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/30-r7-p11.wav",
+     "echantillons": 21031,
+     "duree_ms": 2103.1,
+     "crete": 15268,
+     "ecretes": 0,
+     "rms": 1935.4,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/30-r7-p11.wav",
+     "echantillons": 21031,
+     "duree_ms": 2103.1,
+     "crete": 15268,
+     "ecretes": 0,
+     "rms": 1935.4,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 31,
+   "texte": "Bonjour Michel. Un élève prend un café.",
+   "debit": 11,
+   "hauteur": 2,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/31-r11-p2.wav",
+     "echantillons": 13310,
+     "duree_ms": 1331.0,
+     "crete": 14948,
+     "ecretes": 0,
+     "rms": 1578.8
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/31-r11-p2.wav",
+     "echantillons": 13310,
+     "duree_ms": 1331.0,
+     "crete": 14948,
+     "ecretes": 0,
+     "rms": 1578.8,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/31-r11-p2.wav",
+     "echantillons": 13310,
+     "duree_ms": 1331.0,
+     "crete": 14948,
+     "ecretes": 0,
+     "rms": 1578.8,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 32,
+   "texte": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "debit": 3,
+   "hauteur": 5,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/32-r3-p5.wav",
+     "echantillons": 15180,
+     "duree_ms": 1518.0,
+     "crete": 14023,
+     "ecretes": 0,
+     "rms": 2119.3
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/32-r3-p5.wav",
+     "echantillons": 15180,
+     "duree_ms": 1518.0,
+     "crete": 14023,
+     "ecretes": 0,
+     "rms": 2119.3,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/32-r3-p5.wav",
+     "echantillons": 15180,
+     "duree_ms": 1518.0,
+     "crete": 14023,
+     "ecretes": 0,
+     "rms": 2119.3,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 33,
+   "texte": "Michel Michel fenêtre café Michel 123 fenêtre café fenêtre ? fenêtre café bonjour ? élève fenêtre , , café .",
+   "debit": 4,
+   "hauteur": 7,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/33-r4-p7.wav",
+     "echantillons": 93049,
+     "duree_ms": 9304.9,
+     "crete": 15251,
+     "ecretes": 0,
+     "rms": 1870.8
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/33-r4-p7.wav",
+     "echantillons": 93049,
+     "duree_ms": 9304.9,
+     "crete": 15251,
+     "ecretes": 0,
+     "rms": 1870.8,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/33-r4-p7.wav",
+     "echantillons": 93049,
+     "duree_ms": 9304.9,
+     "crete": 15251,
+     "ecretes": 0,
+     "rms": 1870.8,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 34,
+   "texte": ". , élève , . fenêtre fenêtre 123 café fenêtre 123 café Michel fenêtre tableau 123 123 bonjour fenêtre ,",
+   "debit": 11,
+   "hauteur": 7,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/34-r11-p7.wav",
+     "echantillons": 48938,
+     "duree_ms": 4893.8,
+     "crete": 15252,
+     "ecretes": 0,
+     "rms": 1922.9
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/34-r11-p7.wav",
+     "echantillons": 48938,
+     "duree_ms": 4893.8,
+     "crete": 15252,
+     "ecretes": 0,
+     "rms": 1922.9,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/34-r11-p7.wav",
+     "echantillons": 48938,
+     "duree_ms": 4893.8,
+     "crete": 15252,
+     "ecretes": 0,
+     "rms": 1922.9,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 35,
+   "texte": "café élève . café Michel tableau 123 123 tableau bonjour élève . , fenêtre bonjour bonjour Michel bonjour bonjour Michel",
+   "debit": 14,
+   "hauteur": 9,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/35-r14-p9.wav",
+     "echantillons": 31357,
+     "duree_ms": 3135.7,
+     "crete": 14508,
+     "ecretes": 0,
+     "rms": 1896.0
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/35-r14-p9.wav",
+     "echantillons": 31357,
+     "duree_ms": 3135.7,
+     "crete": 14508,
+     "ecretes": 0,
+     "rms": 1896.0,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/35-r14-p9.wav",
+     "echantillons": 31357,
+     "duree_ms": 3135.7,
+     "crete": 14508,
+     "ecretes": 0,
+     "rms": 1896.0,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 36,
+   "texte": "bonjour tableau tableau , . bonjour 123 élève ? ? . . , , 123 , Michel Michel 123 fenêtre",
+   "debit": 12,
+   "hauteur": 14,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/36-r12-p14.wav",
+     "echantillons": 36561,
+     "duree_ms": 3656.1,
+     "crete": 15108,
+     "ecretes": 0,
+     "rms": 1855.9
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/36-r12-p14.wav",
+     "echantillons": 36561,
+     "duree_ms": 3656.1,
+     "crete": 15108,
+     "ecretes": 0,
+     "rms": 1855.9,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/36-r12-p14.wav",
+     "echantillons": 36561,
+     "duree_ms": 3656.1,
+     "crete": 15108,
+     "ecretes": 0,
+     "rms": 1855.9,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 37,
+   "texte": ", , 123 , 123 fenêtre élève tableau Michel élève fenêtre . Michel , tableau . fenêtre tableau tableau tableau",
+   "debit": 14,
+   "hauteur": 14,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/37-r14-p14.wav",
+     "echantillons": 28900,
+     "duree_ms": 2890.0,
+     "crete": 15108,
+     "ecretes": 0,
+     "rms": 2055.3
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/37-r14-p14.wav",
+     "echantillons": 28900,
+     "duree_ms": 2890.0,
+     "crete": 15108,
+     "ecretes": 0,
+     "rms": 2055.3,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/37-r14-p14.wav",
+     "echantillons": 28900,
+     "duree_ms": 2890.0,
+     "crete": 15108,
+     "ecretes": 0,
+     "rms": 2055.3,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 38,
+   "texte": ", 123 fenêtre . tableau . élève élève élève ? élève Michel Michel ? élève café 123 élève Michel 123",
+   "debit": 1,
+   "hauteur": 0,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/38-r1-p0.wav",
+     "echantillons": 131130,
+     "duree_ms": 13113.0,
+     "crete": 15221,
+     "ecretes": 0,
+     "rms": 1526.6
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/38-r1-p0.wav",
+     "echantillons": 131130,
+     "duree_ms": 13113.0,
+     "crete": 15221,
+     "ecretes": 0,
+     "rms": 1526.6,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/38-r1-p0.wav",
+     "echantillons": 131130,
+     "duree_ms": 13113.0,
+     "crete": 15221,
+     "ecretes": 0,
+     "rms": 1526.6,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 39,
+   "texte": "élève café ? fenêtre café tableau Michel ? , ? 123 tableau ? tableau bonjour café 123 tableau fenêtre ,",
+   "debit": 0,
+   "hauteur": 0,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/39-r0-p0.wav",
+     "echantillons": 146859,
+     "duree_ms": 14685.9,
+     "crete": 15221,
+     "ecretes": 0,
+     "rms": 1482.7
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/39-r0-p0.wav",
+     "echantillons": 146859,
+     "duree_ms": 14685.9,
+     "crete": 15221,
+     "ecretes": 0,
+     "rms": 1482.7,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/39-r0-p0.wav",
+     "echantillons": 146859,
+     "duree_ms": 14685.9,
+     "crete": 15221,
+     "ecretes": 0,
+     "rms": 1482.7,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 40,
+   "texte": "bonjour élève bonjour café Michel élève . élève Michel . ? fenêtre tableau élève , Michel 123 café . café",
+   "debit": 1,
+   "hauteur": 1,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/40-r1-p1.wav",
+     "echantillons": 121325,
+     "duree_ms": 12132.5,
+     "crete": 15221,
+     "ecretes": 0,
+     "rms": 1550.2
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/40-r1-p1.wav",
+     "echantillons": 121325,
+     "duree_ms": 12132.5,
+     "crete": 15221,
+     "ecretes": 0,
+     "rms": 1550.2,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/40-r1-p1.wav",
+     "echantillons": 121325,
+     "duree_ms": 12132.5,
+     "crete": 15221,
+     "ecretes": 0,
+     "rms": 1550.2,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 41,
+   "texte": "123 ? Michel tableau , élève café élève fenêtre , fenêtre bonjour . . café élève bonjour ? , Michel",
+   "debit": 2,
+   "hauteur": 9,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/41-r2-p9.wav",
+     "echantillons": 105275,
+     "duree_ms": 10527.5,
+     "crete": 15189,
+     "ecretes": 0,
+     "rms": 1759.0
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/41-r2-p9.wav",
+     "echantillons": 105275,
+     "duree_ms": 10527.5,
+     "crete": 15189,
+     "ecretes": 0,
+     "rms": 1759.0,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/41-r2-p9.wav",
+     "echantillons": 105275,
+     "duree_ms": 10527.5,
+     "crete": 15189,
+     "ecretes": 0,
+     "rms": 1759.0,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 42,
+   "texte": "bonjour . . fenêtre bonjour , fenêtre tableau Michel 123 123 ? café . ? élève bonjour café fenêtre 123",
+   "debit": 3,
+   "hauteur": 4,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/42-r3-p4.wav",
+     "echantillons": 120084,
+     "duree_ms": 12008.4,
+     "crete": 15225,
+     "ecretes": 0,
+     "rms": 1606.9
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/42-r3-p4.wav",
+     "echantillons": 120084,
+     "duree_ms": 12008.4,
+     "crete": 15225,
+     "ecretes": 0,
+     "rms": 1606.9,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/42-r3-p4.wav",
+     "echantillons": 120084,
+     "duree_ms": 12008.4,
+     "crete": 15225,
+     "ecretes": 0,
+     "rms": 1606.9,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 43,
+   "texte": "fenêtre , bonjour tableau bonjour . élève café , bonjour tableau tableau , , . ? bonjour Michel 123 café",
+   "debit": 14,
+   "hauteur": 3,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/43-r14-p3.wav",
+     "echantillons": 26356,
+     "duree_ms": 2635.6,
+     "crete": 14529,
+     "ecretes": 0,
+     "rms": 1464.3
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/43-r14-p3.wav",
+     "echantillons": 26356,
+     "duree_ms": 2635.6,
+     "crete": 14529,
+     "ecretes": 0,
+     "rms": 1464.3,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/43-r14-p3.wav",
+     "echantillons": 26356,
+     "duree_ms": 2635.6,
+     "crete": 14529,
+     "ecretes": 0,
+     "rms": 1464.3,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  },
+  {
+   "numero": 44,
+   "texte": "? tableau élève bonjour tableau 123 . , tableau 123 élève café tableau tableau Michel tableau 123 , café bonjour",
+   "debit": 9,
+   "hauteur": 13,
+   "variantes": {
+    "reference": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/reference/44-r9-p13.wav",
+     "echantillons": 54577,
+     "duree_ms": 5457.7,
+     "crete": 15124,
+     "ecretes": 0,
+     "rms": 2080.9
+    },
+    "bloc": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/bloc/44-r9-p13.wav",
+     "echantillons": 54577,
+     "duree_ms": 5457.7,
+     "crete": 15124,
+     "ecretes": 0,
+     "rms": 2080.9,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    },
+    "entier": {
+     "wav": "/home/pcressant/pc486/work/dev/synthe3/corpus/wav/entier/44-r9-p13.wav",
+     "echantillons": 54577,
+     "duree_ms": 5457.7,
+     "crete": 15124,
+     "ecretes": 0,
+     "rms": 2080.9,
+     "contre_reference": {
+      "identique": true,
+      "ecart_echantillons": 0,
+      "ecart_duree_ms": 0.0,
+      "ecart_max": 0,
+      "snr_db": null,
+      "premier_ecart": null
+     }
+    }
+   }
+  }
+ ],
+ "resume": {
+  "bloc": {
+   "cas": 45,
+   "identiques": 45,
+   "duree_differente": 0,
+   "ecart_duree_max_ms": 0.0,
+   "snr_min_db": null,
+   "ecart_max": 0,
+   "ecretes_total": 0,
+   "ecretes_total_reference": 0
+  },
+  "entier": {
+   "cas": 45,
+   "identiques": 43,
+   "duree_differente": 2,
+   "ecart_duree_max_ms": 1.4,
+   "snr_min_db": 7.71,
+   "ecart_max": 17017,
+   "ecretes_total": 0,
+   "ecretes_total_reference": 0
+  }
+ }
+}

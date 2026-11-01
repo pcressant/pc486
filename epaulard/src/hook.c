@@ -32,6 +32,10 @@ static BOOL ins_used;           /* Inser a servi de modificateur depuis son appu
 static BOOL ctrl_alone;         /* Ctrl appuyé seul : silence au relâchement */
 static WORD pad_held;           /* relâchements des touches de revue déjà absorbées */
 static int com_id = -1;         /* COM1 ouvert par EPAULARD.EXE */
+static UINT sys_timer;          /* boîte modale système : braille et Synthé3 */
+void CALLBACK __export EpSysTimer(HWND h, UINT msg, UINT id, DWORD t);
+static int (FAR PASCAL *s3_write)(LPCSTR s, int n);    /* Synthé3 local (EPAUS3.DLL) */
+static BOOL (FAR PASCAL *s3_pump)(void);
 BOOL ep_in_menu;                /* un menu est ouvert (WM_MENUSELECT) */
 static BOOL cfg_mode;           /* menu des réglages d'Épaulard ouvert */
 static BOOL pass_keys;          /* fenêtre DOS lue par Épaudos : toutes les touches à elle */
@@ -91,15 +95,29 @@ void FAR PASCAL __export EpPassKeys(BOOL on)
 
 /* Parole directe, depuis la tâche qui affiche une fenêtre modale système : tant
    qu'elle est ouverte, Windows ne donne plus la main à EPAULARD.EXE. */
+void FAR PASCAL __export EpSpeech(FARPROC write, FARPROC pump)
+{
+    s3_write = (int (FAR PASCAL *)(LPCSTR, int)) write;
+    s3_pump = (BOOL (FAR PASCAL *)(void)) pump;
+}
+
+static void speech_out(LPSTR buf, int n)
+{
+    if (s3_write)
+        s3_write(buf, n);
+    else
+        WriteComm(com_id, buf, n);
+}
+
 static void direct_say(const char FAR *s, BOOL cut)
 {
     char buf[300];
     int n, i;
-    if (com_id < 0)
+    if (com_id < 0 && !s3_write)
         return;
     if (cut) {
         buf[0] = 0x18;
-        WriteComm(com_id, buf, 1);
+        speech_out(buf, 1);
     }
     lstrcpyn(buf, s, sizeof(buf) - 2);
     AnsiToOem(buf, buf);
@@ -108,14 +126,15 @@ static void direct_say(const char FAR *s, BOOL cut)
             buf[i] = ' ';
     n = lstrlen(buf);
     buf[n++] = '\r';
-    WriteComm(com_id, buf, n);
+    speech_out(buf, n);
+    if (s3_pump && !sys_timer)          /* Synthé3 : la DLL calcule à la minuterie */
+        sys_timer = SetTimer(NULL, 0, 100, (TIMERPROC) EpSysTimer);
 }
 
 /* Braille direct, pour la même raison : la DLL écrit seule sur la plage. Une minuterie
    de la tâche de la boîte (sa boucle modale distribue WM_TIMER) lit les touches de
    défilement ; elle s'arrête d'elle-même à la fermeture de la boîte. */
 static int br_epoch;            /* change quand la DLL a remplacé l'affichage de l'EXE */
-static UINT sys_timer;
 
 void CALLBACK __export EpSysTimer(HWND h, UINT msg, UINT id, DWORD t)
 {
@@ -126,6 +145,11 @@ void CALLBACK __export EpSysTimer(HWND h, UINT msg, UINT id, DWORD t)
         sys_timer = 0;
         br_epoch++;            /* forcer la reprise, même si le focus est inchangé */
         return;
+    }
+    if (s3_pump) {                      /* 100 ms de parole : deux blocs de 512 */
+        int i;
+        for (i = 0; i < 4 && s3_pump(); i++)
+            ;
     }
     br_tick();
     key = br_key();
@@ -274,6 +298,8 @@ LRESULT CALLBACK __export EpKbdProc(int code, WPARAM vk, LPARAM lp)
         case 0x50: pad = 2; break;
         case 0x51: pad = 3; break;
         case 0x4A: pad = 10; break;
+        case 0x4E: pad = 11; break;
+        case 0x53: pad = 14; break;     /* bits 12 et 13 : / et * du pavé */
         }
     }
     if (pad) {
@@ -282,13 +308,22 @@ LRESULT CALLBACK __export EpKbdProc(int code, WPARAM vk, LPARAM lp)
             pad_held &= ~bit;
             return 1;
         }
-        if (!(GetKeyState(VK_NUMLOCK) & 1) && GetKeyState(VK_SHIFT) >= 0 &&
-            GetKeyState(VK_CONTROL) >= 0 && GetKeyState(VK_MENU) >= 0) {
-            if (ins_down && pad == 10)
-                action = 10;
-            else if (ins_down && pad == 5)
-                action = 11;
-            else if (!ins_down && pad <= 9)
+        if (!(GetKeyState(VK_NUMLOCK) & 1) && GetKeyState(VK_CONTROL) >= 0 &&
+            GetKeyState(VK_MENU) >= 0) {
+            /* Touches de NVDA. Inser+7 et Inser+1 : mode de revue suivant et
+               précédent (10, bascule) ; Inser+moins : objet du focus, revue
+               recentrée (11) ; plus seul : dire tout (14). Objets (objet.c) :
+               Inser+5 courant (15), 8 parent (16), 2 enfant (17), 4 et 6 précédent
+               et suivant (18, 19), 9 et 3 vue à plat (22, 23), Suppr position
+               (24), Inser+Maj+moins focus sur l'objet (21). */
+            static const BYTE ins_pad[12] = { 0, 10, 17, 23, 18, 15, 19, 10, 16, 22, 11, 0 };
+            if (GetKeyState(VK_SHIFT) < 0)
+                action = ins_down && pad == 10 ? 21 : 0;
+            else if (ins_down)
+                action = pad == 14 ? 24 : ins_pad[pad < 12 ? pad : 0];
+            else if (pad == 11)
+                action = 14;
+            else if (pad <= 9)
                 action = pad;
         }
         if (action && !up) {
@@ -330,6 +365,14 @@ LRESULT CALLBACK __export EpKbdProc(int code, WPARAM vk, LPARAM lp)
             /* Inser seul, appuyé deux fois de suite : on pourrait le rendre à l'appli */
         }
         return 1;                       /* Inser est réservé à Épaulard */
+    }
+    /* Inser+Entrée du pavé (bit étendu) : activer l'objet navigateur (NVDA) */
+    if (ins_down && vk == VK_RETURN && (lp & 0x01000000L)) {
+        if (!up && !repeat) {
+            ins_used = TRUE;
+            PostMessage(ep_hwnd_main, EPM_REVIEW, 20, 0L);
+        }
+        return 1;
     }
     if (ins_down) {
         if (!up) {

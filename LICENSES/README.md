@@ -13,6 +13,7 @@ Les éléments tiers conservent leurs licences et leurs attributions :
 | `epaulard/src/brfr.h` | Données des tables françaises de liblouis 3.33.0, **LGPL-2.1-or-later**. Les auteurs et sources restent indiqués dans l'en-tête. Texte : [LGPL 2.1](LGPL-2.1-or-later.txt). |
 | `epaudos/build/br850.h` (généré) | Même table liblouis que `brfr.h`, réindexée en CP850 à la compilation ; mêmes attributions et licence **LGPL-2.1-or-later**. |
 | `tools/86box-pc486.patch` | Correctif dérivé du code de 86Box, **GPL-2.0-or-later**, conformément à la licence amont. Les mentions des auteurs du code de contexte sont conservées. Texte : [GPL 2](GPL-2.0-or-later.txt). |
+| `synthe3/vendor/` et moteur adapté `synthe3/src/engine.c` | Copie locale de Synthé3-ng (moteur de Michel Morel, maintenu par Shérab), moteur **LGPL-2.1-or-later** ; adaptations pc486 sous **GPL-3.0-or-later**. Les données vocales Michel gardent la licence et la provenance amont, sans nouvelle licence attribuée. Voir [la provenance et les limites du portage](../synthe3/README.md), les notices copiées et les empreintes dans `synthe3/vendor/`. |
 
 Sources des notices :
 

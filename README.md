@@ -11,9 +11,14 @@ Chaîne vocale : Épaudos ou Épaulard (protocole Apollo 2) → COM1 → socket 
 Le [témoignage à l’origine du projet](docs/temoignage.md) présente son histoire
 et sa motivation.
 
+Le [manuel d’utilisation d’Épaulard et d’Épaudos](docs/manuel-lecteurs.md)
+regroupe les fonctionnalités, les commandes, la revue, la parole, le braille et
+la couverture des applications, avec leurs limites et l’état des essais.
+
 **Épaudos**, le lecteur d'écran TSR DOS du projet, est en cours de développement :
 navigation au pavé inspirée d'Épaulard, écho écran, parole Apollo II et braille Baum.
-Il est chargé par le choix DOS du menu de démarrage.
+Il est chargé par les choix DOS et Windows du menu de démarrage ; sous Windows,
+il se met en veille, sauf pour lire une session DOS par le relais d’Épaulard.
 Voir [la compilation, les commandes et les limites](docs/epaudos.md).
 
 ## Avec Nix
@@ -286,9 +291,11 @@ par Apolo-emu, comme Épaudos. Le dire tout attend l'écho `@E` renvoyé après 
   qui fait défiler le document, trois lignes envoyées d'avance pour une parole sans
   pause ; Ctrl ou toute autre touche l'arrête, Ctrl et les flèches verticales
   repartent de la ligne qui était lue), Inser+F
-  police et mise en forme, Inser+Maj+Haut lire la sélection, Inser+PgSuiv barre
-  d'état, **Inser+E réglages** (débit, hauteur, voix, ponctuation, écho du clavier,
-  majuscules ; voir [les réglages](docs/reglages.md)), Inser+H aide,
+  police et mise en forme, Inser+Maj+Haut lire la sélection, Inser+Fin (ou PgSuiv) barre
+  d'état, **Inser+N ou Inser+E réglages** (débit, hauteur, voix, ponctuation, écho du clavier,
+  majuscules, volume ; voir [les réglages](docs/reglages.md)), Inser+1 ou Inser+H aide,
+  Inser+2 et Inser+3 écho des caractères et des mots, Inser+P ponctuation, Inser+F12
+  heure (deux fois : date), comme NVDA,
   Inser+F4 quitter, Inser+D débogage (Inser+Maj+D : arbre des fenêtres), Ctrl seul = silence. Ctrl+Gauche/Droite lit le
   mot ; Maj+flèches annonce le texte sélectionné ou désélectionné (zones d'édition,
   Write, Word). La touche Inser est réservée à Épaulard.
@@ -313,10 +320,14 @@ par Apolo-emu, comme Épaudos. Le dire tout attend l'écho `@E` renvoyé après 
   lit sous le pointeur. Voir [la revue et la souris](docs/revue-pave.md).
 - Revue au pavé, **Verr Num éteint** : 7/8/9 ligne précédente/courante/suivante,
   4/5/6 mot précédent/courant/suivant, 1/2/3 caractère précédent/courant/suivant.
-  **Inser+moins du pavé** bascule entre revue normale et revue à plat ;
-  **Inser+5 du pavé** recentre la revue sur le focus ou le curseur de saisie.
+  **Inser+7 du pavé** bascule entre revue normale et revue à plat (touches de NVDA) ;
+  **Inser+moins du pavé** recentre la revue sur le focus ou le curseur de saisie.
   Les flèches dédiées et les combinaisons avec Maj, Ctrl ou Alt restent disponibles.
   Voir [les modes de revue et leurs limites](docs/revue-pave.md).
+- Navigation par objet, comme NVDA : Inser+5 du pavé objet courant, Inser+8 parent,
+  Inser+2 enfant, Inser+4/6 précédent/suivant, Inser+9/3 ordre de lecture,
+  Inser+Entrée du pavé activer. Les objets sont les fenêtres, puis les textes
+  dessinés par une fenêtre ; voir [la navigation par objet](docs/revue-pave.md#navigation-par-objet).
 
 ## CD-ROM et réseau isolé (facultatifs)
 

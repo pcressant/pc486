@@ -24,6 +24,8 @@ int FAR PASCAL EpBrailleEpoch(void) { return sim_br_epoch; }
 static HWND sim_nav_view;       /* mode navigation posé dans EPAUHOOK.DLL */
 static int sim_nav_mode;
 void FAR PASCAL EpNavMode(HWND v, int m) { sim_nav_view = v; sim_nav_mode = v ? m : 0; }
+static FARPROC sim_s3_write, sim_s3_pump;   /* parole directe de la DLL : Synthé3 */
+void FAR PASCAL EpSpeech(FARPROC w, FARPROC p) { sim_s3_write = w; sim_s3_pump = p; }
 
 static int failures;
 #define CHECK(c) do { if (!(c)) { printf("ÉCHEC %s:%d : %s\n", __FILE__, __LINE__, #c); failures++; } } while (0)
@@ -591,14 +593,22 @@ static void app_keys(void)
     }
 }
 
+static int timer_starved;       /* file d'Épaulard jamais vide : WM_TIMER jamais produit */
 static void step(void)
 {
     MSG m;
-    int i;
+    int i, n = 0;
     sim_now += 10;
     app_keys();
-    while (sim_take(hwnd_main, &m))
+    /* Windows ne produit WM_TIMER que file vide : des messages qui s'en reposent
+       sans fin affameraient la scrutation (relais de l'invite MS-DOS, dire tout). */
+    while (sim_take(hwnd_main, &m)) {
         MainProc(hwnd_main, m.message, m.wParam, m.lParam);
+        if (++n > 2000) {
+            timer_starved++;
+            break;
+        }
+    }
     for (i = 1; i < 16; i++)
         if (sim_timer[i] && sim_now >= sim_timer_due[i]) {
             sim_timer_due[i] = sim_now + sim_timer[i];
@@ -623,12 +633,13 @@ static void key(UINT vk)
     sim_hw = FALSE;
 }
 static void insert_cmd(UINT vk) { PostMessage(hwnd_main, EPM_CMD, vk, 0); }
+static const char *said(void);
 static void ctrl_alone(void) { PostMessage(hwnd_main, EPM_SILENCE, 0, 0); }
 
 static BOOL keep_ini;            /* redémarrage : garder EPAULARD.INI */
 static void boot(void)
 {
-    static const int cfg_default[CFG_N] = { 3, 8, 1, 1, 0, 0 };
+    static const int cfg_default[CFG_N] = { 3, 8, 1, 1, 0, 0, 4 };
     if (!keep_ini)
         sim_ini_n = 0;
     keep_ini = FALSE;
@@ -654,8 +665,8 @@ static void boot(void)
     osm_install();
     hwnd_main = sim_create(0, "Epaulard", "Épaulard", 0, 0, 0, 0, 0);
     sim_win[hwnd_main].style &= ~WS_VISIBLE;
-    com_open();
     cfg_load(0);
+    com_open();
     voice_apply();
     memset(&nav, 0, sizeof(nav));
     nav_init();
@@ -806,6 +817,105 @@ static void test_notepad_say_all(void)
     CHECK(spoken_since(0, "DOS=HIGH,UMB") == 4);
     CHECK(spoken_since(0, "[WIN]") == 5);
     CHECK(idle_ms == 0);
+}
+
+/* Synthé3 local : fausse EPAUS3.DLL qui transmet à la fausse Apollo (mêmes octets,
+   mêmes échos). Le dire tout, Ctrl et l'arrêt passent par la DLL, rien par COM1. */
+static int s3_bytes, s3_cuts, s3_pumps, s3_closed, s3_open_ok;
+static UINT FAR PASCAL s3f_open(void) { return s3_open_ok ? 0 : 1004; }
+static int FAR PASCAL s3f_write(LPCSTR s, int n)
+{
+    int i;
+    for (i = 0; i < n; i++)
+        s3_cuts += s[i] == 0x18;
+    s3_bytes += n;
+    return WriteComm(1, s, n);
+}
+static int FAR PASCAL s3f_read(LPSTR b, int n) { return ReadComm(1, b, n); }
+static int s3_more;             /* blocs encore à calculer (longue parole) */
+static BOOL FAR PASCAL s3f_pump(void) { s3_pumps++; return s3_more > 0 && s3_more--; }
+static void FAR PASCAL s3f_close(void) { s3_closed++; }
+static BOOL FAR PASCAL s3f_busy(void) { return s3_more > 0; }
+static HMODULE s3f_load(LPCSTR n) { return strstr(n, "EPAUS3.DLL") ? 41 : 2; }
+static FARPROC s3f_proc(HMODULE m, LPCSTR n)
+{
+    (void) m;
+    if (!strcmp(n, "S3OPEN")) return (FARPROC) s3f_open;
+    if (!strcmp(n, "S3WRITE")) return (FARPROC) s3f_write;
+    if (!strcmp(n, "S3READ")) return (FARPROC) s3f_read;
+    if (!strcmp(n, "S3PUMP")) return (FARPROC) s3f_pump;
+    if (!strcmp(n, "S3CLOSE")) return (FARPROC) s3f_close;
+    if (!strcmp(n, "S3BUSY")) return (FARPROC) s3f_busy;
+    return 0;
+}
+
+static void test_synthe3_local(void)
+{
+    int before;
+    sim_load_hook = s3f_load;
+    sim_proc_hook = s3f_proc;
+    s3_bytes = s3_cuts = s3_pumps = s3_closed = 0;
+    s3_open_ok = TRUE;
+    sim_ini_n = 0;
+    WritePrivateProfileString("Parole", "Synthese", "Synthe3", "EPAULARD.INI");
+    keep_ini = TRUE;
+    boot();
+    CHECK(s3_lib != 0);
+    CHECK(com < 0);
+    CHECK(sim_s3_write == (FARPROC) s3f_write);
+    wr_open(doc_lines, DOC_N);          /* dire tout de Write : avance par les échos @E */
+    run(500);
+    ap_reset();
+    insert_cmd(VK_DOWN);
+    run(200000);
+    CHECK(!sa.on);
+    CHECK(spoken_n > 10);
+    CHECK(spoken_n && !strcmp(spoken[spoken_n - 1], "Fin du document."));
+    CHECK(idle_ms == 0);                /* sans écho rendu, la lecture attendrait */
+    CHECK(s3_bytes > 0 && s3_pumps > 0);
+    before = s3_cuts;
+    ctrl_alone();
+    run(100);
+    CHECK(s3_cuts > before);
+    /* longue parole : les pas postés après une écriture sont bornés, la minuterie
+       calcule la suite ; la scrutation (TIMER_ID) continue */
+    s3_more = 1000000;
+    timer_starved = 0;
+    before = s3_pumps;
+    say("phrase longue", TRUE);
+    step();
+    CHECK(s3_pumps - before <= 3);
+    run(2000);
+    CHECK(!timer_starved);
+    CHECK(s3_pumps - before > 100);     /* ~36 ticks de 55 ms, quatre blocs chacun */
+    s3_more = 0;
+    s3_stop();
+    CHECK(s3_closed == 1 && !s3_lib && !sim_s3_write);
+    /* DLL présente mais aucun pilote audio : retour à l'Apollo II sur COM1 */
+    s3_open_ok = FALSE;
+    s3_closed = 0;
+    keep_ini = TRUE;
+    boot();
+    CHECK(!s3_lib && com == 1 && !sim_s3_write);
+    CHECK(s3_error == 1004);
+    /* Auto (défaut) : Synthé3 seulement si S3RES a été chargé avant Windows */
+    s3_open_ok = TRUE;
+    sim_ini_n = 0;
+    sim_s3res = FALSE;
+    boot();
+    CHECK(!s3_lib && com == 1);
+    s3_stop();
+    sim_s3res = TRUE;
+    boot();
+    CHECK(s3_lib != 0 && com < 0);
+    s3_stop();
+    WritePrivateProfileString("Parole", "Synthese", "Apollo", "EPAULARD.INI");
+    keep_ini = TRUE;
+    boot();
+    CHECK(!s3_lib && com == 1);         /* Apollo forcé malgré S3RES */
+    sim_s3res = FALSE;
+    sim_load_hook = NULL;
+    sim_proc_hook = NULL;
 }
 
 /* Gestionnaire de programmes : l'icône seule, jamais « vide » */
@@ -1081,7 +1191,7 @@ static void cfg_press(UINT vk) { PostMessage(hwnd_main, EPM_CFGKEY, vk, 0); run(
 static void test_settings(void)
 {
     boot();
-    CHECK(com1_has("@W3@F8@V1@P0\r"));
+    CHECK(com1_has("@W3@F8@V1@P0@A3\r"));
     np_open("texte");
     run(1000);
     ap_reset();
@@ -1089,12 +1199,12 @@ static void test_settings(void)
     run(4000);
     CHECK(cfg_on && cfg_mode_sim);
     cfg_press(VK_RIGHT);                /* débit 4 */
-    CHECK(com1_has("@W4@F8@V1@P0\r"));
+    CHECK(com1_has("@W4@F8@V1@P0@A3\r"));
     cfg_press(VK_DOWN);
     cfg_press(VK_DOWN);
     cfg_press(VK_DOWN);                 /* ponctuation */
     cfg_press(VK_RIGHT);                /* toute */
-    CHECK(com1_has("@W4@F8@V1@P1\r"));
+    CHECK(com1_has("@W4@F8@V1@P1@A3\r"));
     cfg_press(VK_RIGHT);                /* déjà au bout */
     cfg_press(VK_RETURN);
     CHECK(!cfg_on && !cfg_mode_sim);
@@ -1120,10 +1230,48 @@ static void test_settings(void)
     cfg_press(VK_ESCAPE);
     CHECK(cfg[CFG_RATE] == 4 && !cfg_on);
     CHECK_STR(spoken[spoken_n - 1], "Réglages annulés");
+    /* Volume (dernier réglage, Haut depuis Débit) : 1..8 -> @A0..@AF, enregistré. */
+    ap_reset();
+    insert_cmd('E');
+    run(4000);
+    cfg_press(VK_UP);
+    CHECK_STR(spoken[spoken_n - 1], "Volume, 4");
+    cfg_press(VK_RIGHT);
+    cfg_press(VK_RIGHT);
+    CHECK(cfg[CFG_VOLUME] == 6 && com1_has("@W4@F8@V1@P1@A7\r"));
+    cfg_press(VK_RETURN);
+    CHECK(GetPrivateProfileInt("Parole", "Volume", 0, "") == 6);
     keep_ini = TRUE;                    /* redémarrage : réglages relus */
     boot();
-    CHECK(cfg[CFG_RATE] == 4 && cfg[CFG_PUNCT] == 2);
-    CHECK(com1_has("@W4@F8@V1@P1\r"));
+    CHECK(cfg[CFG_RATE] == 4 && cfg[CFG_PUNCT] == 2 && cfg[CFG_VOLUME] == 6);
+    CHECK(com1_has("@W4@F8@V1@P1@A7\r"));
+    /* Touches de NVDA : Inser+N réglages, Inser+2/3 échos, Inser+P ponctuation,
+       Inser+F12 heure puis date. */
+    insert_cmd('N');
+    run(4000);
+    CHECK(cfg_on);
+    cfg_press(VK_ESCAPE);
+    CHECK(!cfg_on);
+    cfg[CFG_ECHO] = 0;
+    insert_cmd('2');
+    run(1500);
+    CHECK_STR(said(), "écho des caractères désactivé");
+    CHECK(cfg[CFG_ECHO] == 3);
+    insert_cmd('3');
+    run(1500);
+    CHECK_STR(said(), "écho des mots activé");
+    CHECK(cfg[CFG_ECHO] == 1);
+    ap_reset();
+    insert_cmd('P');
+    run(1500);
+    CHECK_STR(said(), "ponctuation aucune");
+    CHECK(cfg[CFG_PUNCT] == 0 && com1_has("@P0@A7\r"));
+    insert_cmd(VK_F12);
+    run(300);
+    insert_cmd(VK_F12);
+    run(1500);
+    CHECK(spoken_n >= 2 && !strcmp(spoken[spoken_n - 2], "9 heures 05"));
+    CHECK_STR(said(), "31 octobre 2026");
 }
 
 /* Écho du clavier, noms des signes, ponctuation dans le texte */
@@ -3362,6 +3510,66 @@ static BOOL heard_since(int from, const char *t)
     return FALSE;
 }
 
+/* Navigation par objet (Inser + pavé, comme NVDA) : fenêtres, puis textes dessinés
+   d'une fenêtre sans fenêtres filles (groupe du Gestionnaire de programmes). */
+static void obj_key(int action) { PostMessage(hwnd_main, EPM_REVIEW, action, 0); run(1500); }
+static void test_object_navigation(void)
+{
+    boot();
+    pm_open();
+    /* titre dessiné par le groupe lui-même, hors de sa zone client : écarté */
+    EpExtTextOut(pm.dc, 2, -18, 0, NULL, "Groupe principal", 16, NULL);
+    /* étiquette sur deux lignes dans la même case (« PIFedit », 56 points) ; les
+       lignes de Write, plus larges, ne sont jamais regroupées */
+    EpExtTextOut(pm.dc, 210, 70 + 40 + 16, 0, NULL, "(suite)", 7, NULL);
+    run(2000);
+    obj_key(11);                        /* Inser+moins : objet du focus */
+    obj_key(17);                        /* Inser+2 : premier enfant, un texte dessiné */
+    CHECK_STR(said(), "Gestionnaire de fichiers");
+    obj_key(19);
+    CHECK_STR(said(), "Panneau de configuration");
+    obj_key(19);
+    obj_key(19);                        /* deuxième rangée, après la première */
+    CHECK_STR(said(), "Windows Installation");
+    obj_key(18);
+    CHECK_STR(said(), "Lisezmoi");
+    obj_key(19);
+    obj_key(19);
+    CHECK_STR(said(), "PIFedit (suite)");
+    obj_key(18);
+    obj_key(18);
+    obj_key(17);
+    CHECK(spoken_n >= 2 && !strcmp(spoken[spoken_n - 2], "pas d'enfant"));
+    CHECK_STR(said(), "Lisezmoi");
+    obj_key(16);                        /* Inser+8 : le groupe, puis la fenêtre */
+    CHECK(strstr(said(), "Groupe principal") != NULL);
+    obj_key(16);
+    CHECK(strstr(said(), "Gestionnaire de programmes") && strstr(said(), "fenêtre"));
+    obj_key(16);
+    CHECK_STR(said(), "Bureau");
+    obj_key(16);
+    CHECK(spoken_n >= 2 && !strcmp(spoken[spoken_n - 2], "pas de parent"));
+    obj_key(19);
+    CHECK(spoken_n >= 2 && !strcmp(spoken[spoken_n - 2], "pas d'objet suivant"));
+    /* Vue à plat (Inser+3, Inser+9) depuis la fenêtre principale */
+    obj_key(11);
+    obj_key(16);
+    obj_key(23);
+    CHECK(strstr(said(), "Groupe principal") != NULL);
+    obj_key(23);
+    CHECK_STR(said(), "Gestionnaire de fichiers");
+    obj_key(22);
+    CHECK(strstr(said(), "Groupe principal") != NULL);
+    obj_key(22);
+    CHECK(strstr(said(), "Gestionnaire de programmes") != NULL);
+    obj_key(22);
+    CHECK(spoken_n >= 2 && !strcmp(spoken[spoken_n - 2], "début"));
+    obj_key(24);                        /* Inser+Suppr : position */
+    CHECK(strstr(said(), "largeur 640") != NULL);
+    obj_key(15);
+    CHECK(strstr(said(), "Gestionnaire de programmes") != NULL);
+}
+
 static void test_norton(void)
 {
     HWND frame, tree, list, files, dlg, combo, edit, hidden, top, msg, ok;
@@ -3471,6 +3679,7 @@ int main(void)
     { int f = failures; test_empty_gettext_edit(); if (failures > f) dump("test_empty_gettext_edit"); }
     { int f = failures; test_alt_tab(); if (failures > f) dump("test_alt_tab"); }
     { int f = failures; test_norton(); if (failures > f) dump("test_norton"); }
+    { int f = failures; test_object_navigation(); if (failures > f) dump("test_object_navigation"); }
     { int f = failures; test_navweb(); if (failures > f) dump("test_navweb"); }
     { int f = failures; test_disabled_controls(); if (failures > f) dump("test_disabled_controls"); }
     { int f = failures; test_calculator_states(); if (failures > f) dump("test_calculator_states"); }
@@ -3479,6 +3688,7 @@ int main(void)
     { int f = failures; test_write_interrupt(); if (failures > f) dump("test_write_interrupt"); }
     { int f = failures; test_write_up_at_end(); if (failures > f) dump("test_write_up_at_end"); }
     { int f = failures; test_notepad_say_all(); if (failures > f) dump("test_notepad_say_all"); }
+    { int f = failures; test_synthe3_local(); if (failures > f) dump("test_synthe3_local"); }
     { int f = failures; test_progman_icons(); if (failures > f) dump("test_progman_icons"); }
     { int f = failures; test_winfile_list(); if (failures > f) dump("test_winfile_list"); }
     { int f = failures; test_menus(); if (failures > f) dump("test_menus"); }

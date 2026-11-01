@@ -265,11 +265,23 @@ class SetupTests(unittest.TestCase):
 
 
 class ReferenceProfileTests(unittest.TestCase):
+    def test_epaudos_ini_only_holds_non_default_choices(self):
+        # Sans plage (--sans-braille), Épaudos ne doit toucher ni COM3 ni l'IRQ9.
+        self.assertEqual(install.epaudos_ini(False, True), '')
+        self.assertEqual(install.epaudos_ini(False, False), 'Braille=0\n')
+        self.assertEqual(install.epaudos_ini(True, False), 'Synthese=Synthe3\nBraille=0\n')
+
     def test_boot_files_follow_the_reference_templates(self):
         config, autoexec = install.final_boot_files()
         self.assertEqual(config, (ROOT / 'dos/CONFIG.SYS').read_bytes().replace(b'\n', b'\r\n'))
         self.assertEqual(autoexec, (ROOT / 'dos/AUTOEXEC.BAT').read_bytes().replace(b'\n', b'\r\n'))
-        self.assertIn(b':DOS\r\nC:\\EPAUDOS.COM\r\n', autoexec)
+        # Synthèse choisie dans EPAUDOS.INI, lu par Épaudos et S3RES : aucun témoin.
+        # Mémoire supérieure : S3RES (et BLASTER, qu'il lit) avant SMARTDRV, Épaudos par LH.
+        self.assertEqual(autoexec.count(b"\r\nLH C:\\EPAUDOS.COM\r\n"), 2)
+        self.assertEqual(autoexec.count(b"IF EXIST C:\\S3RES.EXE LH C:\\S3RES.EXE\r\n"), 1)
+        self.assertLess(autoexec.index(b"SET BLASTER="), autoexec.index(b"S3RES.EXE"))
+        self.assertLess(autoexec.index(b"S3RES.EXE"), autoexec.index(b"SMARTDRV.EXE"))
+        self.assertNotIn(b"SYNTHE3.ON", autoexec)
         self.assertIn(b'MENUDEFAULT=DOS,10', config)
         self.assertNotIn(b'SNL', autoexec)
         self.assertNotIn(b'SONOLECT', autoexec.upper())

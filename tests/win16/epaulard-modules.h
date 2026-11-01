@@ -15,3 +15,4 @@
 #include "../../epaulard/src/dosbox.c"
 #include "../../epaulard/src/navweb.c"
 #include "../../epaulard/src/navnet.c"
+#include "../../epaulard/src/objet.c"

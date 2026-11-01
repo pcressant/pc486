@@ -34,6 +34,7 @@ void hw_restore(void) {}
 void hw_quiet(void) {}
 static int guest;               /* hw_guest : ED_SLEEP, ED_RUN ou ED_SKIP */
 int hw_guest(int k) { (void)k; return guest; }
+void hw_clock(BYTE *t) { t[0]=0x09; t[1]=0x05; t[2]=0x31; t[3]=0x10; t[4]=0x20; t[5]=0x26; }
 EDBOX ed_box;
 WORD hw_lock(void) { return 0; }
 void hw_unlock(WORD flags) { (void)flags; }
@@ -113,7 +114,7 @@ int main(int argc,char **argv)
     ed_init(); run(10); outn[0]=outn[1]=0;
     if (!strcmp(argv[1],"review")) {
         key(76); run(10); contains("gamma");
-        combo(74); key(73); run(10); contains("deuxieme ligne");
+        combo(71); key(73); run(10); contains("deuxieme ligne");
         key(71); run(10); contains("alpha beta gamma");
         assert(vx==12 && vy==4);
         assert(!ed_scan(0xe0,0)); assert(!ed_scan(72,0));
@@ -121,8 +122,25 @@ int main(int argc,char **argv)
     } else if (!strcmp(argv[1],"menu")) {
         combo(18); assert(menu); assert(ed_cfg[0]==3);
         key(77); assert(ed_cfg[0]==4); key(1); assert(!menu && ed_save);
-        run(20); contains("@W4");
+        run(20); contains("@W4"); contains("@A3\r");
+        /* Volume (8e réglage) : 1..8 -> @A0..@AF ; jamais sous 1. */
+        combo(18); for (n=0; n<7; ++n) key(80);
+        run(5); contains("Volume 4");
+        key(77); key(77); assert(ed_cfg[7]==6); key(1); run(20); contains("@A7\r");
+        combo(18); for (n=0; n<7; ++n) key(80);
+        for (n=0; n<9; ++n) key(75); assert(ed_cfg[7]==1); key(1); run(20); contains("@A0\r");
+        /* Synthèse : effet au redémarrage seulement, rien n'est envoyé. */
+        /* Braille (dernier) : oui par défaut, effet au redémarrage. */
+        combo(18); key(72); run(5); contains("Braille oui, au redémarrage");
+        key(75); assert(ed_cfg[9]==0); run(5); contains("non, au redémarrage");
+        key(75); assert(ed_cfg[9]==0); key(77); assert(ed_cfg[9]==1);
+        key(72); run(5); contains("Synthèse Apollo, au redémarrage");
+        key(77); assert(ed_cfg[8]==1); run(5); contains("Synthé3, au redémarrage");
+        key(77); assert(ed_cfg[8]==1); key(1);
         combo(18); run(1100); assert(!menu);
+    } else if (!strcmp(argv[1],"pitch")) {
+        /* Hauteur 12 : @FC, jamais @F12 (F1 puis « 2 » dit par l'Apollo II). */
+        ed_cfg[1]=12; key(76); run(10); contains("@FC\r"); absent("@F12");
     } else if (!strcmp(argv[1],"sleep")) {
         textmode=0; run(1); n=outn[0]; run(100); assert(outn[0]==n);
         assert(!ed_scan(82,0)); textmode=1; run(10); assert(!ed_disabled);
@@ -182,7 +200,7 @@ int main(int argc,char **argv)
         put(0,24," Editeur MS-DOS  F1=Aide ",0x30);
         put(1,2,"DEVICE=C:\\DOS\\EMM386.EXE NOEMS",7); vx=3; vy=2;
         run(2); assert(left==1 && right==78 && top==2 && bottom==23);
-        combo(72); run(20); contains("DEVICE=C:"); nobyte(0xb3);
+        combo(72); run(20); contains("DEVICE ");  contains("gal C: barre oblique inverse DOS"); nobyte(0xb3);
         /* Le curseur de la barre de défilement bouge : pas un texte nouveau. */
         outn[0]=0; run(3); video[5*80+79]=0x7020; video[6*80+79]=0x07b0; run(4); assert(outn[0]==0);
     } else if (!strcmp(argv[1],"format")) {
@@ -190,6 +208,39 @@ int main(int argc,char **argv)
         combo(72); run(20); contains("plus"); contains("arobase");
         ed_cfg[5]=1; ed_flat=1; rx=0; ry=4; review(2,0); run(10); contains("majuscule A");
         outn[0]=0; ed_cfg[4]=3; nav(77); vx=1; run(10); contains("plus");
+        /* Signes : noms d'Épaulard ; « certaines » nomme ceux d'un chemin, pas les
+           crochets ; un trait de quatre signes ou plus est tu. */
+        put(0,4,"C:\\X ~|`^ [Y] 2\xfb ====== Z@W9         ",7); ed_cfg[3]=1;
+        outn[0]=0; combo(72); run(20);
+        contains("barre oblique inverse"); contains("tilde"); contains("barre verticale");
+        contains("circonflexe"); contains("exposant un"); contains("arobase");
+        absent("crochet"); absent("accent grave"); absent("gal"); contains("arobase W9");
+        ed_cfg[3]=2; outn[0]=0; combo(72); run(20);
+        contains("crochet ouvrant"); contains("accent grave"); absent("gal");
+        ed_cfg[3]=0; ed_flat=1; ry=4;
+        for (i=0; i<6; ++i) {
+            static const char *const one[6]={"deux-points","barre oblique inverse",
+                "tilde","barre verticale","accent grave","circonflexe"};
+            static const int col[6]={1,2,5,6,7,8};
+            outn[0]=0; rx=col[i]; review(2,0); run(10); contains(one[i]);
+        }
+        outn[0]=0; rx=15; review(2,0); run(10); contains("exposant un");
+        outn[0]=0; rx=12; review(2,0); run(10); contains("crochet fermant");
+        /* Touches de NVDA. */
+        outn[0]=0; combo(3); contains("caractères activé"); assert(ed_cfg[4]==0);
+        outn[0]=0; combo(4); contains("mots activé"); assert(ed_cfg[4]==2);
+        outn[0]=0; combo(3); contains("caractères désactivé"); assert(ed_cfg[4]==1);
+        outn[0]=0; combo(25); contains("Ponctuation certaines"); assert(ed_cfg[3]==1);
+        outn[0]=0; combo(88); contains("9 heures 05");
+        outn[0]=0; combo(88); contains("31 octobre 2026");
+        rx=15; outn[0]=0; combo(83); contains("Ligne 5, colonne 16");
+        outn[0]=0; combo(33); contains("gris clair sur noir");
+        outn[0]=0; key(78); run(20); contains("exposant un");
+        assert(ed_scan(82,0)); assert(!ed_scan(0xe0,0)); key(79); assert(ed_scan(82|128,0)); run(3);
+        assert(ed_flat);                    /* Inser+Fin dédiée : pas le 1 du pavé */
+        outn[0]=0; combo(79); run(3); contains("Revue normale"); assert(!ed_flat);
+        outn[0]=0; combo(71); run(3); contains("Revue à plat"); assert(ed_flat);
+        outn[0]=0; combo(74); run(3); assert(ed_flat && rx==vx && ry==vy);
         /* Une sortie de Windows doit réinitialiser les ports même si aucun
            timer du TSR n'a été exécuté pendant la session Windows. */
         n=serial_calls; ed_resume=1; run(1); assert(serial_calls>n);
@@ -222,7 +273,7 @@ int main(int argc,char **argv)
         outn[0]=0; nav(77); vx=13; put(0,24," Ligne: 6   Col: 14 ",0x30); run(3);
         contains("e\r"); absent("Ligne");
         /* Rappel d'historique : la rangée change et le curseur saute en fin. */
-        outn[0]=0; nav(72); put(0,4,"dir /w          ",7); vx=6; run(3); contains("dir /w");
+        outn[0]=0; nav(72); put(0,4,"dir /w          ",7); vx=6; run(3); contains("dir  barre oblique w");
         /* Page précédente sans défilement possible : rien, puis expiration. */
         outn[0]=0; nav(73); run(30); assert(outn[0]==0);
     } else if (!strcmp(argv[1],"typing")) {
@@ -258,10 +309,10 @@ int main(int argc,char **argv)
         /* Rangée du curseur : attendue stable (un passage), puis lue une fois.
            La parole part à la fin du passage qui la prépare. */
         outn[0]=0; vx=4; vy=22; put(0,22,"C:\\>",7); run(2); assert(outn[0]==0);
-        run(1); contains("C:\\>"); outn[0]=0; run(5); assert(outn[0]==0);
+        run(1); contains("C: barre oblique inverse"); outn[0]=0; run(5); assert(outn[0]==0);
         /* Entrée : la commande n'est pas relue, la sortie et l'invite le sont. */
         outn[0]=0; app(28); put(0,23,"resultat",7); put(0,24,"C:\\>",7); vx=4; vy=24; run(2);
-        contains("resultat"); absent("C:\\>"); run(1); contains("C:\\>");
+        contains("resultat"); absent("barre oblique"); run(1); contains("C: barre oblique inverse");
         /* Fenêtre redessinée sur deux passages (éditeur lent) : un défilement
            d'une rangée n'est pas lu comme du texte nouveau. */
         outn[0]=0; for (y=2;y<=20;++y) { clear_row(y); put(0,y,"ligne",7); } run(12); outn[0]=0;
@@ -280,9 +331,9 @@ int main(int argc,char **argv)
         /* Tab dans une boîte : le curseur change de rangée sans texte nouveau. */
         outn[0]=0; app(15); vy=10; vx=0; run(3); contains("ligne\r");
         /* Bascule au clavier, puis silence. */
-        outn[0]=0; combo(78); contains("désactivé"); assert(!ed_cfg[6]);
+        outn[0]=0; combo(6); contains("désactivé"); assert(!ed_cfg[6]);
         outn[0]=0; put(0,12,"silence",7); run(3); absent("silence");
-        combo(78); contains("activé"); outn[0]=0;
+        combo(6); contains("activé"); outn[0]=0;
         /* Une file pleine perd la ligne sans déborder. */
         for (y=0;y<40;++y) { clear_row(12); put(0,12,y&1?"pair pair pair pair pair pair pair pair pair":"impair impair impair impair impair impair",7); run(1); }
         assert(speech_n<=(int)sizeof(speech)-4);
@@ -375,8 +426,9 @@ int main(int argc,char **argv)
         put(57,9,"DOS",0x70); put(57,10,"EPAULARD",0x70);
         put(18,20,"< OK >",0x70); put(30,20,"< Annuler >",0x70);
         app(28); vx=30; vy=4; run(4);
-        contains("Ouvrir\rboîte de dialogue\rNom du fichier\rchamp\r*.TXT");
-        outn[0]=0; app(15); vx=57; vy=9; run(3); contains("Rép./Lecteur\rliste\rDOS");
+        contains("Ouvrir\rboîte de dialogue\rNom du fichier\rchamp\r ");
+        contains("toile .TXT");
+        outn[0]=0; app(15); vx=57; vy=9; run(3); contains("Rép. barre oblique Lecteur\rliste\rDOS");
         outn[0]=0; nav(80); vy=10; run(3); contains("EPAULARD"); absent("liste");
         /* Flèche sans effet (bout de liste) : l'élément est redit, une seule
            fois même si EDIT ne surligne l'élément qu'au passage suivant. */

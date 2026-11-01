@@ -1,11 +1,144 @@
-/* EPAULARD.EXE — parole : COM1, protocole Apollo II, signes, écho du clavier. */
+/* EPAULARD.EXE — parole : Apollo II sur COM1 ou Synthé3 local (EPAUS3.DLL), signes,
+   écho du clavier. */
 #include "ep.h"
 
 /* ---------------------------------------------------------------- parole */
 
+/* Synthé3 local (EPAUS3.DLL, même répertoire qu'EPAULARD.EXE) au lieu de l'Apollo II
+   sur COM1 : [Parole] Synthese=Synthe3 dans EPAULARD.INI. La DLL reçoit les mêmes
+   octets Apollo et rend les mêmes échos ; elle ne calcule que dans sa pompe (s3_tick),
+   appelée par la boucle de messages, jamais dans un crochet. */
+HINSTANCE s3_lib;
+static UINT (FAR PASCAL *s3_open)(void);      /* 0 : sortie audio prête */
+static int (FAR PASCAL *s3_write)(LPCSTR s, int n);
+static int (FAR PASCAL *s3_read)(LPSTR buf, int n);
+static BOOL (FAR PASCAL *s3_pump)(void);
+static void (FAR PASCAL *s3_close)(void);
+static BOOL (FAR PASCAL *s3_busy)(void);
+static BOOL s3_posted, s3_timer;
+int s3_error;                           /* Synthé3 demandé mais indisponible : raison */
+
+static BOOL s3_load(void)
+{
+    char path[144];
+    int n = GetModuleFileName((HINSTANCE) GetWindowWord(hwnd_main, GWW_HINSTANCE), path, sizeof(path) - 12);
+    UINT mode;
+    while (n > 0 && path[n - 1] != '\\' && path[n - 1] != ':')
+        n--;
+    lstrcpy(path + n, "EPAUS3.DLL");
+    mode = SetErrorMode(SEM_NOOPENFILEERRORBOX);
+    s3_lib = LoadLibrary(path);
+    SetErrorMode(mode);
+    if (s3_lib < HINSTANCE_ERROR) {
+        s3_error = (int) s3_lib;        /* 2 : EPAUS3.DLL absente ; 11 : pas un 386... */
+        s3_lib = 0;
+        return FALSE;
+    }
+    s3_open = (UINT (FAR PASCAL *)(void)) GetProcAddress(s3_lib, "S3OPEN");
+    s3_write = (int (FAR PASCAL *)(LPCSTR, int)) GetProcAddress(s3_lib, "S3WRITE");
+    s3_read = (int (FAR PASCAL *)(LPSTR, int)) GetProcAddress(s3_lib, "S3READ");
+    s3_pump = (BOOL (FAR PASCAL *)(void)) GetProcAddress(s3_lib, "S3PUMP");
+    s3_close = (void (FAR PASCAL *)(void)) GetProcAddress(s3_lib, "S3CLOSE");
+    s3_busy = (BOOL (FAR PASCAL *)(void)) GetProcAddress(s3_lib, "S3BUSY");
+    s3_error = 100;                     /* 100 : DLL d'une autre version ; 1000+ : waveOut */
+    if (s3_open && s3_write && s3_read && s3_pump && s3_close && s3_busy)
+        s3_error = (int) s3_open();
+    if (s3_error) {
+        if (s3_close) s3_close();
+        FreeLibrary(s3_lib);
+        s3_lib = 0;
+        return FALSE;
+    }
+    EpSpeech((FARPROC) s3_write, (FARPROC) s3_pump);
+    s3_error = 0;
+    return TRUE;
+}
+
+/* Pompe de Synthé3. Après une écriture (EPM_S3) : un bloc, puis au plus deux autres
+   messages EPM_S3, pour que le premier son parte vite. Ensuite la minuterie de 55 ms
+   (TIMER_S3, tant que la DLL a de la parole ou le périphérique ouvert) calcule
+   jusqu'à quatre blocs de 51 ms par tick. Une chaîne de messages postés sans fin
+   priverait Épaulard de WM_TIMER (produit seulement file vide) : scrutation, relais
+   de l'invite MS-DOS (Épaudos se croirait abandonné) et dire tout s'arrêteraient. */
+void s3_tick(BOOL timer)
+{
+    static int chain;
+    int i;
+    BOOL more = FALSE;
+    s3_posted = FALSE;
+    if (!s3_lib)
+        return;
+    if (timer)
+        chain = 0;
+    for (i = 0; i < (timer ? 4 : 1); i++)
+        if (!(more = s3_pump()))
+            break;
+    if (more && !timer && ++chain < 3)
+        s3_posted = PostMessage(hwnd_main, EPM_S3, 0, 0L);
+    if (s3_busy() != s3_timer) {
+        s3_timer = !s3_timer;
+        if (s3_timer)
+            SetTimer(hwnd_main, TIMER_S3, 55, NULL);
+        else
+            KillTimer(hwnd_main, TIMER_S3);
+    }
+}
+
+/* Fermeture : laisser finir la dernière phrase (2 s au plus), puis libérer. */
+void s3_stop(void)
+{
+    DWORD t = GetTickCount();
+    if (!s3_lib)
+        return;
+    while (s3_busy() && GetTickCount() - t < 2000)
+        s3_pump();
+    EpSpeech(NULL, NULL);
+    s3_close();
+    FreeLibrary(s3_lib);
+    s3_lib = 0;
+}
+
+/* S3RES chargé avant Windows (INT 2Fh D300h, renvoyé à la machine DOS) : l'utilisateur
+   a choisi Synthé3 (Synthese=Synthe3 dans EPAUDOS.INI, lu par S3RES). Sous Windows il dort ; seule sa
+   présence compte, Épaulard parle par EPAUS3.DLL. */
+static BOOL s3_resident(void)
+{
+#ifdef EP_NATIVE_TEST
+    return sim_s3res;
+#else
+    WORD r = 0;
+    _asm {
+        push es
+        push di
+        push bx
+        mov ax, 0D300h
+        xor bx, bx
+        xor di, di
+        int 2Fh
+        mov r, ax
+        pop bx
+        pop di
+        pop es
+    }
+    return r == 0xD3FF;
+#endif
+}
+
+/* [Parole] Synthese : Apollo (COM1), Synthe3 (EPAUS3.DLL), Auto (défaut : Synthé3 si
+   S3RES est résident, sinon Apollo). */
 void com_open(void)
 {
     DCB dcb;
+    char engine[16];
+    com = -1;
+    GetPrivateProfileString("Parole", "Synthese", "Auto", engine, sizeof(engine), ini_path);
+    if (lstrcmpi(engine, "Synthe3") == 0 || (lstrcmpi(engine, "Apollo") != 0 && s3_resident())) {
+        if (s3_load())
+            return;
+        /* Synthé3 demandé mais indisponible (DLL absente, aucun pilote audio) :
+           Apollo II sur COM1, qui annonce la raison au démarrage (s3_error). */
+        MessageBeep(MB_ICONHAND);
+    }
     com = OpenComm("COM1", 256, 4096);  /* file d'envoi : 7 s de parole à 9600 bauds */
     if (com < 0)
         return;
@@ -15,7 +148,11 @@ void com_open(void)
 
 void com_write(const char FAR *s, int n)
 {
-    if (com >= 0 && n > 0)
+    if (s3_lib && n > 0) {
+        s3_write(s, n);
+        if (!s3_posted)
+            s3_posted = PostMessage(hwnd_main, EPM_S3, 0, 0L);
+    } else if (com >= 0 && n > 0)
         WriteComm(com, (LPSTR) s, n);
 }
 
@@ -25,13 +162,15 @@ void silence(void)
     com_write(&x, 1);
 }
 
-/* Débit, hauteur, voix et ponctuation envoyés à l'Apollo II, dans une proposition
-   vide : CR plutôt que le « . » de Sonolect, qui serait dit avec @P1. */
+/* Débit, hauteur, voix, ponctuation et volume envoyés à l'Apollo II, dans une
+   proposition vide : CR plutôt que le « . » de Sonolect, qui serait dit avec @P1.
+   Volume 1..8 : niveaux @A de l'Apollo II 0 1 2 3 5 7 A F. */
 void voice_apply(void)
 {
-    char cmd[32];
-    wsprintf(cmd, "@W%d@F%X@V%d@P%d\r", cfg[CFG_RATE], cfg[CFG_PITCH], cfg[CFG_VOICE],
-             cfg[CFG_PUNCT] == 2 ? 1 : 0);
+    static const char volumes[] = "012357AF";
+    char cmd[40];
+    wsprintf(cmd, "@W%d@F%X@V%d@P%d@A%c\r", cfg[CFG_RATE], cfg[CFG_PITCH], cfg[CFG_VOICE],
+             cfg[CFG_PUNCT] == 2 ? 1 : 0, volumes[cfg[CFG_VOLUME] - 1]);
     com_write(cmd, lstrlen(cmd));
 }
 
@@ -206,10 +345,13 @@ void com_read(void)
     int n, i;
     COMSTAT st;
 
-    if (com < 0)
+    if (com < 0 && !s3_lib)
         return;
     for (;;) {
-        n = ReadComm(com, buf, sizeof(buf));
+        if (s3_lib)
+            n = s3_read(buf, sizeof(buf));
+        else
+            n = ReadComm(com, buf, sizeof(buf));
         if (n < 0) {
             GetCommError(com, &st);
             n = -n;

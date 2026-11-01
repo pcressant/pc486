@@ -24,18 +24,21 @@
 #define TIMER_DOS  11           /* invite MS-DOS : relais rapide de la parole et du braille */
 #define TIMER_NAV  12           /* mode navigation : état d'une case après activation */
 #define TIMER_NET  13           /* mode navigation : délai de la demande au proxy */
+#define TIMER_S3   14           /* Synthé3 local : tampons joués et échos @E */
+#define EPM_S3     (WM_USER + 201)  /* Synthé3 local : un pas de calcul, interne à l'EXE */
 #define EPM_NET    (WM_USER + 200)  /* Winsock (WSAAsyncSelect), interne à l'EXE */
 #define POLL_MS    100
 #define SA_MS      50
 #define TXT        256
 #define AUTO_ROWS 40
-#define CFG_N 6
+#define CFG_N 7
 #define CFG_RATE  0             /* débit Apollo II @W, 1 à 9 */
 #define CFG_PITCH 1             /* hauteur @F, 0 à 15 */
 #define CFG_VOICE 2             /* voix préréglée @V, 1 à 6 */
 #define CFG_PUNCT 3             /* ponctuation : aucune, certaine, toute */
 #define CFG_ECHO  4             /* écho du clavier : caractères, mots, les deux, aucun */
 #define CFG_CAPS  5             /* dire « majuscule » devant une lettre seule */
+#define CFG_VOLUME 6            /* volume @A, 1 à 8 (@A0 à @AF, 4 : @A3 par défaut) */
 #define CALC_STD 1
 #define CALC_SCI 2
 #define CALC_BOTH 3
@@ -203,6 +206,10 @@ void cfg_close(BOOL keep);
 void cfg_open(void);
 void cfg_key_in(WPARAM vk);
 void com_open(void);
+extern HINSTANCE s3_lib;
+extern int s3_error;
+void s3_tick(BOOL timer);
+void s3_stop(void);
 void com_write(const char FAR *s, int n);
 void silence(void);
 void voice_apply(void);
@@ -373,6 +380,15 @@ BOOL nav_sa_start(int *pos);
 BOOL nav_sa_text(int *pos, char *out, int max);
 void nav_sa_at(int pos);
 BOOL nav_br_show(void);
+
+/* objet.c : navigation par objet (Inser + pavé, comme NVDA) */
+extern BOOL obj_recent;
+void obj_command(int action);
+void obj_to_focus(void);
+void obj_at_mouse(void);
+void obj_mouse(void);
+void obj_review_used(void);
+BOOL obj_br_show(void);
 BOOL nav_br_key(int key);
 HWND page_of(HWND act);
 /* navnet.c : DDE avec Netscape, Winsock vers le proxy */

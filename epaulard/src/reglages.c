@@ -4,13 +4,13 @@
 /* -------------------------------------------------------------- réglages */
 
 /* Réglages (Inser+E), lus et enregistrés dans EPAULARD.INI, section [Parole] */
-int cfg[CFG_N] = { 3, 8, 1, 1, 0, 0 };   /* débit, hauteur : défauts de l'Apollo II */
+int cfg[CFG_N] = { 3, 8, 1, 1, 0, 0, 4 };   /* débit, hauteur : défauts de l'Apollo II */
 const char *const cfg_key[CFG_N] = {
-    "Debit", "Hauteur", "Voix", "Ponctuation", "Echo", "Majuscules" };
+    "Debit", "Hauteur", "Voix", "Ponctuation", "Echo", "Majuscules", "Volume" };
 const char *const cfg_label[CFG_N] = {
-    "Débit", "Hauteur", "Voix", "Ponctuation", "Écho du clavier", "Majuscules" };
-const int cfg_min[CFG_N] = { 1, 0, 1, 0, 0, 0 };
-const int cfg_max[CFG_N] = { 9, 15, 6, 2, 3, 1 };
+    "Débit", "Hauteur", "Voix", "Ponctuation", "Écho du clavier", "Majuscules", "Volume" };
+const int cfg_min[CFG_N] = { 1, 0, 1, 0, 0, 0, 1 };
+const int cfg_max[CFG_N] = { 9, 15, 6, 2, 3, 1, 8 };
 char ini_path[144];
 int typed_n;             /* longueur du mot en cours de frappe (écho par mots) */
 BOOL cfg_on;             /* menu des réglages ouvert */
@@ -152,7 +152,7 @@ void cfg_key_in(WPARAM vk)
     }
     cfg[cfg_item] += d;
     silence();
-    if (cfg_item <= CFG_PUNCT)
+    if (cfg_item <= CFG_PUNCT || cfg_item == CFG_VOLUME)
         voice_apply();                  /* entendre aussitôt la nouvelle voix */
     cfg_say(FALSE, FALSE);
 }

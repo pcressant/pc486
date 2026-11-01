@@ -146,7 +146,8 @@ class WindowsScenarios(unittest.TestCase):
                             str(DISK), '--', 'true'], check=True)
         subprocess.run([str(ROOT / 'epaulard/build.sh')], check=True, capture_output=True)
         DISK.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(ROOT / 'vm/win311.img', DISK)
+        # PC486_VM_SOURCE : autre disque arrêté à copier (comparaison de configurations)
+        shutil.copyfile(os.environ.get('PC486_VM_SOURCE', ROOT / 'vm/win311.img'), DISK)
         img = f'{DISK}@@32256'
         build = ROOT / 'epaulard/build'
         subprocess.run(['mcopy', '-o', '-i', img, str(build / 'EPAULARD.EXE'),
@@ -155,11 +156,20 @@ class WindowsScenarios(unittest.TestCase):
         subprocess.run([str(ROOT / 'epaudos/build.sh')], check=True, capture_output=True)
         subprocess.run(['mcopy', '-o', '-i', img, str(ROOT / 'epaudos/build/EPAUDOS.COM'),
                         '::/EPAUDOS.COM'], check=True)
+        # Disque sans Word (installation minimale) : scénario Word sauté, avant que sa
+        # boîte d'erreur ne fausse les suivants. Lu ici, VM encore arrêtée.
+        cls.has_word = subprocess.run(['mdir', '-i', img, '::/WINWORD/WINWORD.EXE'],
+                                      capture_output=True).returncode == 0
         # Word doit ouvrir un vrai document, sans dépendre des fichiers privés de C:.
         with tempfile.TemporaryDirectory(prefix='pc486-word-') as tmp:
             document = Path(tmp) / 'EPTEST.RTF'
             document.write_bytes(b'{\\rtf1\\ansi Document de test\\par}')
             subprocess.run(['mcopy', '-o', '-i', img, str(document), '::/EPTEST.RTF'], check=True)
+            # Apollo II sur COM1, même si le disque copié a choisi Synthé3 (S3RES non
+            # chargé, Épaulard en mode Auto parle alors sur COM1).
+            ini = Path(tmp) / 'EPAUDOS.INI'
+            ini.write_bytes(b'Synthese=Apollo\r\n')
+            subprocess.run(['mcopy', '-o', '-i', img, str(ini), '::/EPAUDOS.INI'], check=True)
         shutil.rmtree(LOGS, ignore_errors=True)
         dev('pc486', 'start', '--qemu', '--headless', '--braille')
         cls.baum = FakeBaum(RUN / 'com3.sock')
@@ -423,6 +433,15 @@ class WindowsScenarios(unittest.TestCase):
         self.run_program(r'write c:\windows\lisezmoi.wri')
         self.wait_speech(r'LISEZMOI', n, 30)
         time.sleep(4)
+        # Touches de NVDA prises par le crochet : modes de revue au pavé, heure.
+        for keys, said in (('insert-kp_7', 'revue à plat'), ('insert-kp_1', 'revue normale'),
+                           ('insert-f12', 'heure')):
+            n = self.mark()
+            self.key(keys)
+            self.wait_speech(said, n, 10)
+        # Dire tout lancé juste après une autre commande Inser : le retour du curseur
+        # après Ctrl est alors parfois faux (défaut connu, voir docs/revue-pave.md).
+        time.sleep(4)
         t0 = time.time()
         start = self.trace()[-1][0] if self.trace() else 0
         n = self.mark()
@@ -492,6 +511,8 @@ class WindowsScenarios(unittest.TestCase):
         self.assertEqual(mask.count('#'), 1, f'{text!r} {mask!r}')
 
     def test_4_word_header_followed(self):
+        if not self.has_word:
+            self.skipTest('Word 6 absent du disque copié (C:\\WINWORD)')
         n = self.mark()
         self.key('insert-t')
         title = self.wait_speech(r'.', n, 10)
@@ -572,6 +593,41 @@ class WindowsScenarios(unittest.TestCase):
         while time.time() < deadline and 'WINDOWS>' in self.baum.last()[0].upper():
             time.sleep(0.5)
         self.assertNotIn('WINDOWS>', self.baum.last()[0].upper())
+
+    def test_6_object_navigation(self):
+        """Navigation par objet (Inser + pavé, comme NVDA) dans le Gestionnaire de
+        programmes : icônes dessinées par le groupe, puis remontée jusqu'au bureau."""
+        for _ in range(3):
+            n = self.mark()
+            self.key('insert-t')
+            if 'Gestionnaire de programmes' in self.wait_speech(r'.', n, 10):
+                break
+            self.key('alt-f4')
+            time.sleep(3)
+        self.key('insert-kp_subtract')
+        time.sleep(2)
+        n = self.mark()
+        self.key('insert-kp_5')
+        group = self.wait_speech(r'.', n, 10)
+        n = self.mark()
+        self.key('insert-kp_2')
+        first = self.wait_speech(r'.', n, 10)
+        self.assertNotIn(first, ('pas d\'enfant', 'vide', group), group)
+        n = self.mark()
+        self.key('insert-kp_6')
+        second = self.wait_speech(r'.', n, 10)
+        self.assertNotEqual(second, first)
+        self.assertNotIn('pas d', second)
+        said = []
+        for _ in range(5):                  # groupe, client MDI, fenêtre, bureau
+            n = self.mark()
+            self.key('insert-kp_8')
+            said.append(self.wait_speech(r'.', n, 10))
+            if said[-1] == 'Bureau':
+                break
+        self.assertIn('Bureau', said, said)
+        self.assertTrue(any('Gestionnaire de programmes' in t for t in said), said)
+        print(f'objets : {group!r} > {first!r}, {second!r} ; parents {said}', flush=True)
 
 
 if __name__ == '__main__':

@@ -40,6 +40,10 @@ class EpaudosVMTests(unittest.TestCase):
             b'MODE CON CODEPAGE PREPARE=((850) C:\\DOS\\EGA.CPI)\r\n'
             b'MODE CON CODEPAGE SELECT=850\r\n'
             b'KEYB FR,,C:\\DOS\\KEYBOARD.SYS\r\nC:\\EPAUDOS.COM\r\n')
+        # EPAUDOS.INI du disque copié remplacé : Apollo II sur COM1 (le disque de
+        # l'utilisateur peut avoir choisi Synthé3).
+        ini = BASE / 'EPAUDOS.INI'
+        ini.write_bytes(b'Synthese=Apollo\r\n')
         img = f'{BASE / "dos.img"}@@32256'
         watcom = Path(os.environ.get('WATCOM', ROOT / 'tools/watcom')).resolve()
         env_build = dict(os.environ, WATCOM=str(watcom),
@@ -49,8 +53,11 @@ class EpaudosVMTests(unittest.TestCase):
         subprocess.run(['wlink', 'op', 'q', 'format', 'dos', 'com', 'name',
                         str(BASE / 'MODES.COM'), 'file', str(BASE / 'modes.o')],
                        check=True, env=env_build)
+        dosshell = subprocess.run(['mdir', '-i', img, '::/DOS/DOSSHELL.EXE'],
+                                  capture_output=True).returncode == 0
         for src, dst in ((ROOT / 'epaudos/build/EPAUDOS.COM', 'EPAUDOS.COM'),
-                         (autoexec, 'AUTOEXEC.BAT'), (BASE / 'MODES.COM', 'MODES.COM')):
+                         (autoexec, 'AUTOEXEC.BAT'), (BASE / 'MODES.COM', 'MODES.COM'),
+                         (ini, 'EPAUDOS.INI')):
             subprocess.run(['mcopy', '-o', '-i', img, str(src), f'::/{dst}'], check=True)
         spec = importlib.util.spec_from_file_location('epaudos_vmctl', ROOT / 'scripts/vmctl.py')
         vmctl = importlib.util.module_from_spec(spec)
@@ -90,13 +97,13 @@ class EpaudosVMTests(unittest.TestCase):
             self.wait_screen('premiere ligne', 10)
             self.wait_speech('premiere ligne', 10)
             print('Écho écran : sortie DOS lue sans commande', flush=True)
-            self.key('insert-kp_add')
+            self.key('insert-5')                # écho écran (NVDA+5)
             self.wait_speech('désactivé', 10)
-            self.key('insert-kp_add')
+            self.key('insert-5')
             self.wait_speech('activé', 10)
             lines, (cy, _), _ = self.q.screen()
             target = next(i for i, line in enumerate(lines) if line.strip() == 'premiere ligne')
-            self.key('insert-kp_subtract')
+            self.key('insert-kp_7')             # mode de revue suivant (NVDA)
             self.wait_speech('Revue à plat', 10)
             for _ in range(cy-target):
                 self.key('kp_7')
@@ -118,7 +125,8 @@ class EpaudosVMTests(unittest.TestCase):
             self.assertGreaterEqual(len(acknowledgements),2, 'le dire tout ne reçoit pas les échos COM1')
             self.key('ctrl')
             print('Revue et braille Baum reçus', flush=True)
-            self.key('insert-kp_subtract')
+            self.key('insert-kp_1')
+            self.wait_speech('Revue normale', 10)
             self.type('edit\n', vmctl)
             self.wait_screen('Fichier', 25)
             self.key('esc')
@@ -165,19 +173,22 @@ class EpaudosVMTests(unittest.TestCase):
             self.key('tab')
             self.key('ret')
             self.wait_screen('C:\\>', 20)
-            self.type('dosshell /t\n', vmctl)
-            self.wait_screen('Fichier', 25)
-            end = time.monotonic()+30
-            while 'Lecture des informations' in self.screen() and time.monotonic() < end:
-                time.sleep(.5)
-            time.sleep(1)
-            self.key('alt-f')
-            self.key('down')
-            self.wait_speech('Exécuter', 10)
-            print('DOSSHELL : déplacement dans le menu annoncé', flush=True)
-            self.key('esc')
-            self.key('alt-f4')
-            self.wait_screen('C:\\>', 15)
+            if dosshell:
+                self.type('dosshell /t\n', vmctl)
+                self.wait_screen('Fichier', 25)
+                end = time.monotonic()+30
+                while 'Lecture des informations' in self.screen() and time.monotonic() < end:
+                    time.sleep(.5)
+                time.sleep(1)
+                self.key('alt-f')
+                self.key('down')
+                self.wait_speech('Exécuter', 10)
+                print('DOSSHELL : déplacement dans le menu annoncé', flush=True)
+                self.key('esc')
+                self.key('alt-f4')
+                self.wait_screen('C:\\>', 15)
+            else:
+                print('DOSSHELL absent du disque (outils supplémentaires) : étape sautée', flush=True)
             self.type('modes\n', vmctl)
             self.assertEqual(self.q.screen()[2], 0x13)
             time.sleep(1)
@@ -216,6 +227,63 @@ class EpaudosVMTests(unittest.TestCase):
                 self.q.s.close()
             if self.baum is not None:
                 self.baum.stop = True
+            self.dev('pc486', 'stop', check=False)
+
+    def test_dos_without_braille(self):
+        """Braille=0 et aucun COM3 : Épaudos parle, n'a pas pris l'IRQ9 (INT 71h)."""
+        if main_vm_busy():
+            self.skipTest('image principale utilisée : copie refusée')
+        subprocess.run(['bash', 'epaudos/build.sh'], cwd=ROOT, check=True, capture_output=True)
+        mapping = (ROOT / 'epaudos/build/EPAUDOS.MAP').read_text()
+        BASE.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / 'vm/win311.img', BASE / 'dos.img')
+        autoexec, ini = BASE / 'AUTOEXEC.BAT', BASE / 'EPAUDOS.INI'
+        autoexec.write_bytes(
+            b'@ECHO OFF\r\nPROMPT $P$G\r\nPATH C:\\DOS;C:\\WINDOWS;C:\\\r\n'
+            b'MODE CON CODEPAGE PREPARE=((850) C:\\DOS\\EGA.CPI)\r\n'
+            b'MODE CON CODEPAGE SELECT=850\r\n'
+            b'KEYB FR,,C:\\DOS\\KEYBOARD.SYS\r\nC:\\EPAUDOS.COM\r\n')
+        ini.write_bytes(b'Synthese=Apollo\r\nBraille=0\r\n')
+        img = f'{BASE / "dos.img"}@@32256'
+        for src, dst in ((ROOT / 'epaudos/build/EPAUDOS.COM', 'EPAUDOS.COM'),
+                         (autoexec, 'AUTOEXEC.BAT'), (ini, 'EPAUDOS.INI')):
+            subprocess.run(['mcopy', '-o', '-i', img, str(src), f'::/{dst}'], check=True)
+        spec = importlib.util.spec_from_file_location('epaudos_vmctl', ROOT / 'scripts/vmctl.py')
+        vmctl = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(vmctl)
+        self.q = None
+        self.speech_mark = len(self.speech())
+        try:
+            self.dev('pc486', 'start', '--qemu', '--headless', '--no-braille')
+            self.q = vmctl.Qmp(str(BASE / 'run/qmp.sock'))
+            self.wait_screen('Épaudos résident', 90)
+            import re
+            self.segment = int.from_bytes(self.q.memory(0x2f*4+2,2), 'little')
+            self.debug_address = self.segment*16+int(re.search(
+                r'0000:([0-9a-f]+)[+*]?\s+_ed_debug', mapping).group(1),16)
+            irq9 = int.from_bytes(self.q.memory(0x71*4+2,2), 'little')
+            self.assertNotEqual(irq9, self.segment, 'INT 71h (IRQ9) détournée sans braille')
+            time.sleep(2)
+            self.key('insert-h')
+            self.wait_speech('Pavé', 15)
+            self.key('ctrl')
+            self.type('echo sans plage\n', vmctl)
+            self.wait_speech('sans plage', 10)
+            self.key('insert-e')
+            self.wait_screen('Épaudos : Débit', 10)
+            self.key('up')
+            self.wait_speech('Braille non', 10)
+            self.key('esc')
+            self.key('insert-f12')
+            self.wait_speech('heures', 10)
+            self.key('insert-kp_decimal')
+            self.wait_speech('colonne', 10)
+            self.key('esc')
+            print('Sans braille : parole, écho, IRQ9 libre', flush=True)
+        finally:
+            if self.q is not None:
+                self.q.f.close()
+                self.q.s.close()
             self.dev('pc486', 'stop', check=False)
 
     @staticmethod

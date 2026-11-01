@@ -26,6 +26,9 @@
                                           wParam ; lParam 1 Maj, 2 Ctrl, 4 Alt, 8 répétée */
 
 BOOL FAR PASCAL EpInstall(HWND hwnd, int com);
+/* Synthé3 local : écriture (S3Write) et pompe (S3Pump) d'EPAUS3.DLL pour la parole
+   directe d'une boîte modale système ; NULL pour les oublier. */
+void FAR PASCAL EpSpeech(FARPROC write, FARPROC pump);
 void FAR PASCAL EpRemove(void);
 /* Menu des réglages (Inser+E) : la DLL envoie alors toutes les touches à l'EXE */
 void FAR PASCAL EpCfgMode(BOOL on);

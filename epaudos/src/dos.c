@@ -25,6 +25,11 @@ extern BYTE __far * __cdecl dos_indos(void);
 extern unsigned long __cdecl mux(unsigned fn);
 extern unsigned __cdecl cur_vm(void);
 extern void __cdecl keep(void);
+/* Synthé3 local (S3RES.EXE) : INT 2Fh D300h, puis appel far de son API d'octets. */
+extern int __cdecl s3_find(void);
+extern int __cdecl s3_call(unsigned fn, unsigned value);
+BYTE s3_mode;                   /* EPAUDOS /S3 : parole par S3RES, COM1 jamais ouvert */
+static BYTE s3_ready;           /* S3RES trouvé et attaché */
 extern void isr15(void), isr08(void), isr28(void), isr2f(void);
 extern void isr0c(void), isr71(void);
 extern void fail24(void);
@@ -41,7 +46,11 @@ static int saved_row = -1, saved_cols;
 static WORD saved_cells[ED_COLS];
 static WORD __far *saved_video;
 static BYTE __far *indos;
-static const char *const cfg_names[ED_CFG] = {"Debit","Hauteur","Voix","Ponctuation","Echo","Majuscules","EchoEcran"};
+static const char *const cfg_names[ED_CFG] = {"Debit","Hauteur","Voix","Ponctuation","Echo","Majuscules","EchoEcran",
+                                             "Volume","Synthese","Braille"};
+#define CFG_SYNTH 8             /* Synthese=Apollo ou Synthese=Synthe3 (aussi lu par S3RES) */
+#define CFG_BRAILLE 9           /* Braille=0 : COM3 et IRQ9 jamais touchés */
+static BYTE braille = 1;        /* fixé au chargement */
 
 static BYTE __far *bda = (BYTE __far *)MK_FP(0x40,0);
 
@@ -76,17 +85,26 @@ int hw_guest(int key)
     if (key) ++ed_box.keys;     /* Épaulard se tient prêt à relayer (dosbox.c) */
     return ED_RUN;
 }
+/* S3RES peut être chargé après Épaudos : il est cherché tant qu'il manque (INT 2Fh,
+   sans DOS) ; la parole attend dans la file d'Épaudos. */
+static int s3_link(void)
+{
+    if (!s3_ready && s3_find()) { s3_call(3,0); s3_ready = 1; }
+    return s3_ready;
+}
 int hw_tx(int port, BYTE value)
 {
     unsigned base = port ? 0x3e8 : 0x3f8;
     BYTE next = (BYTE)(uart_head[port]+1);
     WORD flags;
+    if (port && !braille) return 1;     /* sans plage : trames abandonnées */
     if (ed_windows) {
         /* Mode invité : aucun accès au port ; Épaulard vide la file. */
         if (next == uart_tail[port]) return 0;
         uart_buf[port*256+uart_head[port]] = value; uart_head[port] = next;
         return 1;
     }
+    if (!port && s3_mode) return s3_link() ? s3_call(0,value) : 0;
     if (next == uart_tail[port]) {
         /* File pleine : si l'UART est pourtant libre, l'interruption THRE
            s'est perdue ; relancer l'émission à la main, ISR exclue. */
@@ -105,6 +123,10 @@ int hw_tx(int port, BYTE value)
 int hw_rx(int port)
 {
     BYTE b;
+    if (!port && s3_mode && !ed_windows) {
+        if (!s3_ready) return -1;
+        return (int)(short)s3_call(1,0);
+    }
     if (uart_rxhead[port] == uart_rxtail[port]) return -1;
     b = uart_rxbuf[port*256+uart_rxtail[port]]; ++uart_rxtail[port];
     return b;
@@ -118,8 +140,9 @@ void hw_quiet(void)
         uart_head[1] = uart_tail[1];    /* trame interrompue : Épaulard se recale */
         return;
     }
-    port_out(0x3f9,0); port_out(0x3e9,0);
-    uart_out(0x3f8,24);
+    if (s3_mode) { if (s3_ready) s3_call(0,24); }
+    else { port_out(0x3f9,0); uart_out(0x3f8,24); }
+    if (braille) port_out(0x3e9,0);
     uart_head[0] = uart_tail[0] = uart_head[1] = uart_tail[1] = 0;
     uart_rxhead[0] = uart_rxtail[0] = uart_rxhead[1] = uart_rxtail[1] = 0;
 }
@@ -127,6 +150,8 @@ void hw_serial(int port, int divisor)
 {
     unsigned base = port ? 0x3e8 : 0x3f8;
     if (ed_windows) { hw_quiet(); return; }     /* mode invité : ports à Windows */
+    if (!port && s3_mode) return;               /* COM1 laissé libre (souris, autre) */
+    if (port && !braille) return;
     port_out(base+1,0); port_out(base+3,0x80);
     port_out(base,divisor); port_out(base+1,0);
     port_out(base+3,3); port_out(base+4,11);
@@ -210,6 +235,11 @@ static void load(void)
             for (k = 0; cfg_names[j][k] && i+k < n && cfg_names[j][k] == buf[i+k]; ++k) {}
             if (cfg_names[j][k] || i+k >= n || buf[i+k] != '=') continue;
             value = 0; ++k;
+            if (j == CFG_SYNTH) {
+                /* « Synthe3 », « S3 » ou 1 : Synthé3 ; « Apollo » ou 0 : Apollo II. */
+                ed_cfg[j] = (BYTE)(i+k < n && ((buf[i+k]|32) == 's' || buf[i+k] == '1'));
+                continue;
+            }
             while (i+k < n && buf[i+k] >= '0' && buf[i+k] <= '9' && value < 100)
                 value = value*10+buf[i+k++]-'0';
             ed_cfg[j] = (BYTE)(value > 255 ? 255 : value);
@@ -218,10 +248,15 @@ static void load(void)
 }
 static int save(const BYTE __far *cfg)
 {
-    int h,i,j,n,pos = 0; char buf[128];
+    int h,i,j,n,pos = 0; char buf[192]; const char *v;
     for (i = 0; i < ED_CFG; ++i) {
         for (j = 0; cfg_names[i][j]; ++j) buf[pos++] = cfg_names[i][j];
         buf[pos++] = '=';
+        if (i == CFG_SYNTH) {
+            for (v = cfg[i] ? "Synthe3" : "Apollo"; *v; ++v) buf[pos++] = *v;
+            buf[pos++] = '\r'; buf[pos++] = '\n';
+            continue;
+        }
         if (cfg[i] > 9) buf[pos++] = (char)('0'+cfg[i]/10);
         buf[pos++] = (char)('0'+cfg[i]%10); buf[pos++] = '\r'; buf[pos++] = '\n';
     }
@@ -259,13 +294,20 @@ void install(void)
         } else dos_print("Épaudos est déjà résident. /SAVE : enregistrer les réglages.\r\n$");
         return;
     }
-    if (args[0]) {
-        dos_print("Épaudos 0.1 : lancer sans argument. Après réglages : EPAUDOS /SAVE.\r\n$"); return;
+    if (args[0] >= 3 && args[1] == ' ' && args[2] == '/' && (args[3]|32) == 's' && args[4] == '3' &&
+        (args[0] == 3 || args[5] == ' ' || args[5] == '\r')) s3_mode = 1;
+    else if (args[0]) {
+        dos_print("Épaudos 0.1 : EPAUDOS (synthèse choisie dans EPAUDOS.INI, Synthese=Apollo ou"
+                  " Synthese=Synthe3) ou EPAUDOS /S3 (Synthé3, S3RES.EXE)."
+                  " Après réglages : EPAUDOS /SAVE.\r\n$"); return;
     }
     if ((unsigned)mux(0x1600) & 0x7f) {
         dos_print("Lancer Épaudos avant Windows.\r\n$"); return;
     }
     load(); indos = dos_indos();
+    if (s3_mode) ed_cfg[CFG_SYNTH] = 1;
+    s3_mode = ed_cfg[CFG_SYNTH];
+    braille = ed_cfg[CFG_BRAILLE];
     ed_box.head = (WORD)&uart_head[0]; ed_box.tail = (WORD)&uart_tail[0];
     ed_box.buf = (WORD)uart_buf;
     ed_box.rxhead = (WORD)&uart_rxhead[0]; ed_box.rxtail = (WORD)&uart_rxtail[0];
@@ -273,11 +315,14 @@ void install(void)
     old15 = dos_vector(0x15); old08 = dos_vector(0x08);
     old28 = dos_vector(0x28); old2f = dos_vector(0x2f);
     old0c = dos_vector(0x0c); old71 = dos_vector(0x71);
-    dos_setvector(0x0c,isr0c); dos_setvector(0x71,isr71);
+    dos_setvector(0x0c,isr0c);
+    if (braille) dos_setvector(0x71,isr71);
     dos_setvector(0x15,isr15); dos_setvector(0x08,isr08);
     dos_setvector(0x28,isr28); dos_setvector(0x2f,isr2f);
     ed_init(); armed = 1;
     dos_print("Épaudos résident. Inser+H : aide ; Inser+E : réglages.\r\n$");
+    if (s3_mode) dos_print(s3_link() ? "Parole : Synthé3 (S3RES).\r\n$"
+                                     : "Parole : Synthé3, en attente de S3RES.\r\n$");
     env = *(WORD __far *)MK_FP(psp,0x2c);
     *(WORD __far *)MK_FP(psp,0x2c) = 0; if (env) dos_free(env);
     keep();

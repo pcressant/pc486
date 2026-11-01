@@ -12,12 +12,13 @@ public _dos_open, _dos_create, _dos_read, _dos_write, _dos_close
 public _dos_psp, _dos_setpsp, _dos_free, _dos_print, _dos_vector
 public _dos_setvector, _mux, _keep, _bss_start
 public _dos_setfarvector, _dos_indos, _fail24, _cur_vm
-public _hw_lock, _hw_unlock
+public _hw_lock, _hw_unlock, _s3_find, _s3_call, _hw_clock
 extrn _resident_end:byte, stack_top:byte
 extrn _install:near, _timer:near, _idle:near, _ed_scan:near
 extrn _ed_windows:byte, _ed_cfg:byte, _ed_resume:byte, _ed_box:byte
 extrn _uart_head:byte, _uart_tail:byte, _uart_buf:byte
 extrn _uart_rxhead:byte, _uart_rxtail:byte, _uart_rxbuf:byte
+extrn _s3_mode:byte
 
 start:
     mov ax,cs
@@ -43,6 +44,7 @@ _old0c dd 0
 _old71 dd 0
 busy db 0
 taken db 0
+s3_entry dd 0
 saved_ss dw 0
 saved_sp dw 0
 key_ss dw 0
@@ -308,18 +310,24 @@ notbox:
     cmp ax,1605h
     jne notstart
     mov cs:_ed_windows,1
-    ; Couper avant de céder COM1 à Windows ; aucune attente UART.
+    ; Couper avant de céder COM1 à Windows ; aucune attente UART. Avec Synthé3,
+    ; COM1 n'est pas à Épaudos et S3RES se tait lui-même sur ce même appel.
     push ax
     push dx
-    mov dx,3f9h
     xor al,al
+    cmp cs:_s3_mode,al
+    jne s3_skip
+    mov dx,3f9h
     out dx,al
+s3_skip:
     mov dx,3e9h
     out dx,al
     mov cs:_uart_head,al
     mov cs:_uart_tail,al
     mov cs:_uart_head+1,al
     mov cs:_uart_tail+1,al
+    cmp cs:_s3_mode,0
+    jne muted
     mov dx,3fdh
     in al,dx
     test al,20h
@@ -479,6 +487,29 @@ _dos_psp proc near
     pop bx
     ret
 _dos_psp endp
+; hw_clock(BYTE *t) : heure de l'horloge CMOS (INT 1Ah), en BCD : t[0] heures,
+; t[1] minutes, t[2] jour, t[3] mois, t[4] siècle, t[5] année.
+_hw_clock proc near
+    push bp
+    mov bp,sp
+    push bx
+    push si
+    mov si,[bp+4]
+    mov ah,2
+    int 1Ah
+    mov [si],ch
+    mov [si+1],cl
+    mov ah,4
+    int 1Ah
+    mov [si+2],dl
+    mov [si+3],dh
+    mov [si+4],ch
+    mov [si+5],cl
+    pop si
+    pop bx
+    pop bp
+    ret
+_hw_clock endp
 _dos_setpsp proc near
     push bp
     mov bp,sp
@@ -570,6 +601,40 @@ _cur_vm proc near
     pop bx
     ret
 _cur_vm endp
+; S3RES présent : INT 2Fh AX=D300h -> AX=D3FFh, ES:DI = entrée de son API.
+_s3_find proc near
+    push bx
+    push di
+    push es
+    mov ax,0d300h
+    xor di,di
+    int 2fh
+    cmp ax,0d3ffh
+    jne s3_absent
+    mov word ptr cs:s3_entry,di
+    mov word ptr cs:s3_entry+2,es
+    mov ax,1
+    jmp s3_found
+s3_absent:
+    xor ax,ax
+s3_found:
+    pop es
+    pop di
+    pop bx
+    ret
+_s3_find endp
+; s3_call(fn, octet) : AL=fn, BL=octet ; retour AX. Registres 16 bits seulement.
+_s3_call proc near
+    push bp
+    mov bp,sp
+    push bx
+    mov ax,[bp+4]
+    mov bx,[bp+6]
+    call dword ptr cs:s3_entry
+    pop bx
+    pop bp
+    ret
+_s3_call endp
 _fail24 proc far
     mov al,3
     iret

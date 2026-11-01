@@ -135,7 +135,10 @@ class NetworkScenarios(unittest.TestCase):
             build_sonde(sonde)
             note = Path(tmp) / 'NOTE.TXT'
             note.write_bytes(''.join(f'Ligne {i}\r\n' for i in range(1, LINES + 1)).encode('cp1252'))
-            subprocess.run(['mcopy', '-o', '-i', img, str(sonde), str(note), '::/'], check=True)
+            # Apollo II sur COM1, même si le disque copié a choisi Synthé3.
+            ini = Path(tmp) / 'EPAUDOS.INI'
+            ini.write_bytes(b'Synthese=Apollo\r\n')
+            subprocess.run(['mcopy', '-o', '-i', img, str(sonde), str(note), str(ini), '::/'], check=True)
         # Boîte POP3 : un seul message de 1 Mo, relu en boucle par SONDE.EXE CHARGE.
         shutil.rmtree(DATA, ignore_errors=True)
         box = DATA / 'courrier'

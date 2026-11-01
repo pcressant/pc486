@@ -10,7 +10,7 @@ volatile BYTE ed_windows, ed_disabled, ed_save, ed_resume;
 /* Mode invité : machine DOS de Windows, parole relayée par Épaulard. */
 volatile BYTE ed_guest;
 WORD ed_debug[12]; /* État consultable dans les scénarios QEMU. */
-BYTE ed_cfg[ED_CFG] = {3,8,1,1,0,0,1};
+BYTE ed_cfg[ED_CFG] = {3,8,1,1,0,0,1,4,0,1};
 int ed_cols = 80, ed_rows = 25, ed_x, ed_y, ed_flat;
 char ed_line[ED_TEXT];
 static WORD screen[ED_CELLS], hashes[ED_ROWS];
@@ -52,9 +52,13 @@ static unsigned br_rx_tick;
 static char speech[2048], braille[ED_TEXT];
 static int speech_n, speech_pos;
 static const char *const names[ED_CFG] = {
-    "Débit", "Hauteur", "Voix", "Ponctuation", "Écho clavier", "Majuscules", "Écho écran"
+    "Débit", "Hauteur", "Voix", "Ponctuation", "Écho clavier", "Majuscules", "Écho écran",
+    "Volume", "Synthèse", "Braille"
 };
-static const BYTE maxima[ED_CFG] = {9,15,6,2,3,1,1};
+static const BYTE maxima[ED_CFG] = {9,15,6,2,3,1,1,8,1,1};
+/* Volume 1..8 -> niveaux @A de l'Apollo II (0 1 2 3 5 7 A F) ; 4 = @A3, défaut. */
+static const char volumes[9] = {'3','0','1','2','3','5','7','A','F'};
+static unsigned clock_tick;     /* dernier Inser+F12 : deux appuis, la date */
 /* Boîte de dialogue CUA sous le curseur (dialog.c) et dernière annoncée. */
 static ED_DIALOG dlg, shown;
 static int dlg_found, dlg_on, dlg_wait, dlg_lost;
@@ -91,31 +95,66 @@ static void br_text(const char *s, int cursor)
     br_dirty = 1;
 }
 static void voice(void);
+/* Noms des signes : ceux d'Épaulard (sign_name), plus les symboles de la page 850. */
+static const char *sign(int c)
+{
+    switch (c) {
+    case ' ': return "espace"; case '.': return "point"; case ',': return "virgule";
+    case ';': return "point-virgule"; case ':': return "deux-points";
+    case '!': return "point d'exclamation"; case '?': return "point d'interrogation";
+    case '\'': return "apostrophe"; case '"': return "guillemet"; case '-': return "tiret";
+    case '(': return "parenthèse ouvrante"; case ')': return "parenthèse fermante";
+    case '[': return "crochet ouvrant"; case ']': return "crochet fermant";
+    case '{': return "accolade ouvrante"; case '}': return "accolade fermante";
+    case '@': return "arobase"; case '#': return "dièse"; case '$': return "dollar";
+    case '%': return "pour cent"; case '&': return "et commercial"; case '*': return "étoile";
+    case '+': return "plus"; case '/': return "barre oblique";
+    case '\\': return "barre oblique inverse"; case '=': return "égal";
+    case '<': return "inférieur"; case '>': return "supérieur";
+    case '|': return "barre verticale"; case '~': return "tilde"; case '_': return "souligné";
+    case '^': return "circonflexe"; case '`': return "accent grave";
+    case 0xfb: return "exposant un"; case 0xfd: return "exposant deux";
+    case 0xfc: return "exposant trois"; case 0xf8: return "degré";
+    case 0xf5: return "paragraphe"; case 0xe6: return "micro"; case 0x9c: return "livre";
+    case 0xf1: return "plus ou moins"; case 0x9e: return "multiplié par";
+    case 0xf6: return "divisé par"; case 0xae: return "guillemet ouvrant";
+    case 0xaf: return "guillemet fermant";
+    }
+    return 0;
+}
+/* Nommés dans le texte au niveau « certaines », comme Épaulard (sign_some) : signes
+   d'un chemin, d'une adresse ou d'une formule et symboles ; ni la ponctuation des
+   phrases, ni parenthèses et crochets. */
+static int sign_some(int c)
+{
+    static const char some[] = "@#$%&*+/\\=<>|~_^";
+    int i;
+    for (i = 0; some[i]; ++i) if (c == some[i]) return 1;
+    return c >= 0x80 && c != 0xae && c != 0xaf && sign(c) != 0;
+}
 static void say_text(const char *s)
 {
-    int i, j;
+    int i, j, c;
     const char *word;
     for (i = 0; s[i] && speech_n < (int)sizeof(speech)-40; ++i) {
-        word = 0;
-        if (ed_cfg[3] == 2) switch ((BYTE)s[i]) {
-        case '.': word=" point "; break; case ',': word=" virgule "; break;
-        case ':': word=" deux points "; break; case ';': word=" point virgule "; break;
-        case '!': word=" point d'exclamation "; break; case '?': word=" point d'interrogation "; break;
-        case '(': word=" parenthèse ouvrante "; break; case ')': word=" parenthèse fermante "; break;
-        case '[': word=" crochet ouvrant "; break; case ']': word=" crochet fermant "; break;
-        case '{': word=" accolade ouvrante "; break; case '}': word=" accolade fermante "; break;
-        case '+': word=" plus "; break; case '-': word=" moins "; break;
-        case '*': word=" astérisque "; break; case '/': word=" barre oblique "; break;
-        case '\\': word=" barre oblique inverse "; break; case '=': word=" égal "; break;
-        case '<': word=" inférieur "; break; case '>': word=" supérieur "; break;
-        case '"': word=" guillemet "; break; case '#': word=" dièse "; break;
-        case '&': word=" et commercial "; break; case '_': word=" souligné "; break;
-        case '@': word=" arobase "; break; case '%': word=" pour cent "; break;
+        c = (BYTE)s[i];
+        /* Quatre signes identiques ou plus (« ===== », « ---- ») : trait, tu. */
+        if (c > ' ' && sign(c) && s[i+1] == s[i] && s[i+2] == s[i] && s[i+3] == s[i]) {
+            while (s[i+1] == s[i]) ++i;
+            speech[speech_n++] = ' ';
+            continue;
         }
-        if (word) for (j=0; word[j]; ++j) speech[speech_n++]=word[j];
-        else if (!ed_cfg[3] && (s[i]=='.'||s[i]==','||s[i]==':'||s[i]==';'||s[i]=='!'||s[i]=='?'))
+        word = 0;
+        if (ed_cfg[3] == 2 ? c > ' ' && c != '\'' : ed_cfg[3] == 1 && sign_some(c))
+            word = sign(c);
+        if (word) {
+            speech[speech_n++] = ' ';
+            for (j=0; word[j]; ++j) speech[speech_n++]=word[j];
+            speech[speech_n++] = ' ';
+        }
+        else if (!ed_cfg[3] && (c=='.'||c==','||c==':'||c==';'||c=='!'||c=='?'))
             speech[speech_n++]=' ';
-        else speech[speech_n++] = s[i] == '@' ? ' ' : s[i];
+        else speech[speech_n++] = c == '@' ? ' ' : s[i];
     }
     speech[speech_n++] = '\r'; speech[speech_n] = 0;
 }
@@ -152,26 +191,20 @@ static void voice(void)
     cancel(); buf[0] = 0;
     for (i = 0; i < 3; ++i) {
         append(buf,"@",sizeof(buf)); n[0] = codes[i]; n[1] = 0;
-        append(buf,n,sizeof(buf)); number(n,ed_cfg[i]); append(buf,n,sizeof(buf));
+        append(buf,n,sizeof(buf)); number(n,ed_cfg[i]);
+        /* Hauteur : un seul chiffre hexadécimal (@F0..@FF) ; « @F10 » était lu
+           F1 suivi d'un zéro prononcé. */
+        if (codes[i] == 'F') { n[0] = "0123456789ABCDEF"[ed_cfg[i]&15]; n[1] = 0; }
+        append(buf,n,sizeof(buf));
         append(buf,"\r",sizeof(buf));
     }
+    append(buf,"@A",sizeof(buf)); n[0] = volumes[ed_cfg[7]]; n[1] = 0;
+    append(buf,n,sizeof(buf)); append(buf,"\r",sizeof(buf));
     copy(speech+1,buf,sizeof(speech)-1); speech_n = length(speech);
 }
 static void say_char(int c)
 {
-    char s[32]; const char *name = 0; int n;
-    switch (c) {
-    case ' ': name="espace"; break; case '.': name="point"; break;
-    case ',': name="virgule"; break; case ':': name="deux points"; break;
-    case ';': name="point virgule"; break; case '!': name="point d'exclamation"; break;
-    case '?': name="point d'interrogation"; break; case '(': name="parenthèse ouvrante"; break;
-    case ')': name="parenthèse fermante"; break; case '+': name="plus"; break;
-    case '-': name="moins"; break; case '*': name="astérisque"; break;
-    case '/': name="barre oblique"; break; case '\\': name="barre oblique inverse"; break;
-    case '=': name="égal"; break; case '"': name="guillemet"; break;
-    case '<': name="inférieur"; break; case '>': name="supérieur"; break;
-    case '@': name="arobase"; break;
-    }
+    char s[32]; const char *name = sign(c); int n;
     if (name) { say(name); return; }
     s[0] = (char)c; s[1] = 0;
     if (ed_cfg[5] && c >= 'A' && c <= 'Z') {
@@ -297,7 +330,11 @@ static void menu_read(void)
     append(b," ",sizeof(b));
     if (item == 3) append(b,punctuation[ed_cfg[item]],sizeof(b));
     else if (item == 4) append(b,echo[ed_cfg[item]],sizeof(b));
-    else if (item >= 5) append(b,ed_cfg[item] ? "oui" : "non",sizeof(b));
+    else if (item == 5 || item == 6) append(b,ed_cfg[item] ? "oui" : "non",sizeof(b));
+    /* Lue au démarrage (EPAUDOS.INI) par Épaudos et S3RES : effet au redémarrage. */
+    else if (item == 8) append(b,ed_cfg[item] ? "Synthé3, au redémarrage" : "Apollo, au redémarrage",sizeof(b));
+    /* Plage Baum sur COM3 (IRQ9) : sans elle, port et IRQ laissés aux autres cartes. */
+    else if (item == 9) append(b,ed_cfg[item] ? "oui, au redémarrage" : "non, au redémarrage",sizeof(b));
     else { number(n,ed_cfg[item]); append(b,n,sizeof(b)); }
     hw_overlay(ed_rows-1,b); message(b); menu_tick = ticks;
 }
@@ -311,12 +348,12 @@ static void command(int c)
         }
         if (c == 72) item = (item+ED_CFG-1)%ED_CFG;
         if (c == 80) item = (item+1)%ED_CFG;
-        if (c == 75 && ed_cfg[item] > (item == 0 || item == 2 ? 1 : 0)) --ed_cfg[item];
+        if (c == 75 && ed_cfg[item] > (item == 0 || item == 2 || item == 7 ? 1 : 0)) --ed_cfg[item];
         if (c == 77 && ed_cfg[item] < maxima[item]) ++ed_cfg[item];
         menu_read(); return;
     }
     switch (c) {
-    case 'h': message("Épaudos. Pavé : 7 8 9 lignes, 4 5 6 mots, 1 2 3 caractères. Inser moins revue. Inser plus écho écran. Inser 5 curseur. Inser Haut ligne. Inser Bas dire tout. Inser E réglages. Ctrl silence."); break;
+    case 'h': message("Épaudos, touches de NVDA. Pavé : 7 8 9 lignes, 4 5 6 mots, 1 2 3 caractères, plus dire tout. Inser 7 ou 1 du pavé, revue à plat ou normale. Inser moins ou 5 du pavé, retour au curseur. Inser Haut ligne, Bas dire tout, T titre, B écran, Fin dernière ligne, F couleurs, Suppr du pavé position. Inser 2 écho des caractères, 3 des mots, P ponctuation, 5 écho écran, F12 heure. Inser N réglages. Ctrl silence."); break;
     case 'f': ed_flat = !ed_flat; rx = ed_x; ry = ed_y;
         message(ed_flat ? "Revue à plat" : "Revue normale"); break;
     case 'p': ed_cfg[6] = (BYTE)!ed_cfg[6]; pend_row = -1;
@@ -328,6 +365,54 @@ static void command(int c)
     case 't': if (dlg_found && dlg.title[0]) { message(dlg.title); break; }
         line(top,left,right); message(ed_line); break;
     case 's': line(bottom,left,right); message(ed_line); break;
+    case '2': case '3': {
+        /* Écho : 0 caractères, 1 mots, 2 les deux, 3 aucun. */
+        int e = ed_cfg[4], chars = e == 0 || e == 2, words = e == 1 || e == 2;
+        if (c == '2') chars = !chars; else words = !words;
+        ed_cfg[4] = (BYTE)(chars && words ? 2 : chars ? 0 : words ? 1 : 3);
+        if (c == '2') message(chars ? "Écho des caractères activé" : "Écho des caractères désactivé");
+        else message(words ? "Écho des mots activé" : "Écho des mots désactivé");
+        break;
+    }
+    case 'u': {
+        static const char *const level[3] = {"Ponctuation aucune","Ponctuation certaines","Ponctuation toutes"};
+        ed_cfg[3] = (BYTE)((ed_cfg[3]+1)%3); message(level[ed_cfg[3]]); break;
+    }
+    case 'k': {
+        /* Inser+F12 : heure ; deux fois de suite, date (NVDA). */
+        static const char *const months[12] = {"janvier","février","mars","avril","mai",
+            "juin","juillet","août","septembre","octobre","novembre","décembre"};
+        BYTE t[6]; char b[40],n[6]; int i, v[4], date = (unsigned)(ticks-clock_tick) < 10;
+        hw_clock(t); clock_tick = date ? ticks-20 : ticks;
+        for (i = 0; i < 4; ++i) v[i] = (t[date ? i+2 : i]>>4)*10+(t[date ? i+2 : i]&15);
+        number(b,v[0]);
+        if (!date) {
+            append(b,v[0] > 1 ? " heures " : " heure ",sizeof(b));
+            if (v[1] < 10) append(b,"0",sizeof(b));
+            number(n,v[1]); append(b,n,sizeof(b));
+        }
+        else if (v[1] >= 1 && v[1] <= 12) {
+            append(b," ",sizeof(b)); append(b,months[v[1]-1],sizeof(b)); append(b," ",sizeof(b));
+            number(n,v[2]*100+v[3]); append(b,n,sizeof(b));
+        }
+        message(b); break;
+    }
+    case 'l': case 'g': {
+        static const char *const colours[16] = {"noir","bleu","vert","cyan","rouge","magenta",
+            "marron","gris clair","gris foncé","bleu clair","vert clair","cyan clair",
+            "rouge clair","magenta clair","jaune","blanc"};
+        char b[80],n[6]; int x = ed_flat ? rx : ed_x, y = ed_flat ? ry : ed_y, a;
+        if (c == 'l') {
+            copy(b,"Ligne ",sizeof(b)); number(n,y+1); append(b,n,sizeof(b));
+            append(b,", colonne ",sizeof(b)); number(n,x+1); append(b,n,sizeof(b));
+        } else {
+            a = screen[y*ed_cols+x]>>8;
+            copy(b,colours[a&15],sizeof(b)); append(b," sur ",sizeof(b));
+            append(b,colours[(a>>4)&7],sizeof(b));
+            if (a & 0x80) append(b,", clignotant",sizeof(b));
+        }
+        message(b); break;
+    }
     case 'd': {
         char b[80],n[6];
         copy(b,"Ligne ",sizeof(b)); number(n,ed_y+1); append(b,n,sizeof(b));
@@ -389,15 +474,23 @@ int ed_scan(BYTE scan, BYTE shifts)
     if (menu) { enqueue(code); swallowed[code] = 1; return 1; }
     if (!ctrl && !alt && !shift) {
         if (insert) {
+            /* Touches de NVDA (disposition ordinateur de bureau), Inser = NVDA ;
+               H, E, D, PgSuiv gardés. Pavé : 7 et 1 modes de revue, moins et 5
+               retour au curseur, Suppr position ; Fin dédiée : dernière ligne. */
             switch (code) {
-            case 35: c = 'h'; break; case 18: c = 'e'; break;
-            case 74: c = 'f'; break; case 78: c = 'p'; break;
-            case 76: case 72: c = 'c'; break;
+            case 35: case 2: c = 'h'; break; case 18: case 49: c = 'e'; break;
+            case 71: if (!ext) c = 'f'; break;
+            case 79: c = ext ? 's' : 'f'; break;
+            case 74: case 76: case 72: c = 'c'; break;
             case 80: c = 'a'; break; case 48: case 24: c = 'b'; break;
-            case 20: c = 't'; break; case 81: c = 's'; break; case 32: c = 'd'; break;
+            case 20: c = 't'; break; case 81: if (ext) c = 's'; break;
+            case 32: c = 'd'; break; case 83: c = 'l'; break; case 33: c = 'g'; break;
+            case 6: c = 'p'; break; case 3: c = '2'; break; case 4: c = '3'; break;
+            case 25: c = 'u'; break; case 88: c = 'k'; break;
             }
         } else if (!ext && !(shifts&32)) {
             switch (code) {
+            case 78: c = 'a'; break;            /* plus du pavé : dire tout (NVDA) */
             case 71: c = 16; break; case 72: c = 17; break; case 73: c = 18; break;
             case 75: c = 19; break; case 76: c = 20; break; case 77: c = 21; break;
             case 79: c = 22; break; case 80: c = 23; break; case 81: c = 24; break;
@@ -515,7 +608,7 @@ void ed_init(void)
 {
     int i;
     for (i = 0; i < ED_CFG; ++i) if (ed_cfg[i] > maxima[i]) ed_cfg[i] = maxima[i];
-    if (!ed_cfg[0]) ed_cfg[0] = 1; if (!ed_cfg[2]) ed_cfg[2] = 1;
+    if (!ed_cfg[0]) ed_cfg[0] = 1; if (!ed_cfg[2]) ed_cfg[2] = 1; if (!ed_cfg[7]) ed_cfg[7] = 4;
     hw_serial(0,12); hw_serial(1,6); voice();
     asleep = 0;
     probe = (unsigned)-54; last_x = last_y = -1;

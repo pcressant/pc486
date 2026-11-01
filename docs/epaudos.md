@@ -1,5 +1,10 @@
 # Épaudos — lecteur d'écran résident pour DOS
 
+Pour l’utilisation quotidienne, voir le [manuel d’Épaulard et
+d’Épaudos](manuel-lecteurs.md), qui regroupe les commandes, les réglages, le
+braille et la couverture des applications. Ce guide détaille aussi la compilation,
+l’architecture et les essais d’Épaudos.
+
 Épaudos est un TSR 8086 pour MS-DOS 3.3 et ultérieur, prévu ici pour le DOS
 6.22 français du PC 486. Il reprend la navigation d'Épaulard, sans souris :
 parole Apollo II sur COM1, braille Baum sur COM3. Les passerelles hôte restent
@@ -27,16 +32,36 @@ COM sur disque n'inclut pas les tampons non initialisés résidents.
 
 Copier le COM dans un répertoire du disque DOS **arrêté**, puis le lancer à
 l'invite DOS. Cette compilation n'installe rien et ne modifie aucun fichier
-de démarrage. Le modèle `dos/AUTOEXEC.BAT` lance `C:\EPAUDOS.COM` dans la branche
-DOS du menu, après KEYB FR et la page 850 ; `scripts/installer` copie le TSR. Pour
+de démarrage. Le modèle `dos/AUTOEXEC.BAT` lance `C:\EPAUDOS.COM` dans les branches
+DOS et Windows du menu, après KEYB FR et la page 850, avant `WIN` pour Windows ;
+`scripts/installer` copie le TSR. Pour
 mettre à jour la VM existante, compiler, arrêter la VM puis :
 
 ```sh
 mcopy -o -i vm/win311.img@@32256 epaudos/build/EPAUDOS.COM ::/EPAUDOS.COM
 ```
 
-`LH EPAUDOS` peut être essayé si les UMB sont configurés ;
-le chargement en mémoire haute n'a pas encore été validé ici.
+`AUTOEXEC.BAT` charge Épaudos par `LH` : en mémoire supérieure avec l'Apollo II
+(603 Kio conventionnels libres), en mémoire conventionnelle si S3RES (Synthé3) a
+pris la place (528 Kio libres). Voir `synthe3/README.md`.
+
+### Synthèse : Apollo II ou Synthé3
+
+Le choix est dans `EPAUDOS.INI` : `Synthese=Apollo` (défaut, aussi sans fichier ou
+sans clé) parle à l'Apollo II sur COM1 ; `Synthese=Synthe3` envoie **le même flux
+Apollo** à `S3RES.EXE`, résident Synthé3 qui calcule la voix et la joue sur la Sound
+Blaster ([synthe3/README.md](../synthe3/README.md)) ; COM1 reste libre. Il se règle
+dans Inser+E (dernier réglage, « Synthèse ») et prend effet au **redémarrage** : le
+modèle `dos/AUTOEXEC.BAT` lance toujours `S3RES`, qui lit le même fichier et ne
+reste résident que pour Synthé3 (`S3RES /F` le charge quand même). `EPAUDOS /S3`
+force Synthé3 pour une session. S3RES peut être chargé avant ou après Épaudos :
+celui-ci le cherche (INT 2Fh D300h, sans appel DOS) et garde sa parole en file tant
+qu'il manque. Les échos `@E` du dire tout reviennent quand la carte a **joué** la
+marque. Sous Windows, Épaudos en mode invité reste relayé par Épaulard, qui parle
+alors par EPAUS3.DLL s'il trouve S3RES.
+
+La hauteur `@F` est envoyée en un seul chiffre hexadécimal (`@F0` à `@FF`), comme
+l'Apollo II l'attend ; elle partait auparavant en décimal au-delà de 9 (`@F12`).
 
 Un second lancement détecte l'instance déjà résidente. Il n'y a pas encore de
 désinstallation à chaud ; redémarrer DOS pour retirer le TSR. L'installation
@@ -60,16 +85,23 @@ limites du cadre reconnu ; faute de cadre, il porte sur tout l'écran.
 
 | Commande | Action |
 | --- | --- |
-| Inser + moins du pavé | basculer revue normale / à plat |
-| Inser + plus du pavé | activer / désactiver l'écho écran |
+| Inser + 7 ou Inser + 1 du pavé | basculer revue normale / à plat (modes de revue de NVDA) |
+| Inser + moins du pavé | recentrer et lire la ligne active |
+| plus du pavé | dire tout, comme Inser + Bas |
+| Inser + 5 (rangée des chiffres) | activer / désactiver l'écho écran |
+| Inser + 2, Inser + 3 | écho des caractères, des mots (non enregistré) |
+| Inser + P | niveau de ponctuation suivant (non enregistré) |
+| Inser + F | couleurs du caractère au curseur ou au point de revue |
+| Inser + Suppr du pavé | ligne et colonne du curseur ou du point de revue |
+| Inser + F12 | heure ; deux fois de suite, date (horloge CMOS, INT 1Ah) |
 | Inser + 5 du pavé, Inser + Haut | recentrer et lire la ligne active ; dans une boîte, la boîte et son contrôle actif |
 | Inser + Bas | lire de la ligne courante au bas du cadre ou de l'écran |
 | Inser + B ou O | lire le cadre ou l'écran depuis le haut |
 | Inser + T | lire la première ligne intérieure du cadre ; dans une boîte, son titre |
-| Inser + PgSuiv | lire la dernière ligne du cadre |
+| Inser + Fin, Inser + PgSuiv | lire la dernière ligne du cadre |
 | Inser + D | donner ligne, colonne et attribut du curseur |
 | Inser + H | aide |
-| Inser + E | réglages |
+| Inser + N, Inser + E | réglages |
 | Ctrl | couper la parole et le dire tout |
 
 ### Suivi du curseur et écho écran
@@ -116,7 +148,7 @@ Ctrl vide la file. Les changements d'attributs seuls (surbrillance, clignotement
 ne sont pas des échos. Le texte qui défile entièrement entre deux passages du
 timer n'est pas vu : pour une longue sortie, utiliser `| MORE`. Dans un éditeur,
 les messages dessinés dans la zone de texte sont lus ; désactiver l'écho avec
-Inser + plus si cela gêne.
+Inser + 5 si cela gêne.
 
 Une surbrillance n'est annoncée que si la disposition des attributs de la rangée
 a changé après une touche autre qu'une frappe : un compteur qui change de texte
@@ -202,13 +234,24 @@ Ponctuation=1
 Echo=0
 Majuscules=0
 EchoEcran=1
+Volume=4
+Synthese=Apollo
+Braille=1
 ```
 
-Débit : 1–9 ; hauteur : 0–15 ; voix : 1–6. Ponctuation : 0 aucune, 1 naturelle,
-2 noms des signes. Écho : 0 caractères, 1 mots, 2 caractères et mots, 3 aucun.
+Débit : 1–9 ; hauteur : 0–15 ; voix : 1–6. Ponctuation : 0 aucune ; 1 certaines,
+comme Épaulard : `@ # $ % & * + / \ = < > | ~ _ ^` et les symboles `¹ ² ³ ° § µ £ ± × ÷`
+sont nommés, pas la ponctuation des phrases ni les parenthèses et crochets ; 2 toutes
+(sauf l'apostrophe). Un caractère dit seul (écho, revue) est toujours nommé. Quatre
+signes identiques ou plus (`=====`, `----`) forment un trait, jamais dit. Écho : 0 caractères, 1 mots, 2 caractères et mots, 3 aucun.
 Majuscules : 0 non, 1 oui. Écho écran : 0 non, 1 oui ; Inser + plus du pavé le
-bascule sans enregistrer. Les noms des signes couvrent notamment ceux utilisés
-dans QBasic ; la table n'est pas exhaustive.
+bascule sans enregistrer. Volume : 1–8, niveaux `@A0`, `@A1`, `@A2`, `@A3` (défaut 4),
+`@A5`, `@A7`, `@AA`, `@AF` de l'Apollo II ; Synthé3 les applique aussi (3 dB par niveau
+autour de 4 ; au-delà de 6, les crêtes sont écrêtées). Synthèse : `Apollo` ou
+`Synthe3`, au redémarrage. Braille : 1 (défaut) ou 0, au
+redémarrage ; avec 0, Épaudos ne touche ni COM3 ni l'IRQ9 et n'émet aucune trame,
+y compris vers Épaulard dans une fenêtre DOS. Les noms des signes sont ceux d'Épaulard
+(`sign` de `core.c`, `sign_name` de `parole.c`).
 
 ## Braille
 
@@ -224,7 +267,9 @@ convertie de CP1252 vers CP850 à la compilation, avec ses attributions liblouis
 - ROUTE : placer le point de revue sur le caractère et le dire. Cette commande
   ne place pas le curseur de l'application et n'effectue aucun clic.
 
-Une seule ligne de 1 à 80 cellules ; curseur en points 7–8. Les messages et le
+Sans plage, `Braille=0` dans `EPAUDOS.INI` (réglage « Braille » d'Inser+E, au
+redémarrage ; écrit par `--sans-braille` de l'installateur) laisse COM3 et l'IRQ9
+aux autres cartes. Une seule ligne de 1 à 80 cellules ; curseur en points 7–8. Les messages et le
 menu de réglages sont aussi affichés sur la plage. Pas de saisie braille,
 de braille abrégé ni de routage des messages.
 

@@ -1043,6 +1043,60 @@ static void switch_next(BOOL back)
     say(title[0] ? title : "sans titre", TRUE);
 }
 
+/* Bascules de NVDA : Inser+2 écho des caractères, Inser+3 des mots, Inser+P niveau
+   de ponctuation, Inser+F12 heure (deux fois : date). En mémoire seulement, comme
+   NVDA : Inser+N puis Entrée enregistre. */
+static void nvda_toggle(WPARAM vk)
+{
+    static const char *const level[3] = {
+        "ponctuation aucune", "ponctuation certaine", "ponctuation toute" };
+    static const char *const months[12] = {
+        "janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août",
+        "septembre", "octobre", "novembre", "décembre" };
+    static DWORD clock_at;
+    char buf[48];
+    int e = cfg[CFG_ECHO], chars = e == 0 || e == 2, words = e == 1 || e == 2;
+    int hour, minute, day, month, year;
+
+    if (vk == 'P') {
+        cfg[CFG_PUNCT] = (cfg[CFG_PUNCT] + 1) % 3;
+        voice_apply();
+        say(level[cfg[CFG_PUNCT]], TRUE);
+        return;
+    }
+    if (vk == VK_F12) {
+        BOOL date = GetTickCount() - clock_at < 600;
+        clock_at = date ? 0 : GetTickCount();
+#ifdef EP_NATIVE_TEST
+        hour = 9; minute = 5; day = 31; month = 10; year = 2026;   /* banc : fixe */
+#else
+        {
+            struct dostime_t t;
+            struct dosdate_t d;
+            _dos_gettime(&t);
+            _dos_getdate(&d);
+            hour = t.hour; minute = t.minute;
+            day = d.day; month = d.month; year = d.year;
+        }
+#endif
+        if (date && month >= 1 && month <= 12)
+            wsprintf(buf, "%d %s %d", day, (LPSTR) months[month - 1], year);
+        else
+            wsprintf(buf, "%d heure%s %02d", hour, hour > 1 ? "s" : "", minute);
+        say(buf, TRUE);
+        return;
+    }
+    if (vk == '2')
+        chars = !chars;
+    else
+        words = !words;
+    cfg[CFG_ECHO] = chars && words ? 2 : chars ? 0 : words ? 1 : 3;
+    if (vk == '2')
+        say(chars ? "écho des caractères activé" : "écho des caractères désactivé", TRUE);
+    else
+        say(words ? "écho des mots activé" : "écho des mots désactivé", TRUE);
+}
+
 void on_command(WPARAM vk, LPARAM lp)
 {
     char buf[TXT];
@@ -1094,18 +1148,30 @@ void on_command(WPARAM vk, LPARAM lp)
         read_window();
         break;
     case 'E':
+    case 'N':                           /* menu de NVDA */
         cfg_open();
         break;
     case VK_NEXT:
+    case VK_END:                        /* NVDA+Fin */
         say_status();
+        break;
+    case '2':
+    case '3':
+    case 'P':
+    case VK_F12:
+        nvda_toggle(vk);
         break;
     case 'F':
         say_format();
         break;
     case VK_DIVIDE:
-        mouse_to_review();
+        if (obj_recent)
+            obj_mouse();                /* NVDA : souris à l'objet navigateur */
+        else
+            mouse_to_review();
         break;
     case VK_MULTIPLY:
+        obj_at_mouse();
         review_to_mouse();
         break;
     case 'D':                           /* débogage : focus, classe, curseur texte */
@@ -1193,6 +1259,7 @@ void on_command(WPARAM vk, LPARAM lp)
         }
         break;
     case 'H':
+    case '1':                           /* aide de la saisie de NVDA */
         if (is_class(GetActiveWindow(), "SCICALC")) {
             say("Calculatrice. Avec Inser : gauche et droite, parcourir les boutons. "
                 "Début et fin, premier et dernier bouton. Entrée, activer le bouton. "
@@ -1201,14 +1268,20 @@ void on_command(WPARAM vk, LPARAM lp)
                 "La frappe habituelle rend le suivi au résultat.", TRUE);
             break;
         }
-        say("Commandes d'Épaulard, avec la touche Inser : T, titre. Tabulation, "
-            "focus. Flèche haut, ligne courante. Flèche bas, dire tout. B, lire la "
-            "fenêtre. O, lire tout le texte affiché. F, police et mise en forme. "
-            "Page suivante, barre d'état. E, réglages de la voix. "
+        say("Commandes d'Épaulard, touches de NVDA, avec la touche Inser : T, titre. "
+            "Tabulation, focus. Flèche haut, ligne courante. Flèche bas, dire tout. B, "
+            "lire la fenêtre. O, lire tout le texte affiché. F, police et mise en forme. "
+            "Fin, barre d'état. N, réglages de la voix. 2, écho des caractères. 3, écho "
+            "des mots. P, ponctuation. F12, heure, deux fois, date. "
             "Majuscule flèche haut, lire la sélection. F4, quitter. Contrôle seul, "
             "silence.", TRUE);
         say("Pavé numérique, Verr Num éteint : 7, 8, 9, lignes. 4, 5, 6, mots. "
-            "1, 2, 3, caractères. Inser moins, changer de revue. Inser 5, recentrer.", FALSE);
+            "1, 2, 3, caractères. Plus, dire tout. Inser 7 ou Inser 1, revue à plat ou "
+            "normale. Inser moins, retour au focus.", FALSE);
+        say("Objets, avec Inser et le pavé : 5, objet courant. 8, parent. 2, premier "
+            "enfant. 4 et 6, précédent et suivant. 9 et 3, précédent et suivant dans "
+            "l'ordre de lecture. Entrée, activer. Suppr, position. Majuscule moins, "
+            "donner le focus à l'objet.", FALSE);
         say("Souris : barre oblique du pavé, clic gauche ; étoile, clic droit ; avec "
             "majuscule, verrouiller le bouton. Inser barre oblique, amener la souris "
             "au point de revue. Inser étoile, lire sous la souris.", FALSE);
@@ -1225,7 +1298,15 @@ void on_command(WPARAM vk, LPARAM lp)
 LRESULT CALLBACK __export MainProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg) {
+    case EPM_S3:
+        s3_tick(FALSE);
+        return 0;
     case WM_TIMER:
+        if (wp == TIMER_S3) {           /* Synthé3 : tampons joués, échos @E */
+            s3_tick(TRUE);
+            com_read();
+            return 0;
+        }
         if (net_in_dde)
             return 0;                   /* boucle modale du DDE : pas de réentrée */
         if (wp == TIMER_NAV)
@@ -1427,6 +1508,7 @@ LRESULT CALLBACK __export MainProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         KillTimer(h, TIMER_ID);
         dos_stop();
         br_close();
+        s3_stop();
         EpRemove();
         if (com >= 0) {
             /* laisser partir la dernière phrase avant de fermer le port */
@@ -1463,12 +1545,12 @@ int PASCAL WinMain(HINSTANCE hinst, HINSTANCE hprev, LPSTR cmd, int show)
                              NULL, NULL, hinst, NULL);
     if (!hwnd_main)
         return 0;
+    cfg_load(hinst);                    /* EPAULARD.INI : Apollo II ou Synthé3 */
     com_open();
-    if (com < 0) {
+    if (com < 0 && !s3_lib) {
         MessageBox(NULL, "Impossible d'ouvrir COM1.", "Épaulard", MB_OK | MB_ICONSTOP);
         return 0;
     }
-    cfg_load(hinst);
     voice_apply();
     nav_init();
     if (!EpInstall(hwnd_main, com))
@@ -1476,6 +1558,11 @@ int PASCAL WinMain(HINSTANCE hinst, HINSTANCE hprev, LPSTR cmd, int show)
     br_open();
     SetTimer(hwnd_main, TIMER_ID, POLL_MS, NULL);
     say("Épaulard prêt. Inser H pour l'aide.", TRUE);
+    if (s3_error) {
+        char m[64];
+        wsprintf(m, "Synthé3 indisponible, erreur %d.", s3_error);
+        say(m, FALSE);
+    }
     for (;;) {
         /* (invite MS-DOS en cours de frappe : rester éveillé, voir dos_spin) */
         if (PeekMessage(&m, NULL, 0, 0, PM_REMOVE)) {

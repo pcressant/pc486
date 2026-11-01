@@ -31,6 +31,11 @@ Chaîne vocale : Épaudos **ou** Épaulard → COM1 → socket Unix →
 Apolo-emu (Apollo II virtuel, `github:pcressant/apolo-emu`, entrée du flake) → Speech Dispatcher (SSIP)
 → eSpeak NG. Braille : plage Baum virtuelle sur COM3 → BrlAPI → BRLTTY de l'hôte.
 86Box utilise un pseudo-terminal relié à la socket par socat ; QEMU fournit la socket.
+Autre chaîne, sans Apollo ni hôte : **Synthé3 local** sur la Sound Blaster
+(`Synthese=Synthe3` dans `C:\EPAUDOS.INI`, Inser+E d'Épaudos, lu aussi par S3RES ;
+`Braille=0` : Épaudos laisse COM3/IRQ9) :
+Épaudos → `S3RES.EXE` (résident DOS) ; Épaulard → `EPAUS3.DLL` (`waveOut`). Voir
+`synthe3/README.md`.
 
 Le disque `vm/win311.img` n'est pas versionné : il se recrée depuis les supports
 locaux de `media/` par `scripts/installer` (voir `docs/installation-automatique.md` et
@@ -66,6 +71,7 @@ seulement l'analyse de son protocole.
 | Modules d'EPAULARD.EXE (liste compilée, déclarations communes) | `epaulard/src/modules.lst`, `ep.h` ; banc : `tests/win16/epaulard-modules.h` (même liste, vérifiée par un test) |
 | Cœur : focus, scrutation, menus, surbrillance, commandes Inser, jauges | `epaulard/src/epaulard.c` : `MainProc`, `poll`, `announce_focus`, `on_command`, `progress_poll` |
 | Description des contrôles, libellés | `controles.c` (`describe`), `outils.c` (`label_*`), `programmes.c` (Aide, Fiches, Horloge…) |
+| Navigation par objet comme NVDA (Inser + pavé : fenêtres puis textes dessinés) | `objet.c` (`obj_command`, actions `EPM_REVIEW` 15 à 24 de `hook.c`) ; `docs/revue-pave.md` |
 | Boîtes SDM (Word, Excel), revue au pavé, souris, dire tout | `boites.c`, `revue.c` (`on_review`), `diretout.c` (`sa_*`) |
 | Calculatrice Windows : afficheurs standard/scientifique, résultats et erreurs | `calc.c` : `calc_*` ; `docs/calculatrice.md` |
 | Norton Desktop 3.0 : arbre et listes `NLBCLASSV1`, calculatrices, SuperFind, SIW, boîtes « Attention » | `class_alias` (`outils.c`), `tree_level` (`controles.c`), `ncalc_*` (`calc.c`), `message_button` (`epaulard.c`) ; `docs/norton.md` |
@@ -86,6 +92,8 @@ seulement l'analyse de son protocole.
 | CD-ROM et réseau isolé (facultatifs) : options de l'invité, `pc486 start --cdrom/--reseau` | `scripts/options_vm.py` (installateur et `scripts/options-vm`), `dos/src/reseau.c` (RESEAU.EXE, `dos/build.sh`) ; `docs/reseau.md` |
 | Services de l'hôte pour `--reseau` : proxy HTML 3.2, POP3/SMTP local, isolement de 86Box | `scripts/reseau/` (`proxy.py`, `html32.py`, `courrier.py`, `netns.py`) ; sonde Winsock `tests/win16/sonde.c` |
 | Navigateurs et courrier : pages de Netscape (lecture, Tab vers les champs), installation de Netscape 3, Communicator 4.08, Eudora | `page.c` (`EpPageView`, `EpPageTab`), `status_poll` (`epaulard.c`), `page_view`/`doc_area` (`programmes.c`) ; `ACME['netscape'|'communicator'|'eudora']`, `netscape_cfg` (`scripts/installation.py`) ; `docs/reseau.md` |
+| Synthé3 dans les lecteurs : Apollo local, résident DOS, DLL Win16, choix de la synthèse | `synthe3/src/ap.c` (protocole), `s3res.c`/`s3res.asm` (S3RES.EXE), `s3win.c` (EPAUS3.DLL) ; `hw_tx`/`hw_rx` (`epaudos/src/dos.c`), `s3_load`/`s3_tick`/`com_open` (`epaulard/src/parole.c`), `EpSpeech` (`hook.c`) ; `dos/AUTOEXEC.BAT`, `chosen` (`s3res.c`), `CFG_SYNTH` (`epaudos/src/dos.c`) ; état lu en mémoire : `scripts/synthe3_etat.py` ; `synthe3/ARCHITECTURE.md` (« Intégration ») |
+| Synthé3 embarqué (port DOS, bancs 86Box, variantes `S3_BLOCK`/`S3_INTEGER_PERIOD`, corpus WAV) | `synthe3/src/engine.c`, `block.asm`, `kernels.asm` ; `synthe3/build.sh`, `banc86box.py`, `corpus.py` ; `synthe3/README.md`, `MESURES.md` |
 | Mode navigation Web comme NVDA (curseur virtuel, H/K/T/X…, tableaux, mode formulaire) | `navweb.c` (`nav_key`, `nav_quick`, `nav_table`, `nav_focus`, `nav_poll`), `navnet.c` (DDE, Winsock), `EpNavMode` (`hook.c`), `EpPageReveal` (`page.c`) ; structure servie par le proxy : `scripts/reseau/tampon.py`, `/tampon` (`proxy.py`) ; `docs/navigation-web.md` |
 
 ## Commandes usuelles
@@ -203,7 +211,9 @@ epaulard/build.sh install           # compilation + copie EXE/DLL + WIN.INI ; VM
   `PC486_VM_TESTS=1 python3 -m unittest tests.test_vm_scenarios -v`. Copie jetable
   `work/vmtest/win311.img`, `work/vmtest/run/`, `work/vmtest/logs/`, EXE/DLL fraîchement
   compilés ; rien n'est écrit sur `vm/win311.img`. Après changement de hooks,
-  curseur ou lecture, les lancer en plus des bancs.
+  curseur ou lecture, les lancer en plus des bancs. Ils supposent le groupe
+  principal actif dans Progman ; Word absent : scénario Word sauté.
+  `PC486_VM_SOURCE=/chemin/image.img` copie un autre disque arrêté.
 - Régression utile : Bloc-notes (EDIT standard), Write (défilement dans les deux sens),
   Word (document, menus, boîtes SDM), revue au pavé, Inser+Bas et interruption par Ctrl.
   Les essais précis et leurs limites sont dans `docs/revue-pave.md` et
@@ -491,6 +501,57 @@ Préférer `scripts/pc486-dev` aux préfixes de variables, que les règles ne co
 - Conserver POWER.EXE sous DOS pour éviter la boucle active qui sature un cœur.
 - Session DOS de Windows silencieuse : ce n'est pas un blocage ; voir
   `docs/diagnostic-dos.md` (Épaudos absent avant `WIN`, autre fenêtre active…).
+- Synthé3 (`synthe3/`) : la compilation de référence garde le x87 ; les
+  optimisations sont des options (`S3_BLOCK`, `S3_INTEGER_PERIOD`,
+  `S3_WINDOW_CACHE`) et chaque variante doit rester comparée au scalaire octet à
+  octet (sauf l'entier, aux égalités exactes documentées). Les temps 86Box dépendent
+  de la disposition du code (file de préchargement émulée) à ~10 % : comparer les
+  variantes **dans un même lot** `banc86box.py`, jamais entre deux compilations.
+  Les variantes sans x87 doivent être compilées sans `-fpi87` et `build.sh` vérifie
+  l'absence d'instruction x87 (`wdis`) et de bibliothèque flottante (carte).
+  Sur 86Box, `fpu_type = none` disparaît du fichier réécrit (valeur par défaut).
+- Synthé3 dans les lecteurs : production = `S3_BLOCK` (asm) + `S3_INTEGER_PERIOD`,
+  quatre fenêtres, sans cache LRU (+6 Kio de résident pour 3,4 %), `-s`. Écho `@E`
+  rendu seulement quand la position **jouée** (IRQ DMA, `WHDR_DONE`) atteint la
+  marque, jamais à la génération. Ctrl-X jamais stocké ni refusé (`cut_at`) ; le
+  texte qui le précède est abandonné, mais ses réglages `@W @F @V @P @A` sont
+  appliqués au passage (`skip_to`) : Épaulard envoie ses réglages puis coupe
+  aussitôt au démarrage, comme l'Apollo II qui les exécute à réception.
+- S3RES (Watcom `-ml`) : une variable définie dans le segment de code de
+  `s3res.asm` doit être déclarée `__far` côté C, sinon elle est cherchée dans
+  DGROUP (INT 8h chaîné vers 0000:0000, machine figée). S3RES **rend le vecteur
+  de son IRQ** à 1605h et le reprend à 1606h : posé avant Windows, il détournait
+  l'IRQ de la Sound Blaster vers la machine DOS active et `waveOut` se figeait en
+  fenêtre DOS plein écran. Chargé par `LH`, il est dans un UMB paginé par EMM386 :
+  le lire par QMP `memsave` (linéaire), pas `pmemsave`.
+- EPAUS3.DLL : pompe dans la boucle de messages d'Épaulard, jamais dans un crochet ;
+  pas de chaîne sans borne de messages postés (`EPM_S3`, trois au plus) : Windows
+  ne produit `WM_TIMER` que file vide, la scrutation et le relais de l'invite DOS
+  s'arrêtaient (Épaudos se rendort après 2 s sans signe de vie). Le périphérique
+  audio n'est ouvert que pendant la parole (pris par le son de démarrage de Windows).
+  Tampons `waveOut` d'au moins **2048 octets** : SNDBLST2.DRV perd ~2048 octets au
+  début de chaque phrase avec des tampons plus petits (« fchier »), sans que la file
+  se vide ; seule l'écoute ou la comparaison au PCM natif le montre
+  (`Synthe3WindowsSoundTests`, son de 86Box enregistré par OpenAL Soft
+  `ALSOFT_DRIVERS=wave`, `sound=True` de `banc86box.run_batch`).
+- `dos/AUTOEXEC.BAT` : `SET BLASTER` puis `LH S3RES` **avant** SMARTDRV, Épaudos par
+  `LH`. Après SMARTDRV, S3RES (95 Kio) ne tient plus en mémoire supérieure et prend
+  97 Kio de conventionnelle sans message. Vérifier par `MEM /C` sur le disque réel,
+  pas sur une AUTOEXEC d'essai. Le modèle est en fins de ligne Unix : ne jamais le
+  copier tel quel sur un disque (DOS s'arrête), passer par `final_boot_files`.
+- Les essais VM qui copient `vm/win311.img` écrivent leur propre `EPAUDOS.INI`
+  (`Synthese=Apollo`) : sinon le choix Synthé3 de l'utilisateur rend COM1 muet.
+- Échappements C : `"\x18Bonjour"` donne l'octet 8Bh (le B est un chiffre
+  hexadécimal) ; écrire `"\x18" "Bonjour"`.
+- Touches : celles de NVDA (disposition bureau, Inser = NVDA) dans les deux lecteurs ;
+  Inser + pavé (7, 1, moins, 5, Suppr) se distingue des touches dédiées par le
+  préfixe E0 (Épaudos) ou le bit étendu (crochet d'Épaulard), jamais par la seule
+  touche virtuelle.
+- S3RES et autres résidents Watcom : pas de `main(argc, argv)` ; la bibliothèque C
+  alloue pour argv un bloc DOS de 8 Kio qui reste résident. Lire le chemin du
+  programme après l'environnement (`chosen` de `s3res.c`, `path` d'Épaudos).
+  Scénarios : `PC486_S3_TESTS=1 python3 -m unittest tests.test_synthe3_dos_vm
+  tests.test_synthe3_win_vm -v` (copies privées sous `work/vmtest/s3dos|s3win`).
 
 ## Diagnostic ciblé
 

@@ -424,6 +424,8 @@ void braille_poll(void)
         braille_valid = FALSE;
     } else if (nav_br_show()) {
         braille_valid = FALSE;  /* page Web en mode navigation : curseur virtuel */
+    } else if (obj_br_show()) {
+        braille_valid = FALSE;  /* objet navigateur (Inser + pavé) */
     } else if (review_load(&r)) {
         braille_selection(&r);
         if (!braille_valid || !braille_same(&r, &braille_live)) {
@@ -482,6 +484,17 @@ void on_review(int key)
     REVIEW r;
     int direction, n, start, end;
 
+    if (key >= 15) {                    /* navigation par objet (objet.c) */
+        obj_command(key);
+        return;
+    }
+    obj_review_used();
+    if (key == 11)
+        obj_to_focus();
+    if (key == 14) {                    /* plus du pavé : dire tout (NVDA) */
+        sa_start();
+        return;
+    }
     if (key == 10) {
         flat_review = !flat_review;
         review_window = NULL;

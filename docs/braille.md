@@ -65,7 +65,7 @@ Curseur routine, selon ce qu'affiche la plage :
 - contrôle EDIT (Bloc-notes, zones d'édition) : le curseur y est placé (EM_SETSEL) ;
 - texte dessiné qui a le focus (Write, document Word) : un clic de souris simulé
   sur le caractère y pose le curseur ; le pointeur revient ensuite à sa place ;
-- revue à plat (Inser + moins du pavé) : le point de revue va sur ce caractère,
+- revue à plat (Inser + 7 du pavé) : le point de revue va sur ce caractère,
   qui est prononcé ; un second appui sur le même curseur routine dans la seconde
   clique sur ce caractère (menu, bouton, icône). En revue à plat, les touches ligne
   précédente/suivante de la plage déplacent aussi le point de revue de la parole.

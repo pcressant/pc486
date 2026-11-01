@@ -135,9 +135,13 @@ static BYTE sim_patch_area[16];
 #define BS_PUSHBUTTON 0
 #define GMEM_MOVEABLE 2
 #define SEM_NOOPENFILEERRORBOX 0x8000
+#define HINSTANCE_ERROR 32
+static BOOL sim_s3res;          /* S3RES résident avant Windows (INT 2Fh D300h) */
+#define MB_ICONHAND 0x10
 #define GWW_HINSTANCE (-6)
 #define VK_SPACE 0x20
 #define VK_F5 0x74
+#define VK_F12 0x7B
 #define EM_GETSEL (WM_USER + 0)
 #define EM_SETSEL (WM_USER + 1)
 #define EM_GETLINECOUNT (WM_USER + 10)
@@ -319,12 +323,16 @@ typedef struct {
 } SIMWIN;
 static SIMWIN sim_win[SIM_WN];
 static HWND sim_focus, sim_active, sim_sysmodal;
+/* Bureau : dernier emplacement, jamais attribué ; ses enfants sont les fenêtres
+   principales (parent 0). */
+#define SIM_DESKTOP ((HWND) (SIM_WN - 1))
+static HWND GetDesktopWindow(void) { return SIM_DESKTOP; }
 
 static HWND sim_create(HWND parent, const char *cls, const char *text, LONG style,
                        int l, int t, int r, int b)
 {
     int i;
-    for (i = 1; i < SIM_WN; i++)
+    for (i = 1; i < SIM_WN - 1; i++)
         if (!sim_win[i].used) {
             memset(&sim_win[i], 0, sizeof(sim_win[i]));
             sim_win[i].used = TRUE;
@@ -340,7 +348,7 @@ static HWND sim_create(HWND parent, const char *cls, const char *text, LONG styl
     return 0;
 }
 static void sim_destroy(HWND h) { sim_win[h].used = FALSE; }
-static BOOL IsWindow(HWND h) { return h > 0 && h < SIM_WN && sim_win[h].used; }
+static BOOL IsWindow(HWND h) { return h == SIM_DESKTOP || (h > 0 && h < SIM_WN && sim_win[h].used); }
 static HWND GetParent(HWND h) { return IsWindow(h) ? sim_win[h].parent : 0; }
 static HMENU GetMenu(HWND h) { return IsWindow(h) ? sim_win[h].menu : 0; }
 static WORD GetWindowWord(HWND h, int i) { (void) i; return sim_win[h].id; }
@@ -348,6 +356,7 @@ static LONG GetWindowLong(HWND h, int i) { (void) i; return IsWindow(h) ? sim_wi
 static BOOL IsWindowEnabled(HWND h) { return IsWindow(h) && !(sim_win[h].style & WS_DISABLED); }
 static BOOL IsWindowVisible(HWND h)
 {
+    if (h == SIM_DESKTOP) return TRUE;
     for (; h; h = sim_win[h].parent)
         if (!IsWindow(h) || !(sim_win[h].style & WS_VISIBLE)) return FALSE;
     return TRUE;
@@ -357,8 +366,9 @@ static HWND GetWindow(HWND h, UINT cmd)
     int i;
     if (cmd == GW_OWNER) return IsWindow(h) ? sim_win[h].owner : 0;
     if (cmd == GW_CHILD) {
-        for (i = 1; i < SIM_WN; i++)
-            if (sim_win[i].used && sim_win[i].parent == h) return (HWND) i;
+        HWND p = h == SIM_DESKTOP ? 0 : h;
+        for (i = 1; i < SIM_WN - 1; i++)
+            if (sim_win[i].used && sim_win[i].parent == p) return (HWND) i;
         return 0;
     }
     if (cmd == GW_HWNDFIRST || cmd == GW_HWNDLAST) {
@@ -440,6 +450,8 @@ static int GetClassName(HWND h, LPSTR s, int n) { lstrcpyn(s, IsWindow(h) ? sim_
 static HWND GetFocus(void) { return sim_focus; }
 static HWND SetFocus(HWND h) { HWND old = sim_focus; sim_focus = h; return old; }
 static HWND GetActiveWindow(void) { return sim_active; }
+static HWND SetActiveWindow(HWND h) { HWND old = sim_active; sim_active = h; return old; }
+static BOOL BringWindowToTop(HWND h) { (void) h; return TRUE; }
 static HWND GetSysModalWindow(void) { return sim_sysmodal; }
 /* fenêtre visible la plus profonde, la dernière créée l'emportant */
 static HWND WindowFromPoint(POINT p)
@@ -742,6 +754,8 @@ static HMODULE (*sim_load_hook)(LPCSTR name);
 static FARPROC (*sim_proc_hook)(HMODULE m, LPCSTR name);
 static HMODULE LoadLibrary(LPCSTR n) { return sim_load_hook ? sim_load_hook(n) : 2; }
 static UINT SetErrorMode(UINT m) { (void) m; return 0; }
+static void FreeLibrary(HMODULE m) { (void) m; }
+static void MessageBeep(UINT t) { (void) t; }
 static FARPROC MakeProcInstance(FARPROC f, HINSTANCE h) { (void) h; return f; }
 static FARPROC GetProcAddress(HMODULE m, LPCSTR n)
 {

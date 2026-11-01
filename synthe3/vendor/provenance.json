@@ -1,0 +1,13 @@
+{
+  "source": "../synthe3-ng",
+  "revision": "b20e178444106d4a4526f2cf09eae642af1e186e",
+  "files": {
+    "src/engine.c": "d200f0e0296aa94e94934854812b0b5e5427f937903e0605e724c98a9b8aab05",
+    "src/engine.h": "518773a807f97048c3b2d839c94592e7129234a3e1185677bab0def300ebad44",
+    "src/voice_data.h": "5a5fdf6f6b1ae5ddcf70559b25974a37dd4bcd42f9c94982cbbb3415fc387c08",
+    "UPSTREAM.md": "b134d897b90c666f0043c4dbe46a3078337b86c9bb21540861834fca6a74c3b1",
+    "LICENSE.md": "bb3c32ba19ccc5ad4857ea8ef2521657c79e9b90fb0e95b7a4e6c0008d94d8d6",
+    "upstream/LICENSE-LGPL": "d80c9d084ebfb50ea1ed91bfbc2410d6ce542097a32c43b00781b83adcb8c77f",
+    "upstream/LICENSE-GPL": "91df39d1816bfb17a4dda2d3d2c83b1f6f2d38d53e53e41e8f97ad5ac46a0cad"
+  }
+}

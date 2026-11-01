@@ -7,7 +7,7 @@ typedef unsigned short WORD;
 #define ED_ROWS 50
 #define ED_CELLS (ED_COLS * ED_ROWS)
 #define ED_TEXT 256
-#define ED_CFG 7
+#define ED_CFG 10
 
 /* Interface matérielle : aucune fonction du moteur n'appelle DOS. */
 int hw_tx(int port, BYTE value);
@@ -27,6 +27,7 @@ void hw_unlock(WORD flags);
 #define ED_RUN 1
 #define ED_SKIP 2
 int hw_guest(int key);
+void hw_clock(BYTE *t);         /* BCD : heures, minutes, jour, mois, siècle, année */
 /* Boîte aux lettres partagée avec Épaulard (dos.c, epaulard/src/dosbox.c) :
    offsets dans le segment d'Épaudos, renvoyé en ES par INT 2Fh AX=ED02h. */
 typedef struct {

@@ -26,6 +26,7 @@ import zipfile
 
 from vmctl import FR, Qmp, type_text
 import options_vm
+import synthe3_etat
 
 ROOT = Path(__file__).resolve().parents[1]
 FLOPPY_SIZE = 1474560
@@ -1349,8 +1350,14 @@ def epaulard_ini():
     return load_script('configure_epaulard', 'configure-epaulard.py')
 
 
+SYNTHE3_BUILD = ROOT / 'work/dev/synthe3/build'
+# Synthé3 local : résident DOS, DLL d'Épaulard ; choix par l'utilisateur dans
+# C:\EPAUDOS.INI (Synthese=Synthe3, menu Inser+E d'Épaudos), lu par Épaudos et S3RES.
+SYNTHE3_FILES = (('S3RES.EXE', ''), ('EPAUS3.DLL', 'EPAULARD/'))
+
+
 def configure(stage, image, binaries, braille, epaudos, word_dos=False, cdrom=False, reseau=False,
-              norton=False):
+              norton=False, synthe3=None):
     ini = load_ini_editor()
     for name in ('WIN.INI', 'SYSTEM.INI'):
         p = stage / name
@@ -1369,10 +1376,18 @@ def configure(stage, image, binaries, braille, epaudos, word_dos=False, cdrom=Fa
     for name in ('WIN.INI', 'SYSTEM.INI'):
         run('mcopy', '-o', '-i', image, stage / name, '::/WINDOWS/' + name)
     configure_groups(stage, image)
-    # Lecteur DOS du projet, chargé par la branche DOS d'AUTOEXEC.BAT.
+    # Lecteur DOS du projet, chargé par la branche DOS d'AUTOEXEC.BAT. Sans plage,
+    # Braille=0 : Épaudos ne touche ni COM3 ni l'IRQ9.
     run('mcopy', '-o', '-i', image, epaudos, '::/EPAUDOS.COM')
+    if not braille:
+        write_dos_file(stage, image, 'EPAUDOS.INI', epaudos_ini(False, braille))
     # Réglages vocaux d'Épaulard de la VM de référence (débit 5, sans écho clavier).
     write_dos_file(stage, image, 'EPAULARD/EPAULARD.INI', (ROOT / 'dos/EPAULARD.INI').read_text(), 'cp1252')
+    # Synthé3 installé dans tous les cas (Inser+E d'Épaudos le choisit plus tard) ;
+    # Synthese=Synthe3 n'est écrit dans EPAUDOS.INI qu'après les vérifications sur COM1.
+    if synthe3:
+        for name, folder in SYNTHE3_FILES:
+            run('mcopy', '-o', '-i', image, synthe3 / name, f'::/{folder}{name}')
     run('mdel', '-i', image, '::/PC486.SHH')     # réponses de Setup, plus utiles
     config, autoexec = final_boot_files(word_dos, cdrom, reseau, norton)
     write_dos_file(stage, image, 'CONFIG.SYS', config)
@@ -1392,6 +1407,9 @@ def configure(stage, image, binaries, braille, epaudos, word_dos=False, cdrom=Fa
             raise InstallError(f'copie incorrecte : {name}')
     if run('mtype', '-i', image, '::/EPAUDOS.COM') != epaudos.read_bytes():
         raise InstallError('copie incorrecte : EPAUDOS.COM')
+    for name, folder in SYNTHE3_FILES if synthe3 else ():
+        if run('mtype', '-i', image, f'::/{folder}{name}') != (synthe3 / name).read_bytes():
+            raise InstallError(f'copie incorrecte : {name}')
     installed = run('mtype', '-i', image, '::/WINDOWS/SYSTEM.INI').decode('cp1252')
     if 'oemansi.bin=xlat850.bin' not in installed.lower():
         raise InstallError('Windows n’a pas été installé en page de code 850')
@@ -1505,6 +1523,51 @@ def verify_boot(stage, disk, timeout, nic=False, phase='verification'):
             raise InstallError('retour au DOS non confirmé après fermeture de Windows')
 
 
+def epaudos_ini(synthe3, braille):
+    """Contenu d'EPAUDOS.INI : seulement ce qui diffère des défauts d'Épaudos."""
+    return ('Synthese=Synthe3\n' if synthe3 else '') + ('' if braille else 'Braille=0\n')
+
+
+def verify_synthe3(stage, image, disk, timeout, braille=True):
+    """EPAUDOS.INI avec Synthese=Synthe3 : Épaudos parle par S3RES sous DOS, Épaulard
+    par EPAUS3.DLL sous Windows (mode Auto), rien sur COM1. Parole lue dans la trace
+    du moteur. Les autres réglages d'Épaudos gardent leur valeur par défaut."""
+    write_dos_file(stage, image, 'EPAUDOS.INI', epaudos_ini(True, braille))
+    with machine(stage, disk, 'synthe3', voice=True) as m:
+        mark = m.voice.stat().st_size if m.voice.exists() else 0
+        end = time.monotonic() + timeout
+        boot_menu(m, end, '1')
+        if not wait_prompt(m, end):
+            raise InstallError('invite DOS absente avec Synthé3 ; écran conservé')
+        while time.monotonic() < end:
+            res = synthe3_etat.resident(synthe3_etat.linear_memory(m.q))
+            if res and 'paudos pr' in res['trace']:
+                break
+            time.sleep(1)
+        else:
+            raise InstallError('S3RES absent ou Épaudos muet avec Synthé3 ; écran conservé')
+        if res['state'] or res['refused']:
+            raise InstallError(f'S3RES : état {res["state"]}, propositions refusées {res["refused"]}')
+        m.key('ctrl-alt-delete')
+        end = time.monotonic() + timeout
+        boot_menu(m, end, '2')
+        while time.monotonic() < end:
+            win = synthe3_etat.win_info(m.q.memory(0, 16 << 20))
+            if win and win['propositions'] and 'Gestionnaire' in win['trace']:
+                break
+            time.sleep(1)
+        else:
+            raise InstallError('Épaulard ne parle pas par EPAUS3.DLL ; écran conservé')
+        time.sleep(5)
+        m.key('alt-f4')
+        time.sleep(2)
+        m.key('ret')
+        if not wait_prompt(m, end):
+            raise InstallError('retour au DOS non confirmé après Windows avec Synthé3')
+        if m.voice.exists() and m.voice.stat().st_size != mark:
+            raise InstallError('parole envoyée sur COM1 alors que Synthé3 est choisi')
+
+
 def verify_epaudos(stage, disk, timeout, word_dos=False, cdrom=False):
     with machine(stage, disk, 'epaudos', voice=True) as m:
         end = time.monotonic() + timeout
@@ -1585,12 +1648,17 @@ def parser():
     p.add_argument('--reseau', type=Path, help='tcp32b.zip (TCP/IP-32 3.11b) : carte NE2000 et TCP/IP de WfW, '
                    'utilisés avec « pc486 start --reseau » ; sans carte, réseau retiré au démarrage')
     p.add_argument('--sans-braille', dest='braille', action='store_false',
-                   help='ne pas configurer la plage Baum (par défaut : COM3, base 03E8, IRQ9)')
+                   help='ne pas configurer la plage Baum (par défaut : COM3, base 03E8, IRQ9) ; '
+                        'Épaudos reçoit Braille=0 dans EPAUDOS.INI')
     p.add_argument('--braille', dest='braille', action='store_true', help=argparse.SUPPRESS)
+    p.add_argument('--synthese', choices=('apollo', 'synthe3'), default='apollo',
+                   help='synthèse des lecteurs : apollo (Apollo II sur COM1, défaut) ou synthe3 (Synthé3 '
+                        'sur la Sound Blaster : S3RES sous DOS, EPAUS3.DLL sous Windows). Synthé3 est '
+                        "installé dans les deux cas ; Inser+E d'Épaudos (Synthèse, EPAUDOS.INI) change ce choix sur la VM")
     p.add_argument('--binaries', type=Path, help='EPAULARD.EXE, EPAUHOOK.DLL, EPAUDOS.COM (et INSTAUTO.EXE pour '
                    '--word, --excel, --access, --amipro, --norton, --netscape, --communicator, --eudora, '
                    'RESEAU.EXE pour '
-                   '--reseau) déjà compilés ; '
+                   '--reseau, S3RES.EXE et EPAUS3.DLL pour --synthese synthe3) déjà compilés ; '
                    'sinon compilation')
     p.add_argument('--check', action='store_true', help='vérifier les supports et prérequis, sans créer de disque')
     p.add_argument('--icount', type=icount_option, default=ICOUNT,
@@ -1615,7 +1683,8 @@ def prerequisites(args):
         acme = (args.word or args.excel or args.access or args.amipro or args.norton or args.netscape or
                 args.communicator or args.eudora)
         for name in ('EPAULARD.EXE', 'EPAUHOOK.DLL', 'EPAUDOS.COM') + (('INSTAUTO.EXE',) if acme else ()) \
-                + (('RESEAU.EXE',) if args.reseau else ()):
+                + (('RESEAU.EXE',) if args.reseau else ()) \
+                + (tuple(n for n, _ in SYNTHE3_FILES) if args.synthese == 'synthe3' else ()):
             if not (args.binaries / name).is_file():
                 raise InstallError(f'binaire absent : {args.binaries / name}')
     elif not Path(os.environ.get('WATCOM', ROOT / 'tools/watcom')).exists():
@@ -1677,6 +1746,8 @@ def main(argv=None):
         if args.reseau:
             steps.append('Démarrage Windows/Épaulard avec la carte réseau')
         steps.append('Démarrage DOS avec Épaudos')
+        if args.synthese == 'synthe3':
+            steps.append('Synthé3 : Épaudos (S3RES) et Épaulard (EPAUS3.DLL)')
         numbered = iter(enumerate(steps, 1))
 
         def step():
@@ -1749,9 +1820,13 @@ def main(argv=None):
         binaries = args.binaries.resolve() if args.binaries else ROOT / 'epaulard/build'
         epaudos = binaries / 'EPAUDOS.COM' if args.binaries else ROOT / 'epaudos/build/EPAUDOS.COM'
         reseau_exe = binaries / 'RESEAU.EXE' if args.binaries else ROOT / 'dos/build/RESEAU.EXE'
+        synthe3 = binaries if args.binaries else SYNTHE3_BUILD
         if not args.binaries:
             run(ROOT / 'epaulard/build.sh')
             run(ROOT / 'epaudos/build.sh')
+            run(ROOT / 'synthe3/build.sh')
+        if not all((synthe3 / name).is_file() for name, _ in SYNTHE3_FILES):
+            synthe3 = None              # --binaries sans Synthé3 : refusé plus haut si demandé
             if args.reseau:
                 run(ROOT / 'dos/build.sh')
         disk = stage / 'installation.img'
@@ -1790,7 +1865,7 @@ def main(argv=None):
             install_reseau(stage, disk, image, tcp, reseau_exe, args.timeout)
         step()
         configure(stage, image, binaries, args.braille, epaudos, bool(word_dos), bool(cd_driver), bool(tcp),
-                  bool(args.norton))
+                  bool(args.norton), synthe3)
         step()
         verify_boot(stage, disk, args.timeout)
         if tcp:
@@ -1816,8 +1891,15 @@ def main(argv=None):
         if word_dos:
             verified.insert(-3, 'word-dos-setup')
             verified.append('word-dos-epaudos')
+        if args.synthese == 'synthe3':
+            step()
+            verify_synthe3(stage, image, disk, args.timeout, args.braille)
+            verified.append('synthe3-epaudos-epaulard')
         manifest['epaulard'] = {p.name: digest(p) for p in (binaries / 'EPAULARD.EXE', binaries / 'EPAUHOOK.DLL',
                                                             epaudos)}
+        if synthe3:
+            manifest['synthe3'] = {name: digest(synthe3 / name) for name, _ in SYNTHE3_FILES}
+            manifest['synthese'] = args.synthese
         manifest['verified'] = verified
         (stage / 'supports.json').write_text(json.dumps(manifest, indent=2) + '\n')
         publish(disk, output)
