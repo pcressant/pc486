@@ -252,6 +252,13 @@ Les étapes s'affichent dans le terminal, numérotées selon les options :
    conservés. Norton Desktop (Symantec Install) redémarre le PC à la fin :
    `INSTAUTO.EXE` reprend au démarrage suivant ; les programmes qu'il laisse
    résidents (`residents=NAVTSRW FASSIST` de `[pc486]`) ne retardent pas la fin.
+   Avec Word installé, FileAssist demandait à ce redémarrage s'il fallait le
+   configurer pour Word, dans une boîte ouverte par la tâche d'INSTAUTO avant sa
+   boucle de messages : aucune réponse possible, Windows ne se fermait plus.
+   `C:\WINDOWS\FASSIST.INI` est donc écrit avant l'installation (`FASSIST_INI`,
+   `WinwordInstalled=0`, ce que FileAssist écrit après « Non » ; l'installateur de
+   Norton ne remplace pas un fichier existant). `C:\NDW\FASSIST.EXE` est remis
+   dans `load=` à la fin, les installations suivantes (Netscape…) l'en retirant.
    Netscape, Communicator et Eudora (InstallShield) suivent la même
    méthode ; deux boîtes de même titre (« Question ») reçoivent chacune leur
    réponse, dans l'ordre. Leurs réglages (INI, signets) sont écrits après

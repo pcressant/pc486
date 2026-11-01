@@ -485,6 +485,10 @@ Préférer `scripts/pc486-dev` aux préfixes de variables, que les règles ne co
   (`GetLastActivePopup`) est active. Vérifié contre la boîte affichée sous QEMU.
 - INSTAUTO joue ses réponses dans l'ordre : deux boîtes « Question » successives
   reçoivent chacune la leur ; ne pas dédoublonner les titres.
+- Une boîte ouverte par un résident dans la tâche d'INSTAUTO, avant sa boucle de
+  messages (FileAssist de Norton au redémarrage, « configurer pour Word ? »), ne
+  reçoit aucune réponse et n'apparaît pas dans `INSTAUTO.LOG` : la supprimer par
+  un fichier écrit d'avance (`before` d'`Acme`, `FASSIST.INI`), vérifier par capture.
 - 86Box réécrit sa configuration à l'arrêt et supprime ce qu'il ne reconnaît pas
   (section en double, type de lecteur inconnu) : insérer les clés dans les sections du
   modèle. CD-ROM : `cdrom_01_parameters = 1, atapi`, canal `1:0` (IDE secondaire de la

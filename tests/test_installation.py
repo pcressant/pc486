@@ -786,6 +786,16 @@ class OfficeMediaTests(unittest.TestCase):
         out = install.epaulard_ini().edit_load(text, remove=(r'C:\INSTAUTO.EXE',) + norton.unload)
         self.assertIn('load=C:\\EPAULARD\\EPAULARD.EXE c:\\ndw\\fassist.exe\r\n', out)
 
+    def test_norton_fileassist_does_not_ask_about_word(self):
+        # Sans WinwordInstalled, FileAssist demande au redémarrage s'il faut configurer
+        # Word : boîte dans la tâche d'INSTAUTO, installation complète bloquée.
+        (path, text), = install.ACME['norton'].before
+        self.assertEqual(path, 'WINDOWS/FASSIST.INI')
+        self.assertIn('[Global]\nWinwordInstalled=0\n', text)
+        self.assertIn('[Compatibility]\nCORELDRW=0x29df\n', text)    # celui de Norton, gardé
+        self.assertTrue(all(not product.before for key, product in install.ACME.items()
+                            if key != 'norton'))
+
     def test_norton_boot_lines_without_the_resident_antivirus(self):
         config, autoexec = install.final_boot_files(norton=True)
         self.assertIn(b'PATH C:\\WINDOWS;C:\\DOS;C:\\NDW\r\n', autoexec)

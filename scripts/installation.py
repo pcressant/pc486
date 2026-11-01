@@ -571,16 +571,17 @@ class Acme:
     archive : dossier d'installation dans un ZIP (Netscape) au lieu de disquettes ;
     setup : programme lancé dans le dossier de la disquette 1. settings : réglages
     écrits après l'installation, (fichier INI de C:, section, clé, valeur) ; {NOM}
-    remplacé. files : fichiers texte créés ensuite, (chemin sur C:, texte).
-    residents : modules laissés en mémoire par l'installateur, ignorés par INSTAUTO
+    remplacé. files : fichiers texte créés ensuite, (chemin sur C:, texte) ; before :
+    de même, mais écrits avant l'installation. residents : modules laissés en mémoire par l'installateur, ignorés par INSTAUTO
     pour juger la fin ; unload : programmes retirés ensuite de load=."""
     def __init__(self, key, title, folder, disks, sizes, signature, program, marker,
                  quiet=True, merge=False, answers=(), archive=None, setup='INSTALL.EXE',
-                 settings=(), files=(), residents=(), unload=()):
+                 settings=(), files=(), before=(), residents=(), unload=()):
         self.key, self.title, self.folder, self.disks = key, title, folder, disks
         self.sizes, self.signature, self.program, self.marker = sizes, signature, program, marker
         self.quiet, self.merge, self.answers = quiet, merge, answers
         self.archive, self.setup, self.settings, self.files = archive, setup, settings, files
+        self.before = before
         self.residents, self.unload = residents, unload
 
     def source(self, n):
@@ -644,6 +645,23 @@ NETSCAPE_BOOKMARKS = '''<!DOCTYPE NETSCAPE-Bookmark-file-1>
 </DL><p>
 '''
 
+# FASSIST.INI de Norton Desktop 3.0 tel que FileAssist le laisse après « Non » à sa
+# question sur Word : l'installateur ne copie pas le sien si le fichier existe déjà.
+FASSIST_INI = """[Compatibility]
+CORELDRW=0x29df
+CLWORKS=0x11df
+RTD=0x09df
+WINPROJ=0x19df
+BRAVO=0x21df
+FAXWORKS=0x09df
+XTALK=0x21df
+PW=0x11bf
+CCMAIL=0x11df
+
+[Global]
+WinwordInstalled=0
+"""
+
 SIZES_35 = (FLOPPY_SIZE,)
 SIZES_525 = (1228800,)
 ACME = {
@@ -681,7 +699,9 @@ ACME = {
     # « Redémarrer » relance le PC : INSTAUTO reprend puis quitte Windows. La
     # protection antivirus résidente (NAVTSRW, et NAVTSR.EXE de CONFIG.SYS) n'est
     # pas gardée ; FileAssist (FASSIST) reste dans load=. Fichiers de démarrage :
-    # NORTON_AUTOEXEC.
+    # NORTON_AUTOEXEC. FASSIST.INI écrit d'avance : sans WinwordInstalled, FileAssist
+    # trouve Word au redémarrage et demande s'il faut le configurer, boîte ouverte dans
+    # la tâche d'INSTAUTO avant sa boucle de messages (installation bloquée).
     'norton': Acme('norton', 'Norton Desktop 3.0', 'NORTON', 7, SIZES_35,
                    ('INSTALL.INF', (b'Norton Desktop Version 3.0', b'&Automatique')),
                    'NDW/NDW.EXE', 'PC486_NORTON_OK', quiet=False, merge=True, answers=(
@@ -691,7 +711,8 @@ ACME = {
                        ('Norton Desktop - Modification du Shell', '{TAB}{ENTREE}'),  # Non
                        ('Création de disquette du sauvetage', '{TAB}{ENTREE}'),     # Non
                        ('Norton Desktop - Installation terminée', '{ENTREE}'),      # Redémarrer
-                   ), residents=('NAVTSRW', 'FASSIST'), unload=(r'C:\NDW\NAVTSRW.EXE',)),
+                   ), before=(('WINDOWS/FASSIST.INI', FASSIST_INI),),
+                   residents=('NAVTSRW', 'FASSIST'), unload=(r'C:\NDW\NAVTSRW.EXE',)),
     # Netscape Navigator 3.01 français (16 bits) : InstallShield 3, dossier N16FR31 du ZIP.
     # Réglages : services de l'hôte de « pc486 start --reseau » (docs/reseau.md).
     'netscape': Acme('netscape', 'Netscape Navigator 3.01', 'NETSCAPE', 1, (),
@@ -900,6 +921,10 @@ def stage_acme(stage, image, product, media, name, company, binaries, extra_load
             run('mmd', '-i', image, '::/' + product.source(i))
         run('mcopy', '-o', '-i', image, *sorted(dest.iterdir()), f'::/{product.source(i)}/')
     run('mcopy', '-o', '-i', image, binaries / 'INSTAUTO.EXE', '::/INSTAUTO.EXE')
+    for path, text in product.before:
+        local = stage / f'{product.key}-{Path(path).name}'
+        local.write_bytes(text.replace('\n', '\r\n').encode('cp1252'))
+        run('mcopy', '-o', '-i', image, local, '::/' + path)
     if not mexists(image, 'TEMP/'):
         run('mmd', '-i', image, '::/TEMP')
     ini = load_ini_editor()
@@ -1364,6 +1389,10 @@ def configure(stage, image, binaries, braille, epaudos, word_dos=False, cdrom=Fa
         p.write_bytes(run('mtype', '-i', image, '::/WINDOWS/' + name))
     win, system = stage / 'WIN.INI', stage / 'SYSTEM.INI'
     text = win.read_bytes().decode('cp1252')
+    if norton:
+        # FileAssist reste chargé, même si un produit installé après Norton a réduit
+        # load= à INSTAUTO (Netscape, Eudora…).
+        text = epaulard_ini().edit_load(text, add=r'C:\NDW\FASSIST.EXE')
     win.write_bytes(epaulard_ini().configure(text).encode('cp1252'))
     system.write_bytes(configure_sound(system.read_bytes().decode('cp1252')).encode('cp1252'))
     if braille:
