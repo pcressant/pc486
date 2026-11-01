@@ -241,9 +241,12 @@ static void trace(void)
     ap_trace[ap_trace_pos++] = '|';
     ap_trace[ap_trace_pos] = 0;
 }
-/* Débit Apollo W1..9 : même échelle que Synthé3 (W3 = débit 3, défaut des deux).
-   Hauteur Apollo F0..F, défaut F8 : Synthé3 0..15, défaut 5 ; F8 -> 5. Ces
-   correspondances restent à qualifier à l'écoute. */
+/* Débit Apollo W1..9 sur toute l'échelle de Synthé3 (0..15, facteur 2^(1/6) par
+   pas, 3 = débit naturel) : W1 naturel, W5 deux fois plus vite, W9 quatre fois
+   (l'ancien W9, débit 9, est devenu W5). Épaudos et Épaulard passent tous deux par
+   cette table : un même réglage donne la même vitesse.
+   Hauteur Apollo F0..F, défaut F8 : Synthé3 0..15, défaut 5 ; F8 -> 5. */
+static const unsigned char rates[10] = { 3, 3, 5, 6, 8, 9, 11, 12, 14, 15 };
 static int start(void)
 {
     unsigned i;
@@ -253,7 +256,7 @@ static int start(void)
     for (i = 0; i < text_n && text[i] == ' '; i++) {}
     if (i < text_n) {
         trace();
-        if (s3_start(text, ap_stats.rate, pitch) == S3_OK) {
+        if (s3_start(text, rates[ap_stats.rate], pitch) == S3_OK) {
             active = 1;
             ap_stats.propositions++;
         } else ap_stats.refused++;

@@ -170,6 +170,13 @@ class WindowsScenarios(unittest.TestCase):
             ini = Path(tmp) / 'EPAUDOS.INI'
             ini.write_bytes(b'Synthese=Apollo\r\n')
             subprocess.run(['mcopy', '-o', '-i', img, str(ini), '::/EPAUDOS.INI'], check=True)
+            # Synthèse imposée dans Inser+E d'Épaulard : retour au mode Auto.
+            got = subprocess.run(['mtype', '-i', img, '::/EPAULARD/EPAULARD.INI'], capture_output=True)
+            if got.returncode == 0 and re.search(rb'(?im)^Synthese=', got.stdout):
+                ep_ini = Path(tmp) / 'EPAULARD.INI'
+                ep_ini.write_bytes(re.sub(rb'(?im)^Synthese=.*\r?\n?', b'', got.stdout))
+                subprocess.run(['mcopy', '-o', '-i', img, str(ep_ini), '::/EPAULARD/EPAULARD.INI'],
+                               check=True)
         shutil.rmtree(LOGS, ignore_errors=True)
         dev('pc486', 'start', '--qemu', '--headless', '--braille')
         cls.baum = FakeBaum(RUN / 'com3.sock')

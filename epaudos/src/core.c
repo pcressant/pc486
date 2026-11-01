@@ -10,7 +10,7 @@ volatile BYTE ed_windows, ed_disabled, ed_save, ed_resume;
 /* Mode invité : machine DOS de Windows, parole relayée par Épaulard. */
 volatile BYTE ed_guest;
 WORD ed_debug[12]; /* État consultable dans les scénarios QEMU. */
-BYTE ed_cfg[ED_CFG] = {3,8,1,1,0,0,1,4,0,1};
+BYTE ed_cfg[ED_CFG] = {3,8,1,1,0,0,1,4,1,1};   /* Synthé3 par défaut */
 int ed_cols = 80, ed_rows = 25, ed_x, ed_y, ed_flat;
 char ed_line[ED_TEXT];
 static WORD screen[ED_CELLS], hashes[ED_ROWS];

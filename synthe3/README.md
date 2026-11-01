@@ -25,20 +25,23 @@ génération à **231 ms sur DX4/100** avec un PCM identique, et à **902 ms sur
 ## Intégration aux lecteurs d'écran
 
 Épaudos et Épaulard parlent par Synthé3 sur la Sound Blaster, sans Apollo, sans
-liaison série vers l'hôte ni composant moderne dans la machine ; l'Apollo II sur
-COM1 reste le choix par défaut et se rétablit sans réinstaller.
+liaison série vers l'hôte ni composant moderne dans la machine. C'est la synthèse
+par défaut ; l'Apollo II sur COM1 se choisit sans réinstaller.
 
 | Fichier dans la VM | Rôle |
 | --- | --- |
 | `C:\S3RES.EXE` | résident DOS : protocole Apollo local, moteur, Sound Blaster (DMA direct) |
 | `C:\EPAULARD\EPAUS3.DLL` | même moteur pour Épaulard, sortie `waveOut` du pilote de Windows |
-| `C:\EPAUDOS.INI` | réglages d'Épaudos ; `Synthese=Apollo` (défaut) ou `Synthese=Synthe3` |
+| `C:\EPAUDOS.INI` | réglages d'Épaudos ; `Synthese=Synthe3` (défaut, aussi sans clé) ou `Synthese=Apollo` |
 
-Le choix se fait dans Épaudos : Inser+E, dernier réglage « Synthèse », puis Entrée
+Le choix se fait dans Épaudos : Inser+E, réglage « Synthèse », puis Entrée
 (enregistré dans `EPAUDOS.INI`), et prend effet au redémarrage. `AUTOEXEC.BAT`
 (modèle `dos/AUTOEXEC.BAT`) lance `LH C:\S3RES.EXE` avant SMARTDRV, puis
 `LH C:\EPAUDOS.COM` dans les deux branches du menu ; S3RES lit le même fichier et ne
-reste résident que pour Synthé3 (`S3RES /F` : toujours).
+reste pas résident avec `Synthese=Apollo` (`S3RES /F` : toujours). Sans clé et sans
+S3RES résident (pas de Sound Blaster), Épaudos parle à l'Apollo II. Épaulard a son
+propre réglage « Synthèse » (comme Épaudos par défaut, Synthé3 ou Apollo), appliqué
+aussitôt ; voir `docs/reglages.md`.
 
 Mémoire (VM de référence, 117 Kio de mémoire supérieure avec `NOEMS`, mesuré par
 `MEM /C` sous QEMU) : S3RES occupe 95 Kio, dont 62 Kio de données de voix. Chargé
@@ -52,6 +55,11 @@ copies XMS depuis l'interruption d'horloge, à protéger contre les appels XMS e
 (`[Parole] Synthese=Auto`) et charge EPAUS3.DLL. Retrait : Synthèse « Apollo »,
 redémarrer, puis effacer au besoin `S3RES.EXE` et `EPAUS3.DLL` ; aucun autre fichier
 n'est modifié.
+
+Débit : `@W1..9` des lecteurs → débit Synthé3 3, 5, 6, 8, 9, 11, 12, 14, 15
+(`rates` de `src/ap.c` ; facteur 2^(1/6) par pas du moteur) : W1 au débit naturel,
+W3 (défaut) 1,4 fois plus vite, W5 deux fois, W9 quatre fois. L'ancienne
+correspondance (débit = W) plafonnait à deux fois le débit naturel.
 
 Volume : réglage « Volume » d'Épaudos et d'Épaulard (1 à 8, `@A` de l'Apollo II).
 Synthé3 applique 3 dB par niveau autour du niveau d'origine (4) ; au-delà de 6, les
@@ -316,8 +324,8 @@ ajoute `5eb7612d` pour le gain et la saturation sur toutes les entrées 16 bits.
 
 ## Travail restant
 
-1. Écoute comparative et réglage de la correspondance débit/hauteur Apollo →
-   Synthé3 (provisoire : débit = W, hauteur = F − 3).
+1. Écoute comparative et réglage de la correspondance hauteur Apollo → Synthé3
+   (provisoire : hauteur = F − 3) ; débit : table `rates`, à confirmer à l'écoute.
 2. Mesurer la latence acoustique réelle (capture synchronisée à la demande) ;
    aucun essai sur 386 ; EPAUS3.DLL avec Épaulard réel (pas seulement la sonde)
    sous 86Box.

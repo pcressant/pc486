@@ -84,6 +84,21 @@ void s3_tick(BOOL timer)
     }
 }
 
+/* EPAUS3.DLL libérée sans attendre (parole déjà coupée) */
+static void s3_unload(void)
+{
+    if (!s3_lib)
+        return;
+    EpSpeech(NULL, NULL);
+    s3_close();
+    FreeLibrary(s3_lib);
+    s3_lib = 0;
+    if (s3_timer) {
+        KillTimer(hwnd_main, TIMER_S3);
+        s3_timer = FALSE;
+    }
+}
+
 /* Fermeture : laisser finir la dernière phrase (2 s au plus), puis libérer. */
 void s3_stop(void)
 {
@@ -92,14 +107,11 @@ void s3_stop(void)
         return;
     while (s3_busy() && GetTickCount() - t < 2000)
         s3_pump();
-    EpSpeech(NULL, NULL);
-    s3_close();
-    FreeLibrary(s3_lib);
-    s3_lib = 0;
+    s3_unload();
 }
 
 /* S3RES chargé avant Windows (INT 2Fh D300h, renvoyé à la machine DOS) : l'utilisateur
-   a choisi Synthé3 (Synthese=Synthe3 dans EPAUDOS.INI, lu par S3RES). Sous Windows il dort ; seule sa
+   n'a pas choisi l'Apollo II (Synthese=Apollo dans EPAUDOS.INI, lu par S3RES). Sous Windows il dort ; seule sa
    présence compte, Épaulard parle par EPAUS3.DLL. */
 static BOOL s3_resident(void)
 {
@@ -124,15 +136,15 @@ static BOOL s3_resident(void)
 #endif
 }
 
-/* [Parole] Synthese : Apollo (COM1), Synthe3 (EPAUS3.DLL), Auto (défaut : Synthé3 si
-   S3RES est résident, sinon Apollo). */
+/* Synthèse choisie (Inser+E, [Parole] Synthese, cfg[CFG_SYNTH]) : Synthe3
+   (EPAUS3.DLL), Apollo (COM1), Auto (défaut : comme Épaudos, Synthé3 si S3RES est
+   résident, ce qui est le cas sauf Synthese=Apollo dans EPAUDOS.INI). */
 void com_open(void)
 {
     DCB dcb;
-    char engine[16];
     com = -1;
-    GetPrivateProfileString("Parole", "Synthese", "Auto", engine, sizeof(engine), ini_path);
-    if (lstrcmpi(engine, "Synthe3") == 0 || (lstrcmpi(engine, "Apollo") != 0 && s3_resident())) {
+    s3_error = 0;
+    if (cfg[CFG_SYNTH] == 1 || (cfg[CFG_SYNTH] == 0 && s3_resident())) {
         if (s3_load())
             return;
         /* Synthé3 demandé mais indisponible (DLL absente, aucun pilote audio) :
@@ -144,6 +156,34 @@ void com_open(void)
         return;
     if (BuildCommDCB("COM1:9600,n,8,1", &dcb) == 0)
         SetCommState(&dcb);
+}
+
+/* Fermeture de COM1 : laisser partir ce qui reste dans la file (2 s au plus). */
+void com_close(void)
+{
+    DWORD t = GetTickCount();
+    COMSTAT st;
+    if (com < 0)
+        return;
+    while (GetTickCount() - t < 2000) {
+        GetCommError(com, &st);
+        if (st.cbOutQue == 0)
+            break;
+    }
+    CloseComm(com);
+    com = -1;
+}
+
+/* Changement de synthèse (Inser+E) : parole en cours coupée, ancienne sortie fermée,
+   nouvelle ouverte et réglée ; la DLL est prévenue pour sa parole directe. */
+void speech_restart(void)
+{
+    silence();
+    s3_unload();                        /* parole coupée : rien à laisser finir */
+    com_close();
+    com_open();
+    EpComm(com);
+    voice_apply();
 }
 
 void com_write(const char FAR *s, int n)

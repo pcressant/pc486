@@ -47,18 +47,24 @@ pris la place (528 Kio libres). Voir `synthe3/README.md`.
 
 ### Synthèse : Apollo II ou Synthé3
 
-Le choix est dans `EPAUDOS.INI` : `Synthese=Apollo` (défaut, aussi sans fichier ou
-sans clé) parle à l'Apollo II sur COM1 ; `Synthese=Synthe3` envoie **le même flux
-Apollo** à `S3RES.EXE`, résident Synthé3 qui calcule la voix et la joue sur la Sound
-Blaster ([synthe3/README.md](../synthe3/README.md)) ; COM1 reste libre. Il se règle
-dans Inser+E (dernier réglage, « Synthèse ») et prend effet au **redémarrage** : le
-modèle `dos/AUTOEXEC.BAT` lance toujours `S3RES`, qui lit le même fichier et ne
-reste résident que pour Synthé3 (`S3RES /F` le charge quand même). `EPAUDOS /S3`
+Le choix est dans `EPAUDOS.INI` : `Synthese=Synthe3` (défaut, aussi sans fichier ou
+sans clé) envoie **le flux Apollo** à `S3RES.EXE`, résident Synthé3 qui calcule la
+voix et la joue sur la Sound Blaster ([synthe3/README.md](../synthe3/README.md)) ;
+COM1 reste libre. `Synthese=Apollo` parle à l'Apollo II sur COM1. Sans clé
+`Synthese` et sans S3RES résident (pas de Sound Blaster, S3RES absent), Épaudos
+parle à l'Apollo II plutôt que de se taire. Le choix se règle dans Inser+E (avant-dernier
+réglage, « Synthèse ») et prend effet au **redémarrage** : le modèle
+`dos/AUTOEXEC.BAT` lance toujours `S3RES`, qui lit le même fichier et ne reste pas
+résident avec `Synthese=Apollo` (`S3RES /F` le charge quand même). `EPAUDOS /S3`
 force Synthé3 pour une session. S3RES peut être chargé avant ou après Épaudos :
 celui-ci le cherche (INT 2Fh D300h, sans appel DOS) et garde sa parole en file tant
 qu'il manque. Les échos `@E` du dire tout reviennent quand la carte a **joué** la
 marque. Sous Windows, Épaudos en mode invité reste relayé par Épaulard, qui parle
-alors par EPAUS3.DLL s'il trouve S3RES.
+par la synthèse choisie dans son propre Inser+E (par défaut comme Épaudos :
+EPAUS3.DLL s'il trouve S3RES).
+
+Débit : même échelle et même défaut (3) qu'Épaulard ; avec Synthé3, 1 est le débit
+naturel, 5 deux fois plus rapide, 9 quatre fois (table `rates` de `synthe3/src/ap.c`).
 
 La hauteur `@F` est envoyée en un seul chiffre hexadécimal (`@F0` à `@FF`), comme
 l'Apollo II l'attend ; elle partait auparavant en décimal au-delà de 9 (`@F12`).
@@ -235,7 +241,7 @@ Echo=0
 Majuscules=0
 EchoEcran=1
 Volume=4
-Synthese=Apollo
+Synthese=Synthe3
 Braille=1
 ```
 
@@ -247,8 +253,8 @@ signes identiques ou plus (`=====`, `----`) forment un trait, jamais dit. Écho 
 Majuscules : 0 non, 1 oui. Écho écran : 0 non, 1 oui ; Inser + plus du pavé le
 bascule sans enregistrer. Volume : 1–8, niveaux `@A0`, `@A1`, `@A2`, `@A3` (défaut 4),
 `@A5`, `@A7`, `@AA`, `@AF` de l'Apollo II ; Synthé3 les applique aussi (3 dB par niveau
-autour de 4 ; au-delà de 6, les crêtes sont écrêtées). Synthèse : `Apollo` ou
-`Synthe3`, au redémarrage. Braille : 1 (défaut) ou 0, au
+autour de 4 ; au-delà de 6, les crêtes sont écrêtées). Synthèse : `Synthe3`
+(défaut) ou `Apollo`, au redémarrage. Braille : 1 (défaut) ou 0, au
 redémarrage ; avec 0, Épaudos ne touche ni COM3 ni l'IRQ9 et n'émet aucune trame,
 y compris vers Épaulard dans une fenêtre DOS. Les noms des signes sont ceux d'Épaulard
 (`sign` de `core.c`, `sign_name` de `parole.c`).

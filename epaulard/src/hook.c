@@ -101,11 +101,16 @@ void FAR PASCAL __export EpSpeech(FARPROC write, FARPROC pump)
     s3_pump = (BOOL (FAR PASCAL *)(void)) pump;
 }
 
+void FAR PASCAL __export EpComm(int com)
+{
+    com_id = com;
+}
+
 static void speech_out(LPSTR buf, int n)
 {
     if (s3_write)
         s3_write(buf, n);
-    else
+    else if (com_id >= 0)
         WriteComm(com_id, buf, n);
 }
 

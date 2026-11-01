@@ -29,6 +29,8 @@ BOOL FAR PASCAL EpInstall(HWND hwnd, int com);
 /* Synthé3 local : écriture (S3Write) et pompe (S3Pump) d'EPAUS3.DLL pour la parole
    directe d'une boîte modale système ; NULL pour les oublier. */
 void FAR PASCAL EpSpeech(FARPROC write, FARPROC pump);
+/* COM1 rouvert ou fermé après un changement de synthèse (Inser+E) ; -1 : fermé. */
+void FAR PASCAL EpComm(int com);
 void FAR PASCAL EpRemove(void);
 /* Menu des réglages (Inser+E) : la DLL envoie alors toutes les touches à l'EXE */
 void FAR PASCAL EpCfgMode(BOOL on);

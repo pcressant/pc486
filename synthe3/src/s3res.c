@@ -2,8 +2,8 @@
  * S3RES.EXE : Synthé3 résident pour DOS réel (486SX/386 sans coprocesseur),
  * parole sur Sound Blaster, interface d'octets Apollo II pour Épaudos.
  *
- *   S3RES [/A220] [/I5] [/D1]   charger (défaut : variable BLASTER) si EPAUDOS.INI,
- *                               à côté de S3RES.EXE, contient Synthese=Synthe3
+ *   S3RES [/A220] [/I5] [/D1]   charger (défaut : variable BLASTER), sauf si
+ *                               EPAUDOS.INI, à côté de S3RES.EXE, contient Synthese=Apollo
  *   S3RES /F ...                charger quel que soit EPAUDOS.INI
  *   S3RES /U                    retirer, si aucun lecteur n'est attaché
  *
@@ -359,8 +359,8 @@ static int allocate_dma(void)
     return 1;
 }
 
-/* Choix d'Épaudos : EPAUDOS.INI à côté de S3RES.EXE, ligne « Synthese=Synthe3 »
-   (ou S3, ou 1). 1 : Synthé3 choisi ; 0 : Apollo, clé ou fichier absents. Le
+/* Choix d'Épaudos : EPAUDOS.INI à côté de S3RES.EXE, ligne « Synthese= ».
+   1 : Synthé3 (Synthe3, S3 ou 1, ou clé ou fichier absents : défaut) ; 0 : Apollo. Le
    chemin du programme est lu après l'environnement, pas dans argv : la bibliothèque
    C allouerait pour argv un bloc DOS de 8 Kio qui resterait résident. */
 static int chosen(void)
@@ -377,7 +377,7 @@ static int chosen(void)
         if (self[i] == '\\' || self[i] == ':') last = i + 1;
     }
     strcpy(path + last, "EPAUDOS.INI");
-    if (_dos_open(path, 0, &h)) return 0;
+    if (_dos_open(path, 0, &h)) return 1;
     if (_dos_read(h, buf, sizeof(buf), &n)) n = 0;
     _dos_close(h);
     for (i = 0; i < n; i++) {
@@ -385,7 +385,7 @@ static int chosen(void)
         for (j = 0; key[j] && i + j < n && buf[i + j] == key[j]; j++) {}
         if (!key[j] && i + j < n) return (buf[i + j] | 32) == 's' || buf[i + j] == '1';
     }
-    return 0;
+    return 1;                   /* sans choix : Synthé3, synthèse par défaut */
 }
 
 int main(void)
@@ -402,8 +402,8 @@ int main(void)
     if (unload) return uninstall();
     if (mux(0xd300, NULL) == 0xd3ff) { print("S3RES est déjà résident.\r\n"); return 0; }
     if (!force && !chosen()) {
-        print("S3RES non chargé : Épaudos utilise l'Apollo II (EPAUDOS.INI : Synthese=Synthe3"
-              " pour Synthé3 ; S3RES /F pour charger quand même).\r\n");
+        print("S3RES non chargé : Épaudos utilise l'Apollo II (EPAUDOS.INI : Synthese=Apollo ;"
+              " S3RES /F pour charger quand même).\r\n");
         return 0;
     }
     if (FP_SEG(&ap_link) != FP_SEG(&res_sb) || FP_SEG(&res_info) != FP_SEG(&res_sb) ||
@@ -460,7 +460,7 @@ int main(void)
     return 0;
 usage:
     print("S3RES [/F] [/A220] [/I5] [/D1] : Synthé3 résident sur Sound Blaster (défaut : BLASTER),\r\n"
-          "si EPAUDOS.INI contient Synthese=Synthe3 (/F : toujours).\r\n"
+          "sauf si EPAUDOS.INI contient Synthese=Apollo (/F : toujours).\r\n"
           "S3RES /U : retirer (si aucun lecteur d'écran ne l'utilise).\r\n");
     return 1;
 }

@@ -1408,9 +1408,10 @@ def configure(stage, image, binaries, braille, epaudos, word_dos=False, cdrom=Fa
     # Lecteur DOS du projet, chargé par la branche DOS d'AUTOEXEC.BAT. Sans plage,
     # Braille=0 : Épaudos ne touche ni COM3 ni l'IRQ9.
     run('mcopy', '-o', '-i', image, epaudos, '::/EPAUDOS.COM')
-    if not braille:
-        write_dos_file(stage, image, 'EPAUDOS.INI', epaudos_ini(False, braille))
-    # Réglages vocaux d'Épaulard de la VM de référence (débit 5, sans écho clavier).
+    # Synthese=Apollo explicite : les vérifications suivantes écoutent COM1 (Synthé3
+    # est la synthèse par défaut d'Épaudos et de S3RES).
+    write_dos_file(stage, image, 'EPAUDOS.INI', epaudos_ini(False, braille))
+    # Réglages vocaux d'Épaulard de la VM de référence (débit 3 comme Épaudos, sans écho clavier).
     write_dos_file(stage, image, 'EPAULARD/EPAULARD.INI', (ROOT / 'dos/EPAULARD.INI').read_text(), 'cp1252')
     # Synthé3 installé dans tous les cas (Inser+E d'Épaudos le choisit plus tard) ;
     # Synthese=Synthe3 n'est écrit dans EPAUDOS.INI qu'après les vérifications sur COM1.
@@ -1553,8 +1554,8 @@ def verify_boot(stage, disk, timeout, nic=False, phase='verification'):
 
 
 def epaudos_ini(synthe3, braille):
-    """Contenu d'EPAUDOS.INI : seulement ce qui diffère des défauts d'Épaudos."""
-    return ('Synthese=Synthe3\n' if synthe3 else '') + ('' if braille else 'Braille=0\n')
+    """Contenu d'EPAUDOS.INI : la synthèse, toujours explicite, et Braille=0 sans plage."""
+    return ('Synthese=Synthe3\n' if synthe3 else 'Synthese=Apollo\n') + ('' if braille else 'Braille=0\n')
 
 
 def verify_synthe3(stage, image, disk, timeout, braille=True):
@@ -1680,10 +1681,11 @@ def parser():
                    help='ne pas configurer la plage Baum (par défaut : COM3, base 03E8, IRQ9) ; '
                         'Épaudos reçoit Braille=0 dans EPAUDOS.INI')
     p.add_argument('--braille', dest='braille', action='store_true', help=argparse.SUPPRESS)
-    p.add_argument('--synthese', choices=('apollo', 'synthe3'), default='apollo',
-                   help='synthèse des lecteurs : apollo (Apollo II sur COM1, défaut) ou synthe3 (Synthé3 '
-                        'sur la Sound Blaster : S3RES sous DOS, EPAUS3.DLL sous Windows). Synthé3 est '
-                        "installé dans les deux cas ; Inser+E d'Épaudos (Synthèse, EPAUDOS.INI) change ce choix sur la VM")
+    p.add_argument('--synthese', choices=('apollo', 'synthe3'), default='synthe3',
+                   help='synthèse des lecteurs : synthe3 (Synthé3 sur la Sound Blaster, défaut : S3RES '
+                        'sous DOS, EPAUS3.DLL sous Windows) ou apollo (Apollo II sur COM1). Synthé3 est '
+                        "installé dans les deux cas ; Inser+E d'Épaudos ou d'Épaulard (Synthèse) change ce "
+                        'choix sur la VM')
     p.add_argument('--binaries', type=Path, help='EPAULARD.EXE, EPAUHOOK.DLL, EPAUDOS.COM (et INSTAUTO.EXE pour '
                    '--word, --excel, --access, --amipro, --norton, --netscape, --communicator, --eudora, '
                    'RESEAU.EXE pour '

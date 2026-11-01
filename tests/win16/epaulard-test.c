@@ -13,7 +13,6 @@
 
 HWND ep_hwnd_main;
 BOOL ep_in_menu;
-BOOL FAR PASCAL EpInstall(HWND h, int c) { (void) c; ep_hwnd_main = h; return TRUE; }
 void FAR PASCAL EpRemove(void) {}
 static BOOL cfg_mode_sim;       /* clavier donné au menu des réglages (EPAUHOOK.DLL) */
 void FAR PASCAL EpCfgMode(BOOL on) { cfg_mode_sim = on; }
@@ -26,6 +25,9 @@ static int sim_nav_mode;
 void FAR PASCAL EpNavMode(HWND v, int m) { sim_nav_view = v; sim_nav_mode = v ? m : 0; }
 static FARPROC sim_s3_write, sim_s3_pump;   /* parole directe de la DLL : Synthé3 */
 void FAR PASCAL EpSpeech(FARPROC w, FARPROC p) { sim_s3_write = w; sim_s3_pump = p; }
+static int sim_hook_com = -1;   /* COM1 connu de la DLL (EpInstall, EpComm) */
+void FAR PASCAL EpComm(int c) { sim_hook_com = c; }
+BOOL FAR PASCAL EpInstall(HWND h, int c) { sim_hook_com = c; ep_hwnd_main = h; return TRUE; }
 
 static int failures;
 #define CHECK(c) do { if (!(c)) { printf("ÉCHEC %s:%d : %s\n", __FILE__, __LINE__, #c); failures++; } } while (0)
@@ -639,7 +641,7 @@ static void ctrl_alone(void) { PostMessage(hwnd_main, EPM_SILENCE, 0, 0); }
 static BOOL keep_ini;            /* redémarrage : garder EPAULARD.INI */
 static void boot(void)
 {
-    static const int cfg_default[CFG_N] = { 3, 8, 1, 1, 0, 0, 4 };
+    static const int cfg_default[CFG_N] = { 3, 8, 1, 1, 0, 0, 4, 0 };
     if (!keep_ini)
         sim_ini_n = 0;
     keep_ini = FALSE;
@@ -913,6 +915,63 @@ static void test_synthe3_local(void)
     keep_ini = TRUE;
     boot();
     CHECK(!s3_lib && com == 1);         /* Apollo forcé malgré S3RES */
+    sim_s3res = FALSE;
+    sim_load_hook = NULL;
+    sim_proc_hook = NULL;
+}
+
+/* Synthèse choisie par Inser+E : bascule immédiate entre l'Apollo II (COM1) et
+   Synthé3 (EPAUS3.DLL), la DLL prévenue (EpSpeech, EpComm), Échap rétablit,
+   [Parole] Synthese enregistrée. */
+static void cfg_press(UINT vk);
+static BOOL com1_has(const char *s);
+static void test_settings_synth(void)
+{
+    sim_load_hook = s3f_load;
+    sim_proc_hook = s3f_proc;
+    s3_open_ok = TRUE;
+    s3_closed = 0;
+    sim_s3res = FALSE;
+    boot();                             /* Auto, sans S3RES : Apollo */
+    CHECK(!s3_lib && com == 1 && sim_hook_com == 1);
+    insert_cmd('E');
+    run(4000);
+    cfg_press(VK_UP);
+    CHECK_STR(spoken[spoken_n - 1], "Synthèse, comme Épaudos, Apollo");
+    cfg_press(VK_RIGHT);                /* Synthé3 */
+    CHECK(s3_lib != 0 && com < 0 && sim_hook_com < 0 && sim_s3_write == (FARPROC) s3f_write);
+    CHECK_STR(spoken[spoken_n - 1], "Synthé3");
+    CHECK(s3_bytes > 0);
+    cfg_press(VK_RIGHT);                /* Apollo */
+    CHECK(!s3_lib && com == 1 && sim_hook_com == 1 && !sim_s3_write && s3_closed == 1);
+    CHECK_STR(spoken[spoken_n - 1], "Apollo");
+    CHECK(com1_has("@W3@F8@V1@P0@A3\r"));       /* réglages envoyés à la nouvelle synthèse */
+    cfg_press(VK_RETURN);
+    {
+        char v[16];
+        GetPrivateProfileString("Parole", "Synthese", "", v, sizeof(v), "");
+        CHECK_STR(v, "Apollo");
+    }
+    insert_cmd('E');                    /* Échap : retour à la synthèse d'avant */
+    run(4000);
+    cfg_press(VK_UP);
+    cfg_press(VK_LEFT);
+    CHECK(s3_lib != 0 && cfg[CFG_SYNTH] == 1);
+    cfg_press(VK_ESCAPE);
+    CHECK(!s3_lib && com == 1 && sim_hook_com == 1 && cfg[CFG_SYNTH] == 2);
+    keep_ini = TRUE;                    /* relu au démarrage : Apollo malgré S3RES */
+    sim_s3res = TRUE;
+    boot();
+    CHECK(cfg[CFG_SYNTH] == 2 && !s3_lib && com == 1);
+    /* Synthé3 choisi mais aucun pilote audio : l'Apollo II parle et le dit */
+    s3_open_ok = FALSE;
+    insert_cmd('E');
+    run(4000);
+    cfg_press(VK_UP);
+    cfg_press(VK_LEFT);
+    CHECK(!s3_lib && com == 1 && cfg[CFG_SYNTH] == 1);
+    CHECK_STR(spoken[spoken_n - 1], "Synthé3 indisponible, Apollo");
+    cfg_press(VK_ESCAPE);
     sim_s3res = FALSE;
     sim_load_hook = NULL;
     sim_proc_hook = NULL;
@@ -1230,10 +1289,13 @@ static void test_settings(void)
     cfg_press(VK_ESCAPE);
     CHECK(cfg[CFG_RATE] == 4 && !cfg_on);
     CHECK_STR(spoken[spoken_n - 1], "Réglages annulés");
-    /* Volume (dernier réglage, Haut depuis Débit) : 1..8 -> @A0..@AF, enregistré. */
+    /* Synthèse (dernier réglage, Haut depuis Débit), puis Volume : 1..8 -> @A0..@AF,
+       enregistré. */
     ap_reset();
     insert_cmd('E');
     run(4000);
+    cfg_press(VK_UP);
+    CHECK_STR(spoken[spoken_n - 1], "Synthèse, comme Épaudos, Apollo");
     cfg_press(VK_UP);
     CHECK_STR(spoken[spoken_n - 1], "Volume, 4");
     cfg_press(VK_RIGHT);
@@ -3695,6 +3757,7 @@ int main(void)
     { int f = failures; test_word_characters(); if (failures > f) dump("test_word_characters"); }
     { int f = failures; test_word_options(); if (failures > f) dump("test_word_options"); }
     { int f = failures; test_settings(); if (failures > f) dump("test_settings"); }
+    { int f = failures; test_settings_synth(); if (failures > f) dump("test_settings_synth"); }
     { int f = failures; test_echo_and_signs(); if (failures > f) dump("test_echo_and_signs"); }
     { int f = failures; test_status_bar(); if (failures > f) dump("test_status_bar"); }
     { int f = failures; test_generic_windows(); if (failures > f) dump("test_generic_windows"); }

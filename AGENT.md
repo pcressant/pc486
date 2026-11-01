@@ -31,8 +31,10 @@ Chaîne vocale : Épaudos **ou** Épaulard → COM1 → socket Unix →
 Apolo-emu (Apollo II virtuel, `github:pcressant/apolo-emu`, entrée du flake) → Speech Dispatcher (SSIP)
 → eSpeak NG. Braille : plage Baum virtuelle sur COM3 → BrlAPI → BRLTTY de l'hôte.
 86Box utilise un pseudo-terminal relié à la socket par socat ; QEMU fournit la socket.
-Autre chaîne, sans Apollo ni hôte : **Synthé3 local** sur la Sound Blaster
-(`Synthese=Synthe3` dans `C:\EPAUDOS.INI`, Inser+E d'Épaudos, lu aussi par S3RES ;
+Chaîne par défaut, sans Apollo ni hôte : **Synthé3 local** sur la Sound Blaster
+(`Synthese=Synthe3` ou clé absente dans `C:\EPAUDOS.INI`, Inser+E d'Épaudos, lu aussi
+par S3RES ; `Synthese=Apollo` pour l'Apollo II ; Épaulard a son propre réglage
+« Synthèse », « comme Épaudos » par défaut, appliqué aussitôt ;
 `Braille=0` : Épaudos laisse COM3/IRQ9) :
 Épaudos → `S3RES.EXE` (résident DOS) ; Épaulard → `EPAUS3.DLL` (`waveOut`). Voir
 `synthe3/README.md`.
@@ -544,7 +546,10 @@ Préférer `scripts/pc486-dev` aux préfixes de variables, que les règles ne co
   pas sur une AUTOEXEC d'essai. Le modèle est en fins de ligne Unix : ne jamais le
   copier tel quel sur un disque (DOS s'arrête), passer par `final_boot_files`.
 - Les essais VM qui copient `vm/win311.img` écrivent leur propre `EPAUDOS.INI`
-  (`Synthese=Apollo`) : sinon le choix Synthé3 de l'utilisateur rend COM1 muet.
+  (`Synthese=Apollo`) : Synthé3 est le défaut (fichier ou clé absents compris) et
+  rendrait COM1 muet. `EPAULARD.INI` peut aussi imposer `Synthese=Synthe3` : le bac
+  à sable (`apollo_only`) force les deux. Débit Apollo → Synthé3 : table `rates`
+  d'`ap.c`, commune à S3RES et EPAUS3.DLL (même vitesse dans les deux lecteurs).
 - Échappements C : `"\x18Bonjour"` donne l'octet 8Bh (le B est un chiffre
   hexadécimal) ; écrire `"\x18" "Bonjour"`.
 - Touches : celles de NVDA (disposition bureau, Inser = NVDA) dans les deux lecteurs ;

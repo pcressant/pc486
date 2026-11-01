@@ -132,7 +132,7 @@ Options :
 | `--word-dos DOSSIER` | Installe Word 6.0 pour DOS dans `C:\WORD` en mode Texte, sans gestionnaire d'imprimante ni de souris, avec le gestionnaire de clavier « pour résidents » ; ajoute `C:\WORD` au PATH. Les fichiers des disquettes restent dans `C:\INSTALL\WORDDOS` pour relancer `INIT` (imprimante, par exemple). |
 | `--cdrom FICHIER` | `UDVD2.SYS` ou le paquet `udvd2.zip` de FreeDOS (`media/udvd2/`) : pilote ATAPI dans `C:\DOS`, `MSCDEX` en E:. Sans lecteur (lancement sans `--cdrom`), UDVD2 ne se charge pas et MSCDEX est sauté. Voir [reseau.md](reseau.md). |
 | `--reseau FICHIER` | `tcp32b.zip` (TCP/IP-32 3.11b) : carte NE2000 (0x300, IRQ10) et TCP/IP de WfW, adresse 10.0.2.15. `RESEAU.EXE`, avant `WIN`, retire le réseau de SYSTEM.INI quand la carte manque. Vérifié en démarrant Windows sans puis avec carte. Voir [reseau.md](reseau.md). |
-| `--synthese apollo\|synthe3` | Synthèse des lecteurs au premier démarrage. `apollo` (défaut) : Apollo II sur COM1. `synthe3` : Synthé3 sur la Sound Blaster, sans Apollo ni hôte. Dans les deux cas Synthé3 est installé et le choix se change ensuite dans la VM ; voir « Synthèse Synthé3 » ci-dessous. Avec `--binaries`, `synthe3` exige `S3RES.EXE` et `EPAUS3.DLL` dans ce dossier. |
+| `--synthese apollo\|synthe3` | Synthèse des lecteurs au premier démarrage. `synthe3` (défaut) : Synthé3 sur la Sound Blaster, sans Apollo ni hôte. `apollo` : Apollo II sur COM1. Dans les deux cas Synthé3 est installé et le choix se change ensuite dans la VM ; voir « Synthèse Synthé3 » ci-dessous. Avec `--binaries`, `synthe3` exige `S3RES.EXE` et `EPAUS3.DLL` dans ce dossier. |
 | `--sans-braille` | Ne configure pas la plage. Par défaut, Épaulard utilise une plage Baum sur COM3, base 03E8, IRQ9 (`BraillePort=3`, ports de SYSTEM.INI), comme la VM de référence ; la plage n'est pas contactée pendant l'installation. Avec `--sans-braille`, `EPAUDOS.INI` reçoit aussi `Braille=0` (Épaudos laisse COM3 et l'IRQ9). `--braille`, ancienne option, reste accepté. |
 | `--binaries DOSSIER` | Utilise des binaires déjà compilés : `EPAULARD.EXE`, `EPAUHOOK.DLL`, `EPAUDOS.COM` (et `INSTAUTO.EXE` avec `--word`, `--excel`, `--access`, `--amipro`, `--norton`, `--netscape`, `--communicator` ou `--eudora` ; `RESEAU.EXE` avec `--reseau`). Sinon `epaulard/build.sh` et `epaudos/build.sh` sont lancés. |
 | `--icount N` | Bridage du processeur QEMU : `off` (défaut, pleine vitesse, installation complète en 5 min environ) ou `N`, 2^N ns par instruction (`7`, environ 7,8 MIPS, comme `pc486 start --qemu`, plus de 20 min). |
@@ -151,18 +151,20 @@ Fichiers installés dans tous les cas (même avec `--synthese apollo`) :
 | --- | --- |
 | `C:\S3RES.EXE` | résident DOS : synthèse pour Épaudos, DMA direct sur la Sound Blaster |
 | `C:\EPAULARD\EPAUS3.DLL` | synthèse pour Épaulard, sortie `waveOut` du pilote Sound Blaster de Windows |
-| `C:\EPAUDOS.INI` | `Synthese=Synthe3` (écrit seulement avec `--synthese synthe3`) ; absent ou `Synthese=Apollo` : Apollo II |
+| `C:\EPAUDOS.INI` | `Synthese=Synthe3` (`--synthese synthe3`, défaut ; aussi sans clé) ou `Synthese=Apollo` (`--synthese apollo`) |
 
 Choix de la synthèse :
 
-- à l'installation, `--synthese synthe3` écrit `Synthese=Synthe3` dans
-  `C:\EPAUDOS.INI`, après les vérifications faites sur COM1 ;
+- à l'installation, `Synthese=Apollo` est écrit pendant les vérifications faites
+  sur COM1, puis `--synthese synthe3` (défaut) écrit `Synthese=Synthe3` dans
+  `C:\EPAUDOS.INI` ;
 - ensuite, dans la VM : Inser+E dans Épaudos, réglage « Synthèse », Gauche ou
   Droite, puis Entrée pour enregistrer. Le choix prend effet **au redémarrage** :
   S3RES est chargé au démarrage de DOS et lit le même fichier ;
-- Épaulard suit sans réglage propre (`[Parole] Synthese=Auto` d'`EPAULARD.INI`) :
-  si S3RES est résident au lancement de Windows, il charge `EPAUS3.DLL`, sinon il
-  parle sur COM1. DOS seul et DOS + Windows utilisent donc le même choix.
+- Épaulard suit par défaut (`[Parole] Synthese=Auto` d'`EPAULARD.INI`, « comme
+  Épaudos ») : si S3RES est résident au lancement de Windows, il charge
+  `EPAUS3.DLL`, sinon il parle sur COM1. Son propre Inser+E, réglage « Synthèse »,
+  peut imposer Synthé3 ou l'Apollo sous Windows seulement, avec effet immédiat.
 
 Carte son : S3RES lit la variable `BLASTER` posée par `AUTOEXEC.BAT`
 (`A220 I5 D1 H5 T6`, celle de la machine émulée) ; il refuse une adresse, une IRQ

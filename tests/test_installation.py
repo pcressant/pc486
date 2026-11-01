@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import os
 from pathlib import Path
+import re
 import shutil
 import struct
 import subprocess
@@ -265,10 +266,11 @@ class SetupTests(unittest.TestCase):
 
 
 class ReferenceProfileTests(unittest.TestCase):
-    def test_epaudos_ini_only_holds_non_default_choices(self):
+    def test_epaudos_ini_names_the_synthesis(self):
         # Sans plage (--sans-braille), Épaudos ne doit toucher ni COM3 ni l'IRQ9.
-        self.assertEqual(install.epaudos_ini(False, True), '')
-        self.assertEqual(install.epaudos_ini(False, False), 'Braille=0\n')
+        # Synthé3 étant le défaut, l'Apollo II doit être écrit explicitement.
+        self.assertEqual(install.epaudos_ini(False, True), 'Synthese=Apollo\n')
+        self.assertEqual(install.epaudos_ini(False, False), 'Synthese=Apollo\nBraille=0\n')
         self.assertEqual(install.epaudos_ini(True, False), 'Synthese=Synthe3\nBraille=0\n')
 
     def test_boot_files_follow_the_reference_templates(self):
@@ -599,7 +601,11 @@ class ReferenceProfileTests(unittest.TestCase):
     def test_epaulard_settings_are_versioned(self):
         text = (ROOT / 'dos/EPAULARD.INI').read_text()
         self.assertIn('[Parole]', text)
-        self.assertIn('Debit=5', text)
+        # Même débit que le défaut d'Épaudos (ed_cfg de core.c) : même vitesse sous DOS
+        # et sous Windows.
+        default = re.search(r'ed_cfg\[ED_CFG\] = \{(\d+),', (ROOT / 'epaudos/src/core.c').read_text())
+        self.assertIn(f'Debit={default[1]}', text)
+        self.assertNotIn('Synthese=', text)     # Auto : comme Épaudos, Synthé3 par défaut
 
     def test_sound_blaster_sections_match_the_reference(self):
         text = install.configure_sound('[drivers]\r\ntimer=timer.drv\r\n')

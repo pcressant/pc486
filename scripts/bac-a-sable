@@ -3,7 +3,8 @@
 vm/win311.img, pour relever ce qu'Épaulard lit de leur installateur et d'elles-mêmes.
 
   scripts/bac-a-sable preparer [--depuis IMAGE]   copie un disque arrêté (défaut
-                                                   vm/win311.img) dans work/bac/
+                                                   vm/win311.img) dans work/bac/, réglé
+                                                   sur l'Apollo II (journal COM1)
   scripts/bac-a-sable installer PRODUIT SUPPORT   installe PRODUIT depuis SUPPORT (dossier
                                                    ou ZIP local), Épaulard chargé
   scripts/bac-a-sable maj                          compile puis copie Épaulard, Épaudos et AUTOEXEC.BAT
@@ -18,7 +19,9 @@ import argparse
 import fcntl
 import os
 from pathlib import Path
+import re
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -53,10 +56,31 @@ def prepare(args):
     try:
         tmp = DISK.with_suffix('.tmp')
         shutil.copyfile(source, tmp)
+        apollo_only(tmp)
         os.replace(tmp, DISK)
     finally:
         lock.close()
     print(f'bac à sable prêt : {DISK} (copie de {source})')
+
+
+def apollo_only(disk):
+    """Les journaux du bac à sable lisent COM1 : Synthese=Apollo pour Épaudos (S3RES non
+    chargé) et pour Épaulard, quel que soit le choix (Synthé3 par défaut) du disque copié."""
+    image = inst.disk_partition(disk)
+    with tempfile.TemporaryDirectory() as tmp:
+        stage = Path(tmp)
+        for name, section in (('EPAUDOS.INI', None), ('EPAULARD/EPAULARD.INI', b'[Parole]')):
+            got = subprocess.run(['mtype', '-i', image, '::/' + name], capture_output=True)
+            text = re.sub(rb'(?im)^Synthese=.*(\r?\n|$)', b'', got.stdout if got.returncode == 0 else b'')
+            if section is None:
+                text = b'Synthese=Apollo\r\n' + text
+            elif section.lower() in text.lower():
+                text = re.sub(rb'(?i)\[Parole\]\r?\n', b'[Parole]\r\nSynthese=Apollo\r\n', text, count=1)
+            else:
+                text = text + b'\r\n[Parole]\r\nSynthese=Apollo\r\n'
+            if section and not inst.mexists(image, 'EPAULARD/'):
+                continue
+            inst.write_dos_file(stage, image, name, text)
 
 
 def install(args):

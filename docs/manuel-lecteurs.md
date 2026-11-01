@@ -419,6 +419,12 @@ le fermer avant de reprendre le travail dans l’application.
 | Écho clavier | Caractères, mots, caractères et mots, aucun | Caractères |
 | Annonce des majuscules | Non, oui | Non |
 | Écho écran, Épaudos seulement | Non, oui | Oui |
+| Synthèse | Épaudos : Synthé3, Apollo (au redémarrage) ; Épaulard : comme Épaudos, Synthé3, Apollo (immédiat) | Synthé3 |
+
+Le débit a la même échelle dans les deux lecteurs : avec Synthé3, 1 est le débit
+naturel, 5 deux fois plus rapide et 9 quatre fois. Pour parler à l'Apollo II,
+choisir « Apollo » dans la Synthèse d'Épaudos (DOS et, par défaut, Windows) ou
+seulement dans celle d'Épaulard (Windows).
 
 Un caractère lu seul est nommé, même si la lecture des phrases utilise une
 ponctuation réduite. Le détail des signes nommés diffère entre les lecteurs.

@@ -67,7 +67,7 @@ class Synthe3EpaulardVMTests(unittest.TestCase):
             while 'Entrez un choix' not in self.screen():
                 self.assertLess(time.monotonic(), end, 'menu DOS absent')
                 time.sleep(1)
-            # DOS avec l'Apollo II (EPAUDOS.INI absent), puis le choix de l'utilisateur :
+            # DOS avec l'Apollo II (Synthese=Apollo), puis le choix de l'utilisateur :
             # Inser+E d'Épaudos, Haut (dernier réglage, Synthèse), Droite, Entrée ; la
             # sauvegarde à l'invite écrit Synthese=Synthe3. Redémarrage : Synthé3 partout.
             self.key('1')
@@ -250,8 +250,9 @@ class Synthe3EpaulardVMTests(unittest.TestCase):
             line = re.search(rb'(?m)^IF EXIST PC486CD.*\r\n', bat)
             template = template.replace(b'GOTO %CONFIG%', (line[0] if line else b'') + b'GOTO %CONFIG%')
         put('AUTOEXEC.BAT', template)
-        for name in ('SYNTHE3.ON', 'SYNTHESE.BAT', 'EPAUDOS.INI'):     # Apollo II au départ
+        for name in ('SYNTHE3.ON', 'SYNTHESE.BAT'):
             subprocess.run(['mdel', '-i', img, '::/' + name], capture_output=True)
+        put('EPAUDOS.INI', b'Synthese=Apollo\r\n')    # Apollo II au départ (Synthé3 par défaut)
         build = ROOT / 'epaulard/build'
         synth = ROOT / 'work/dev/synthe3/build'
         subprocess.run(['mcopy', '-o', '-i', img, str(build / 'EPAULARD.EXE'), str(build / 'EPAUHOOK.DLL'),

@@ -1510,17 +1510,7 @@ LRESULT CALLBACK __export MainProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         br_close();
         s3_stop();
         EpRemove();
-        if (com >= 0) {
-            /* laisser partir la dernière phrase avant de fermer le port */
-            DWORD t = GetTickCount();
-            COMSTAT st;
-            while (GetTickCount() - t < 2000) {
-                GetCommError(com, &st);
-                if (st.cbOutQue == 0)
-                    break;
-            }
-            CloseComm(com);
-        }
+        com_close();                    /* après la dernière phrase */
         PostQuitMessage(0);
         return 0;
     }

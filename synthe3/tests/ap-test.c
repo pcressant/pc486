@@ -142,9 +142,17 @@ int main(void)
     for (i = 0; i < AP_INPUT - 1; i++) assert(ap_put('x'));
     assert(!ap_put('x') && ap_link.dropped == 1);
 
-    /* Débit et hauteur : W9 plus rapide que W1 ; F hexadécimal pris en compte. */
+    /* Débit et hauteur : W9 plus rapide que W1 ; F hexadécimal pris en compte.
+       Échelle des lecteurs : W1 débit naturel (3 du moteur), W5 deux fois plus vite. */
     slow = say_at("@W1\r");
     fast = say_at("@W9\r");
+    {
+        unsigned long w5 = say_at("@W5\r"), w3 = say_at("@W3\r");
+        printf("W1 %lu W3 %lu W5 %lu W9 %lu\n", slow, w3, w5, fast);
+        assert(fast < w5 && w5 < w3 && w3 < slow);
+        assert(w5 > slow * 45 / 100 && w5 < slow * 55 / 100);
+        assert(fast > slow * 20 / 100 && fast < slow * 30 / 100);
+    }
     low = say_at("@F0\r");
     high = say_at("@FF\r");
     printf("W1 %lu W9 %lu F0 %lu FF %lu\n", slow, fast, low, high);
@@ -170,6 +178,7 @@ int main(void)
         /* Réglages envoyés juste avant un Ctrl-X, sans pompe entre les deux
            (Épaulard au démarrage) : appliqués comme par l'Apollo II, qui les exécute
            à réception ; l'écho @E et le texte abandonnés. */
+        ap_init(); put("@W9@F2@AF\rBonjour Michel.\r"); drain_peak(); pf = peak;
         ap_init(); put("@W9@F2@AF\rperdu\r@EZ\r\x18" "Bonjour Michel.\r");
         assert(ap_cut());
         drain_peak();

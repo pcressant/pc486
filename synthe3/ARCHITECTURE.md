@@ -75,7 +75,7 @@ Apolo-emu reste en lecture seule ; son implémentation Python n'est pas embarqu�
 | Texte | CP850 ; Épaulard convertit son ANSI en OEM avant émission. |
 | Fins | CR ou `. , : ; ! ?`. L'accumulateur Apollo coupe aussi près de 250 octets, avec préférence pour un espace à partir de 220. Les paramètres doivent pouvoir arriver fragmentés. |
 | Ctrl-X, 18h | Annuler immédiatement le son et purger propositions, commandes différées et échos ; conserver les réglages déjà appliqués. Une génération identifie les anciens buffers pour rejeter les retours tardifs. |
-| `@W1`…`@W9` | Débit ; W3 est le défaut Apollo. La correspondance Synthé3 reste à qualifier à l'écoute, elle ne se déduit pas d'une égalité des échelles. |
+| `@W1`…`@W9` | Débit ; W3 est le défaut Apollo. Table `rates` de `ap.c` : W1 → 3 (débit naturel), W5 → 9 (×2), W9 → 15 (×4). |
 | `@F0`…`@FF` | Hauteur sur un seul caractère hexadécimal ; F8 est le défaut Apollo. Les signes + et - existent dans Apolo-emu mais ne sont pas émis par les lecteurs actuels. |
 | `@P0`, `@P1` | Ponctuation naturelle ou nommée. Épaulard développe déjà certains signes ; Épaudos les nomme lui-même. Épaudos n'émet actuellement pas `@P`. |
 | `@V1`…`@V6` | Les lecteurs émettent ces choix. Le moteur local possède seulement Michel : accepter les numéros sans inventer d'autres voix, et documenter leur équivalence. `@V0`, silencieux dans Apolo-emu, ne doit pas perdre les échos. |
@@ -213,8 +213,9 @@ ponctuation (signes nommés), `@E<c>` écho. Le reste est ignoré sans erreur.
   compteur ; il n'est jamais refusé, même file pleine, et n'attend jamais derrière
   le texte qu'il annule. Sous DOS, l'API masque aussi le canal DMA sur-le-champ.
   La pompe abandonne ensuite texte, marques et audio en file.
-- Correspondance provisoire : débit Synthé3 = W (0 à 15) ; hauteur = F − 3,
-  bornée. Elle n'a pas été réglée à l'oreille face à un Apollo II réel.
+- Débit : W1..9 → 3, 5, 6, 8, 9, 11, 12, 14, 15 (`rates`), demandé à l'écoute
+  (l'ancien débit = W était trop lent à W9) ; hauteur = F − 3, bornée, pas réglée à
+  l'oreille face à un Apollo II réel.
 
 ### Variante de production
 
@@ -264,8 +265,10 @@ octet à octet du corpus), les variantes C des noyaux et `S3_SCALAR_WINDOW`.
 
 - Chargée par EPAULARD.EXE (`LoadLibrary`) selon `[Parole] Synthese` :
   `Auto` (défaut : Synthé3 si S3RES répond à INT 2Fh D300h, donc choisi au
-  démarrage), `Synthe3` ou `Apollo`. Échec (DLL absente, pas de pilote) : Apollo
-  sur COM1, et Épaulard annonce « Synthé3 indisponible, erreur N ».
+  démarrage), `Synthe3` ou `Apollo` ; réglage « Synthèse » d'Inser+E, appliqué
+  aussitôt (`speech_restart` : DLL libérée ou COM1 fermé, l'autre ouvert, `EpComm`
+  et `EpSpeech` pour la parole directe de la DLL). Échec (DLL absente, pas de
+  pilote) : Apollo sur COM1, et Épaulard annonce « Synthé3 indisponible ».
 - `waveOut` 8 bits mono 10 kHz (accepté par SNDBLST2.DRV), 11 025 Hz par
   interpolation si le pilote refuse ; quatre tampons de 2048 échantillons (0,8 s) ;
   aucun rappel (`CALLBACK_NULL`) : la pompe relève `WHDR_DONE`. **Pas de tampon

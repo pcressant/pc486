@@ -139,6 +139,13 @@ class NetworkScenarios(unittest.TestCase):
             ini = Path(tmp) / 'EPAUDOS.INI'
             ini.write_bytes(b'Synthese=Apollo\r\n')
             subprocess.run(['mcopy', '-o', '-i', img, str(sonde), str(note), str(ini), '::/'], check=True)
+            # Synthèse imposée dans Inser+E d'Épaulard : retour au mode Auto.
+            got = subprocess.run(['mtype', '-i', img, '::/EPAULARD/EPAULARD.INI'], capture_output=True)
+            if got.returncode == 0 and re.search(rb'(?im)^Synthese=', got.stdout):
+                ep_ini = Path(tmp) / 'EPAULARD.INI'
+                ep_ini.write_bytes(re.sub(rb'(?im)^Synthese=.*\r?\n?', b'', got.stdout))
+                subprocess.run(['mcopy', '-o', '-i', img, str(ep_ini), '::/EPAULARD/EPAULARD.INI'],
+                               check=True)
         # Boîte POP3 : un seul message de 1 Mo, relu en boucle par SONDE.EXE CHARGE.
         shutil.rmtree(DATA, ignore_errors=True)
         box = DATA / 'courrier'

@@ -51,6 +51,7 @@ static const char *const cfg_names[ED_CFG] = {"Debit","Hauteur","Voix","Ponctuat
 #define CFG_SYNTH 8             /* Synthese=Apollo ou Synthese=Synthe3 (aussi lu par S3RES) */
 #define CFG_BRAILLE 9           /* Braille=0 : COM3 et IRQ9 jamais touchés */
 static BYTE braille = 1;        /* fixé au chargement */
+static BYTE synth_set;          /* Synthese= présent dans EPAUDOS.INI */
 
 static BYTE __far *bda = (BYTE __far *)MK_FP(0x40,0);
 
@@ -238,6 +239,7 @@ static void load(void)
             if (j == CFG_SYNTH) {
                 /* « Synthe3 », « S3 » ou 1 : Synthé3 ; « Apollo » ou 0 : Apollo II. */
                 ed_cfg[j] = (BYTE)(i+k < n && ((buf[i+k]|32) == 's' || buf[i+k] == '1'));
+                synth_set = 1;
                 continue;
             }
             while (i+k < n && buf[i+k] >= '0' && buf[i+k] <= '9' && value < 100)
@@ -306,6 +308,9 @@ void install(void)
     }
     load(); indos = dos_indos();
     if (s3_mode) ed_cfg[CFG_SYNTH] = 1;
+    /* Synthé3 par défaut ; sans choix enregistré ni S3RES résident (pas de Sound
+       Blaster, S3RES.EXE absent), l'Apollo II sur COM1 plutôt que le silence. */
+    else if (!synth_set && !s3_find()) ed_cfg[CFG_SYNTH] = 0;
     s3_mode = ed_cfg[CFG_SYNTH];
     braille = ed_cfg[CFG_BRAILLE];
     ed_box.head = (WORD)&uart_head[0]; ed_box.tail = (WORD)&uart_tail[0];

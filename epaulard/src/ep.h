@@ -31,7 +31,7 @@
 #define SA_MS      50
 #define TXT        256
 #define AUTO_ROWS 40
-#define CFG_N 7
+#define CFG_N 8
 #define CFG_RATE  0             /* débit Apollo II @W, 1 à 9 */
 #define CFG_PITCH 1             /* hauteur @F, 0 à 15 */
 #define CFG_VOICE 2             /* voix préréglée @V, 1 à 6 */
@@ -39,6 +39,7 @@
 #define CFG_ECHO  4             /* écho du clavier : caractères, mots, les deux, aucun */
 #define CFG_CAPS  5             /* dire « majuscule » devant une lettre seule */
 #define CFG_VOLUME 6            /* volume @A, 1 à 8 (@A0 à @AF, 4 : @A3 par défaut) */
+#define CFG_SYNTH 7             /* synthèse : 0 comme Épaudos, 1 Synthé3, 2 Apollo II */
 #define CALC_STD 1
 #define CALC_SCI 2
 #define CALC_BOTH 3
@@ -206,6 +207,8 @@ void cfg_close(BOOL keep);
 void cfg_open(void);
 void cfg_key_in(WPARAM vk);
 void com_open(void);
+void com_close(void);
+void speech_restart(void);
 extern HINSTANCE s3_lib;
 extern int s3_error;
 void s3_tick(BOOL timer);

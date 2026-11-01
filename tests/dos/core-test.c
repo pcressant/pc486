@@ -134,8 +134,10 @@ int main(int argc,char **argv)
         combo(18); key(72); run(5); contains("Braille oui, au redémarrage");
         key(75); assert(ed_cfg[9]==0); run(5); contains("non, au redémarrage");
         key(75); assert(ed_cfg[9]==0); key(77); assert(ed_cfg[9]==1);
-        key(72); run(5); contains("Synthèse Apollo, au redémarrage");
-        key(77); assert(ed_cfg[8]==1); run(5); contains("Synthé3, au redémarrage");
+        key(72); run(5); contains("Synthèse Synthé3, au redémarrage");   /* défaut */
+        key(75); assert(ed_cfg[8]==0); run(5); contains("Apollo, au redémarrage");
+        key(75); assert(ed_cfg[8]==0); key(77); assert(ed_cfg[8]==1); run(5);
+        contains("Synthé3, au redémarrage");
         key(77); assert(ed_cfg[8]==1); key(1);
         combo(18); run(1100); assert(!menu);
     } else if (!strcmp(argv[1],"pitch")) {

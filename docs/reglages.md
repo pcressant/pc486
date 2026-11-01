@@ -6,7 +6,7 @@ Inser+N (comme le menu de NVDA) ou Inser+E ouvre un menu parlé. Tant qu'il est 
 | Touche | Effet |
 | --- | --- |
 | Haut, Bas (ou Tab) | réglage précédent, suivant |
-| Gauche, Droite | changer la valeur ; débit, hauteur, voix et ponctuation s'entendent aussitôt |
+| Gauche, Droite | changer la valeur ; débit, hauteur, voix, ponctuation, volume et synthèse s'entendent aussitôt |
 | Entrée (ou Inser+E) | enregistrer et fermer |
 | Échap | rétablir les valeurs d'avant et fermer |
 | Ctrl | silence |
@@ -30,9 +30,20 @@ le clavier d'elle-même au bout de 70 s, ou si EPAULARD.EXE a disparu.
 | Écho du clavier | caractères, mots, caractères et mots, aucun | caractères | — |
 | Majuscules | ne rien dire, dire majuscule | ne rien dire | — |
 | Volume | 1 à 8 | 4 | `@A0 1 2 3 5 7 A F` |
+| Synthèse | comme Épaudos, Synthé3, Apollo | comme Épaudos | — |
 
-Les défauts du débit et de la hauteur sont ceux de l'Apollo II : sous Windows,
-Épaulard parlait déjà ainsi avant l'existence des réglages. Le volume agit sur
+Les défauts du débit et de la hauteur sont ceux de l'Apollo II, et les mêmes
+qu'Épaudos : un même débit donne la même vitesse sous DOS et sous Windows (avec
+Synthé3, les deux lecteurs passent par la même table, `rates` de `synthe3/src/ap.c` :
+débit 1 = débit naturel de Synthé3, 5 = deux fois plus vite, 9 = quatre fois).
+
+**Synthèse.** « Comme Épaudos » (défaut) : Synthé3 si S3RES a été chargé avant
+Windows, c'est-à-dire sauf `Synthese=Apollo` dans `EPAUDOS.INI`, sinon l'Apollo II.
+« Synthé3 » : Synthé3 local (`EPAUS3.DLL`, pilote audio de Windows), même sans S3RES.
+« Apollo » : Apollo II sur COM1. Le changement est immédiat : la valeur est dite par
+la nouvelle synthèse (« comme Épaudos, Synthé3 »), Échap revient à l'ancienne. Si
+Synthé3 ne peut pas s'ouvrir, Épaulard reste sur COM1 et dit « Synthé3 indisponible,
+Apollo ». La parole de l'invite MS-DOS (Épaudos relayé) suit la synthèse d'Épaulard. Le volume agit sur
 l'Apollo II et sur Synthé3 ; Apolo-emu l'ignore (`--no-volume` dans `scripts/pc486`).
 
 Épaulard envoie `@W…@F…@V…@P…@A…` suivi d'un CR au démarrage et à chaque changement.
@@ -57,11 +68,8 @@ Le CR clôt une proposition vide ; le `.` de Sonolect serait prononcé avec `@P1
 `Majuscules` (0, 1), `Volume` (1 à 8, défaut 4 : `@A0` à `@AF` de l'Apollo II,
 appliqués aussi par Synthé3, 3 dB par niveau). Une valeur absente ou hors limites
 garde le défaut.
-`Synthese` (lu au démarrage d'Épaulard, absent du menu) : `Auto` par défaut, Synthé3
-local (`EPAUS3.DLL`, pilote audio de Windows) si `S3RES` a été chargé avant
-Windows, c'est-à-dire si `EPAUDOS.INI` contient `Synthese=Synthe3` (choix fait dans
-Épaudos), sinon Apollo II sur COM1 ; `Apollo` ou `Synthe3` forcent le choix. Si
-Synthé3 est demandé mais indisponible, Épaulard parle sur COM1 et annonce « Synthé3
-indisponible, erreur N » (2 : DLL absente ; 100 : DLL d'une autre version ; 1000 +
+`Synthese` (`Auto`, `Synthe3`, `Apollo` : réglage Synthèse ci-dessus ; `Auto` si
+absent). Si Synthé3 est demandé au démarrage mais indisponible, Épaulard parle sur
+COM1 et annonce « Synthé3 indisponible, erreur N » (2 : DLL absente ; 100 : DLL d'une autre version ; 1000 +
 erreur MMSYSTEM, par exemple 1006 sans pilote audio ; 2000 + n : mémoire). Le fichier
 n'est écrit qu'à l'enregistrement (Entrée) ; `build.sh install` n'y touche pas.

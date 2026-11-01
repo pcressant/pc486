@@ -4,13 +4,17 @@
 /* -------------------------------------------------------------- réglages */
 
 /* Réglages (Inser+E), lus et enregistrés dans EPAULARD.INI, section [Parole] */
-int cfg[CFG_N] = { 3, 8, 1, 1, 0, 0, 4 };   /* débit, hauteur : défauts de l'Apollo II */
+int cfg[CFG_N] = { 3, 8, 1, 1, 0, 0, 4, 0 };   /* débit, hauteur : défauts de l'Apollo II */
 const char *const cfg_key[CFG_N] = {
-    "Debit", "Hauteur", "Voix", "Ponctuation", "Echo", "Majuscules", "Volume" };
+    "Debit", "Hauteur", "Voix", "Ponctuation", "Echo", "Majuscules", "Volume", "Synthese" };
 const char *const cfg_label[CFG_N] = {
-    "Débit", "Hauteur", "Voix", "Ponctuation", "Écho du clavier", "Majuscules", "Volume" };
-const int cfg_min[CFG_N] = { 1, 0, 1, 0, 0, 0, 1 };
-const int cfg_max[CFG_N] = { 9, 15, 6, 2, 3, 1, 8 };
+    "Débit", "Hauteur", "Voix", "Ponctuation", "Écho du clavier", "Majuscules", "Volume",
+    "Synthèse" };
+const int cfg_min[CFG_N] = { 1, 0, 1, 0, 0, 0, 1, 0 };
+const int cfg_max[CFG_N] = { 9, 15, 6, 2, 3, 1, 8, 2 };
+/* [Parole] Synthese, selon CFG_SYNTH : Auto suit Épaudos (Synthé3 si S3RES est
+   résident, sinon l'Apollo II). */
+static const char *const synth_key[3] = { "Auto", "Synthe3", "Apollo" };
 char ini_path[144];
 int typed_n;             /* longueur du mot en cours de frappe (écho par mots) */
 BOOL cfg_on;             /* menu des réglages ouvert */
@@ -23,10 +27,15 @@ void cfg_load(HINSTANCE hinst)
     while (n > 0 && ini_path[n - 1] != '\\' && ini_path[n - 1] != ':')
         n--;
     lstrcpy(ini_path + n, "EPAULARD.INI");
-    for (i = 0; i < CFG_N; i++) {
+    for (i = 0; i < CFG_SYNTH; i++) {
         v = GetPrivateProfileInt("Parole", cfg_key[i], cfg[i], ini_path);
         if (v >= cfg_min[i] && v <= cfg_max[i])
             cfg[i] = v;
+    }
+    {
+        char engine[16];
+        GetPrivateProfileString("Parole", "Synthese", "Auto", engine, sizeof(engine), ini_path);
+        cfg[CFG_SYNTH] = lstrcmpi(engine, "Synthe3") == 0 ? 1 : lstrcmpi(engine, "Apollo") == 0 ? 2 : 0;
     }
     sheet_load(ini_path);
     grid_load(ini_path);
@@ -36,10 +45,11 @@ void cfg_save(void)
 {
     char v[8];
     int i;
-    for (i = 0; i < CFG_N; i++) {
+    for (i = 0; i < CFG_SYNTH; i++) {
         wsprintf(v, "%d", cfg[i]);
         WritePrivateProfileString("Parole", cfg_key[i], v, ini_path);
     }
+    WritePrivateProfileString("Parole", "Synthese", synth_key[cfg[CFG_SYNTH]], ini_path);
 }
 
 /* ------------------------------------------------------- réglages (Inser+E) */
@@ -60,6 +70,14 @@ void cfg_value(int i, char *out)
         lstrcpy(out, echo[cfg[i]]);
     else if (i == CFG_CAPS)
         lstrcpy(out, cfg[i] ? "dire majuscule" : "ne rien dire");
+    else if (i == CFG_SYNTH) {
+        /* synthèse qui parle réellement : Auto, ou Synthé3 indisponible */
+        lstrcpy(out, cfg[i] == 0 ? "comme Épaudos, " : "");
+        if (cfg[i] == 1 && !s3_lib)
+            lstrcat(out, "Synthé3 indisponible, Apollo");
+        else
+            lstrcat(out, s3_lib ? "Synthé3" : "Apollo");
+    }
     else
         wsprintf(out, "%d", cfg[i]);
 }
@@ -83,8 +101,11 @@ void cfg_close(BOOL keep)
         cfg_save();
         say("Réglages enregistrés", TRUE);
     } else {
+        BOOL engine = cfg[CFG_SYNTH] != cfg_before[CFG_SYNTH];
         memcpy(cfg, cfg_before, sizeof(cfg));
         silence();
+        if (engine)
+            speech_restart();           /* revenir à la synthèse d'avant */
         voice_apply();
         say("Réglages annulés", FALSE);
     }
@@ -152,7 +173,9 @@ void cfg_key_in(WPARAM vk)
     }
     cfg[cfg_item] += d;
     silence();
-    if (cfg_item <= CFG_PUNCT || cfg_item == CFG_VOLUME)
+    if (cfg_item == CFG_SYNTH)
+        speech_restart();               /* la valeur est dite par la nouvelle synthèse */
+    else if (cfg_item <= CFG_PUNCT || cfg_item == CFG_VOLUME)
         voice_apply();                  /* entendre aussitôt la nouvelle voix */
     cfg_say(FALSE, FALSE);
 }
