@@ -32,14 +32,21 @@ COM sur disque n'inclut pas les tampons non initialisés résidents.
 
 Copier le COM dans un répertoire du disque DOS **arrêté**, puis le lancer à
 l'invite DOS. Cette compilation n'installe rien et ne modifie aucun fichier
-de démarrage. Le modèle `dos/AUTOEXEC.BAT` lance `C:\EPAUDOS.COM` dans les branches
+de démarrage. Le modèle `dos/AUTOEXEC.BAT` lance `C:\EPAULARD\EPAUDOS.COM` dans les branches
 DOS et Windows du menu, après KEYB FR et la page 850, avant `WIN` pour Windows ;
 `scripts/installer` copie le TSR. Pour
 mettre à jour la VM existante, compiler, arrêter la VM puis :
 
 ```sh
-mcopy -o -i vm/win311.img@@32256 epaudos/build/EPAUDOS.COM ::/EPAUDOS.COM
+mcopy -o -i vm/win311.img@@32256 epaudos/build/EPAUDOS.COM ::/EPAULARD/EPAUDOS.COM
 ```
+
+Épaudos, S3RES et `EPAUDOS.INI` sont rangés dans `C:\EPAULARD`, avec Épaulard :
+rien du projet n'est à la racine de C:. Un disque installé avant ce rangement
+charge encore `C:\EPAUDOS.COM` (et lit `C:\EPAUDOS.INI`) : y copier le COM à la
+racine, ou passer au nouveau rangement en copiant `dos/AUTOEXEC.BAT` par
+`installation.final_boot_files` et en déplaçant les trois fichiers
+(`installation.move_epaudos_root`, comme `scripts/bac-a-sable maj`).
 
 `AUTOEXEC.BAT` charge Épaudos par `LH` : en mémoire supérieure avec l'Apollo II
 (603 Kio conventionnels libres), en mémoire conventionnelle si S3RES (Synthé3) a

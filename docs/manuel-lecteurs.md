@@ -437,7 +437,7 @@ Le volume n’est pas proposé par ces menus ; il dépend de la sortie vocale h�
 | Entrée | Enregistrer et fermer. | Fermer et demander l’enregistrement. |
 | Échap | Annuler les modifications du menu et fermer. | Fermer et demander l’enregistrement, comme Entrée. |
 | Sans commande pendant une minute | Fermer en annulant. | Rendre automatiquement le clavier. |
-| Fichier | `EPAULARD.INI` près de l’EXE, normalement `C:\EPAULARD`, section `[Parole]`. | `EPAUDOS.INI` près du COM, normalement à la racine de C:. |
+| Fichier | `EPAULARD.INI` près de l’EXE, normalement `C:\EPAULARD`, section `[Parole]`. | `EPAUDOS.INI` près du COM, normalement `C:\EPAULARD` (racine de C: sur un disque installé avant ce rangement). |
 
 Épaudos attend une période d’inactivité DOS pour écrire ses réglages et annonce
 le résultat. Si l’application ne lui en donne pas l’occasion, revenir à l’invite

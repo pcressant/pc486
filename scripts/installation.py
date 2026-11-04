@@ -280,7 +280,7 @@ def final_boot_files(word_dos=False, cdrom=False, reseau=False, norton=False):
     config, autoexec = ((ROOT / 'dos' / name).read_bytes().decode('cp850').replace('\r\n', '\n')
                         for name in ('CONFIG.SYS', 'AUTOEXEC.BAT'))
     path = 'PATH C:\\WINDOWS;C:\\DOS\n'
-    if 'C:\\EPAUDOS.COM\n' not in autoexec or 'MENUDEFAULT=DOS,10' not in config or path not in autoexec:
+    if 'C:\\EPAULARD\\EPAUDOS.COM\n' not in autoexec or 'MENUDEFAULT=DOS,10' not in config or path not in autoexec:
         raise InstallError('modèles dos/CONFIG.SYS ou dos/AUTOEXEC.BAT inattendus')
     extra = (';C:\\WORD' if word_dos else '') + (';C:\\NDW' if norton else '')
     autoexec = autoexec.replace(path, path[:-1] + extra + '\n')
@@ -1377,8 +1377,42 @@ def epaulard_ini():
 
 SYNTHE3_BUILD = ROOT / 'work/dev/synthe3/build'
 # Synthé3 local : résident DOS, DLL d'Épaulard ; choix par l'utilisateur dans
-# C:\EPAUDOS.INI (Synthese=Synthe3, menu Inser+E d'Épaudos), lu par Épaudos et S3RES.
-SYNTHE3_FILES = (('S3RES.EXE', ''), ('EPAUS3.DLL', 'EPAULARD/'))
+# C:\EPAULARD\EPAUDOS.INI (Synthese=Synthe3, menu Inser+E d'Épaudos), lu par Épaudos et S3RES.
+SYNTHE3_FILES = (('S3RES.EXE', 'EPAULARD/'), ('EPAUS3.DLL', 'EPAULARD/'))
+# Épaudos, S3RES et leur EPAUDOS.INI (cherché à côté de l'exécutable) sont rangés avec
+# Épaulard : rien du projet à la racine de C:.
+EPAUDOS_COM, EPAUDOS_INI = 'EPAULARD/EPAUDOS.COM', 'EPAULARD/EPAUDOS.INI'
+
+
+def epaudos_dir(image):
+    """Dossier d'où AUTOEXEC.BAT charge Épaudos (son EPAUDOS.INI y est lu) :
+    C:\\EPAULARD, ou la racine pour un disque installé avant ce rangement."""
+    p = subprocess.run(['mtype', '-i', image, '::/AUTOEXEC.BAT'], capture_output=True)
+    return epaudos_dir_of(p.stdout if p.returncode == 0 else b'')
+
+
+def epaudos_dir_of(autoexec):
+    """Même choix d'après le contenu d'AUTOEXEC.BAT."""
+    text = autoexec.upper()
+    return '' if b'C:\\EPAUDOS.COM' in text and b'C:\\EPAULARD\\EPAUDOS.COM' not in text else 'EPAULARD/'
+
+
+def move_epaudos_root(image):
+    """Disque installé avant le rangement : EPAUDOS.COM, EPAUDOS.INI et S3RES.EXE de la
+    racine passent dans C:\\EPAULARD (le fichier de la racine, celui qui servait, l'emporte).
+    À faire avec un AUTOEXEC.BAT qui les y charge ; disque arrêté seulement."""
+    if not mexists(image, 'EPAULARD/'):
+        run('mmd', '-i', image, '::/EPAULARD')
+    for name in ('EPAUDOS.COM', 'EPAUDOS.INI', 'S3RES.EXE'):
+        if mexists(image, name):
+            data = run('mtype', '-i', image, '::/' + name)
+            with tempfile.TemporaryDirectory() as tmp:
+                local = Path(tmp) / name
+                local.write_bytes(data)
+                run('mcopy', '-o', '-i', image, local, '::/EPAULARD/' + name)
+            if run('mtype', '-i', image, '::/EPAULARD/' + name) != data:
+                raise InstallError(f'déplacement incorrect : {name}')
+            run('mdel', '-i', image, '::/' + name)
 
 
 def configure(stage, image, binaries, braille, epaudos, word_dos=False, cdrom=False, reseau=False,
@@ -1407,10 +1441,10 @@ def configure(stage, image, binaries, braille, epaudos, word_dos=False, cdrom=Fa
     configure_groups(stage, image)
     # Lecteur DOS du projet, chargé par la branche DOS d'AUTOEXEC.BAT. Sans plage,
     # Braille=0 : Épaudos ne touche ni COM3 ni l'IRQ9.
-    run('mcopy', '-o', '-i', image, epaudos, '::/EPAUDOS.COM')
+    run('mcopy', '-o', '-i', image, epaudos, '::/' + EPAUDOS_COM)
     # Synthese=Apollo explicite : les vérifications suivantes écoutent COM1 (Synthé3
     # est la synthèse par défaut d'Épaudos et de S3RES).
-    write_dos_file(stage, image, 'EPAUDOS.INI', epaudos_ini(False, braille))
+    write_dos_file(stage, image, EPAUDOS_INI, epaudos_ini(False, braille))
     # Réglages vocaux d'Épaulard de la VM de référence (débit 3 comme Épaudos, sans écho clavier).
     write_dos_file(stage, image, 'EPAULARD/EPAULARD.INI', (ROOT / 'dos/EPAULARD.INI').read_text(), 'cp1252')
     # Synthé3 installé dans tous les cas (Inser+E d'Épaudos le choisit plus tard) ;
@@ -1435,7 +1469,7 @@ def configure(stage, image, binaries, braille, epaudos, word_dos=False, cdrom=Fa
     for name in ('EPAULARD.EXE', 'EPAUHOOK.DLL'):
         if run('mtype', '-i', image, '::/EPAULARD/' + name) != (binaries / name).read_bytes():
             raise InstallError(f'copie incorrecte : {name}')
-    if run('mtype', '-i', image, '::/EPAUDOS.COM') != epaudos.read_bytes():
+    if run('mtype', '-i', image, '::/' + EPAUDOS_COM) != epaudos.read_bytes():
         raise InstallError('copie incorrecte : EPAUDOS.COM')
     for name, folder in SYNTHE3_FILES if synthe3 else ():
         if run('mtype', '-i', image, f'::/{folder}{name}') != (synthe3 / name).read_bytes():
@@ -1562,7 +1596,7 @@ def verify_synthe3(stage, image, disk, timeout, braille=True):
     """EPAUDOS.INI avec Synthese=Synthe3 : Épaudos parle par S3RES sous DOS, Épaulard
     par EPAUS3.DLL sous Windows (mode Auto), rien sur COM1. Parole lue dans la trace
     du moteur. Les autres réglages d'Épaudos gardent leur valeur par défaut."""
-    write_dos_file(stage, image, 'EPAUDOS.INI', epaudos_ini(True, braille))
+    write_dos_file(stage, image, EPAUDOS_INI, epaudos_ini(True, braille))
     with machine(stage, disk, 'synthe3', voice=True) as m:
         mark = m.voice.stat().st_size if m.voice.exists() else 0
         end = time.monotonic() + timeout

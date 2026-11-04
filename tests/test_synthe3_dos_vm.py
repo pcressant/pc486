@@ -39,7 +39,7 @@ AUTOEXEC = (b'@ECHO OFF\r\nPROMPT $P$G\r\nPATH C:\\DOS;C:\\WINDOWS;C:\\\r\n'
             b'SET TEMP=C:\\TEMP\r\n'
             b'MODE CON CODEPAGE PREPARE=((850) C:\\DOS\\EGA.CPI)\r\nMODE CON CODEPAGE SELECT=850\r\n'
             b'KEYB FR,,C:\\DOS\\KEYBOARD.SYS\r\nSET BLASTER=A220 I5 D1 H5 T6\r\n'
-            b'C:\\EPAUDOS.COM\r\nLH C:\\S3RES.EXE\r\nMEM /C > C:\\MEM.TXT\r\n')
+            b'C:\\EPAULARD\\EPAUDOS.COM\r\nLH C:\\EPAULARD\\S3RES.EXE\r\nMEM /C > C:\\MEM.TXT\r\n')
 # Choix de Synthé3, lu par Épaudos (chargé d'abord : il attend S3RES) et par S3RES.
 EPAUDOS_INI = b'Synthese=Synthe3\r\nVolume=5\r\n'
 
@@ -70,10 +70,11 @@ class Synthe3EpaudosVMTests(unittest.TestCase):
         (BASE / 'CONFIG.SYS').write_bytes(CONFIG)
         (BASE / 'AUTOEXEC.BAT').write_bytes(AUTOEXEC)
         (BASE / 'EPAUDOS.INI').write_bytes(EPAUDOS_INI)
-        for src in (BASE / 'CONFIG.SYS', BASE / 'AUTOEXEC.BAT', BASE / 'EPAUDOS.INI',
-                    ROOT / 'epaudos/build/EPAUDOS.COM',
-                    ROOT / 'work/dev/synthe3/build/S3RES.EXE'):
-            subprocess.run(['mcopy', '-o', '-i', img, str(src), f'::/{src.name}'], check=True)
+        for src, folder in ((BASE / 'CONFIG.SYS', ''), (BASE / 'AUTOEXEC.BAT', ''),
+                            (BASE / 'EPAUDOS.INI', 'EPAULARD/'),
+                            (ROOT / 'epaudos/build/EPAUDOS.COM', 'EPAULARD/'),
+                            (ROOT / 'work/dev/synthe3/build/S3RES.EXE', 'EPAULARD/')):
+            subprocess.run(['mcopy', '-o', '-i', img, str(src), f'::/{folder}{src.name}'], check=True)
         spec = importlib.util.spec_from_file_location('s3dos_vmctl', ROOT / 'scripts/vmctl.py')
         vmctl = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(vmctl)

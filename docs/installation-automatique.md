@@ -149,15 +149,15 @@ Fichiers installés dans tous les cas (même avec `--synthese apollo`) :
 
 | Fichier | Rôle |
 | --- | --- |
-| `C:\S3RES.EXE` | résident DOS : synthèse pour Épaudos, DMA direct sur la Sound Blaster |
+| `C:\EPAULARD\S3RES.EXE` | résident DOS : synthèse pour Épaudos, DMA direct sur la Sound Blaster |
 | `C:\EPAULARD\EPAUS3.DLL` | synthèse pour Épaulard, sortie `waveOut` du pilote Sound Blaster de Windows |
-| `C:\EPAUDOS.INI` | `Synthese=Synthe3` (`--synthese synthe3`, défaut ; aussi sans clé) ou `Synthese=Apollo` (`--synthese apollo`) |
+| `C:\EPAULARD\EPAUDOS.INI` | `Synthese=Synthe3` (`--synthese synthe3`, défaut ; aussi sans clé) ou `Synthese=Apollo` (`--synthese apollo`) |
 
 Choix de la synthèse :
 
 - à l'installation, `Synthese=Apollo` est écrit pendant les vérifications faites
   sur COM1, puis `--synthese synthe3` (défaut) écrit `Synthese=Synthe3` dans
-  `C:\EPAUDOS.INI` ;
+  `C:\EPAULARD\EPAUDOS.INI` ;
 - ensuite, dans la VM : Inser+E dans Épaudos, réglage « Synthèse », Gauche ou
   Droite, puis Entrée pour enregistrer. Le choix prend effet **au redémarrage** :
   S3RES est chargé au démarrage de DOS et lit le même fichier ;
@@ -171,7 +171,7 @@ Carte son : S3RES lit la variable `BLASTER` posée par `AUTOEXEC.BAT`
 (3, 5, 7, 9, 10) ou un DMA (0, 1, 3) inconnus et un DSP absent ou de version
 inférieure à 2, affiche un message et ne reste pas résident. Épaudos ne se replie
 pas sur l'Apollo : il annonce à l'écran « Parole : Synthé3, en attente de S3RES » et
-reste muet. Pour en sortir, remettre `Synthese=Apollo` dans `C:\EPAUDOS.INI` (par
+reste muet. Pour en sortir, remettre `Synthese=Apollo` dans `C:\EPAULARD\EPAUDOS.INI` (par
 exemple depuis l'hôte, VM arrêtée) et redémarrer. Sous Windows, Épaulard ne trouve
 alors pas S3RES et parle sur COM1. Sous Windows, la carte est celle du pilote de
 Windows (`[sndblst.drv]` de SYSTEM.INI, A220 I5), réglée par l'installateur. Pour
@@ -189,10 +189,11 @@ avant S3RES fait retomber S3RES en mémoire conventionnelle (465 Kio libres), sa
 message.
 
 Processeur : 386 ou mieux, coprocesseur inutile (moteur en calcul entier). Essayé
-sous 86Box en DX4/100 et en 486SX/25 ; le 386 n'a pas été essayé.
+sous 86Box en DX4/100 et en 486SX/25. Sur un 386SX à 16 MHz, la synthèse
+a été jugée inutilisable à l'usage : conserver un 486 pour Synthé3.
 
 Retrait : choisir « Apollo » dans Épaudos et redémarrer ; on peut ensuite effacer
-`C:\S3RES.EXE` et `C:\EPAULARD\EPAUS3.DLL`. `AUTOEXEC.BAT` ne charge S3RES que
+`C:\EPAULARD\S3RES.EXE` et `C:\EPAULARD\EPAUS3.DLL`. `AUTOEXEC.BAT` ne charge S3RES que
 s'il existe (`IF EXIST`) ; aucun autre fichier n'est à modifier.
 
 Carte prise par un autre programme : sous DOS, si un programme reprend
@@ -211,7 +212,7 @@ Réglages versionnés, repris de la VM de référence :
 
 - `dos/EPAULARD.INI` : réglages vocaux d'Épaulard (Inser+E), débit 5, sans écho
   du clavier. Le modifier change les nouvelles installations.
-- Épaudos démarre avec ses réglages par défaut ; `C:\EPAUDOS.INI` est créé à la
+- Épaudos démarre avec ses réglages par défaut ; `C:\EPAULARD\EPAUDOS.INI` est créé à la
   première sauvegarde (Inser+E).
 
 ## Étapes
@@ -294,13 +295,13 @@ Les étapes s'affichent dans le terminal, numérotées selon les options :
    une surbrillance incohérente arrêtent l'installation ; une simple mention d'une
    unité ou du verbe insérer dans un écran d'information ne l'arrête pas.
 6. Copie d'Épaulard et de ses réglages, réglage de WIN.INI, de SYSTEM.INI (son
-   A220 I5 dans `[sndblst.drv]` et `[sndblst2.drv]`, ports), des alias ASCII des groupes Réseau et Démarrage, copie de `C:\EPAUDOS.COM`, de `C:\S3RES.EXE` et `C:\EPAULARD\EPAUS3.DLL`. Écriture de `CONFIG.SYS` et `AUTOEXEC.BAT` depuis les modèles `dos/`.
+   A220 I5 dans `[sndblst.drv]` et `[sndblst2.drv]`, ports), des alias ASCII des groupes Réseau et Démarrage, copie de `C:\EPAULARD\EPAUDOS.COM`, de `C:\EPAULARD\S3RES.EXE` et `C:\EPAULARD\EPAUS3.DLL`. Écriture de `CONFIG.SYS` et `AUTOEXEC.BAT` depuis les modèles `dos/`.
 7. Démarrage réel de Windows par le choix 2 du menu, réception de l'annonce de
    disponibilité d'Épaulard sur COM1, fermeture de Windows et retour à `C:\>`.
 8. Démarrage du choix 1, chargement d'Épaudos, annonce « Épaudos prêt » reçue
    sur COM1 et invite `C:\>`. Avec `--word-dos`, `WORD` est lancé : l'écran de
    Word en mode Texte doit être lu par Épaudos sur COM1, puis Alt+F4 ramène à `C:\>`.
-9. Avec `--synthese synthe3` : écriture de `C:\EPAUDOS.INI` (`Synthese=Synthe3`),
+9. Avec `--synthese synthe3` : écriture de `C:\EPAULARD\EPAUDOS.INI` (`Synthese=Synthe3`),
    démarrage du choix 1 : S3RES (en UMB) et Épaudos, « Épaudos prêt » lu dans la trace du moteur en
    mémoire ; Ctrl+Alt+Suppr, choix 2 : Épaulard charge EPAUS3.DLL (mode Auto) et
    annonce le Gestionnaire de programmes ; retour à `C:\>` ; aucun octet sur COM1.
@@ -321,9 +322,9 @@ Le disque final est une image brute de **500 Mo**, compatible avec la géométri
 - `CONFIG.SYS` : HIMEM de Windows, EMM386 NOEMS, `DOS=HIGH,UMB`, pays 033 et
   DISPLAY.SYS en page 850, POWER.EXE (processeur au repos), IFSHLP.SYS.
   Pas d'ANSI.SYS.
-- `AUTOEXEC.BAT` : `BLASTER=A220 I5 D1 H5 T6`, `LH C:\S3RES.EXE` (résident
+- `AUTOEXEC.BAT` : `BLASTER=A220 I5 D1 H5 T6`, `LH C:\EPAULARD\S3RES.EXE` (résident
   seulement si Synthé3 est choisi), SMARTDRV en lecture seule sur C:, page de
-  code 850, `KEYB FR`, puis `LH C:\EPAUDOS.COM`, suivi de `WIN`
+  code 850, `KEYB FR`, puis `LH C:\EPAULARD\EPAUDOS.COM`, suivi de `WIN`
   pour le choix Windows : Épaudos dort sous Windows et lit l'invite MS-DOS avec
   Épaulard ([invite MS-DOS](invite-dos.md)).
 - Braille : COM3 Baum (base 03E8, IRQ 9) configuré dans WIN.INI et SYSTEM.INI.

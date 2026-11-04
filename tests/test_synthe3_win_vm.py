@@ -254,22 +254,23 @@ class Synthe3EpaulardVMTests(unittest.TestCase):
         ini = re.sub(rb'(?im)^(Synthese|Echo)=.*\r?\n', b'', ini)     # Synthese=Auto (défaut)
         ini = re.sub(rb'(?i)\[Parole\]\r?\n', b'[Parole]\r\nEcho=2\r\n', ini, count=1)
         put('EPAULARD/EPAULARD.INI', ini)
-        # Démarrage du modèle de l'installateur (dos/) : le choix se fait dans EPAUDOS.INI.
+        # Démarrage du modèle de l'installateur (dos/) : le choix se fait dans C:\\EPAULARD\\EPAUDOS.INI.
         bat = get('::/AUTOEXEC.BAT')
         template = (ROOT / 'dos/AUTOEXEC.BAT').read_bytes().replace(b'\n', b'\r\n')
         if b'MSCDEX' in bat:            # disque installé avec --cdrom : garder E:
             line = re.search(rb'(?m)^IF EXIST PC486CD.*\r\n', bat)
             template = template.replace(b'GOTO %CONFIG%', (line[0] if line else b'') + b'GOTO %CONFIG%')
         put('AUTOEXEC.BAT', template)
-        for name in ('SYNTHE3.ON', 'SYNTHESE.BAT'):
+        # Rangement d'avant C:\\EPAULARD : copies de la racine retirées, le modèle ne les charge plus.
+        for name in ('SYNTHE3.ON', 'SYNTHESE.BAT', 'EPAUDOS.COM', 'EPAUDOS.INI', 'S3RES.EXE'):
             subprocess.run(['mdel', '-i', img, '::/' + name], capture_output=True)
-        put('EPAUDOS.INI', b'Synthese=Apollo\r\n')    # Apollo II au départ (Synthé3 par défaut)
+        put('EPAULARD/EPAUDOS.INI', b'Synthese=Apollo\r\n')    # Apollo II au départ (Synthé3 par défaut)
         build = ROOT / 'epaulard/build'
         synth = ROOT / 'work/dev/synthe3/build'
         subprocess.run(['mcopy', '-o', '-i', img, str(build / 'EPAULARD.EXE'), str(build / 'EPAUHOOK.DLL'),
                         str(synth / 'EPAUS3.DLL'), '::/EPAULARD/'], check=True)
         subprocess.run(['mcopy', '-o', '-i', img, str(ROOT / 'epaudos/build/EPAUDOS.COM'),
-                        str(synth / 'S3RES.EXE'), '::/'], check=True)
+                        str(synth / 'S3RES.EXE'), '::/EPAULARD/'], check=True)
 
     @staticmethod
     def dev(*args, check=True):

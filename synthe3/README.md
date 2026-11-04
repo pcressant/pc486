@@ -30,14 +30,14 @@ par défaut ; l'Apollo II sur COM1 se choisit sans réinstaller.
 
 | Fichier dans la VM | Rôle |
 | --- | --- |
-| `C:\S3RES.EXE` | résident DOS : protocole Apollo local, moteur, Sound Blaster (DMA direct) |
+| `C:\EPAULARD\S3RES.EXE` | résident DOS : protocole Apollo local, moteur, Sound Blaster (DMA direct) |
 | `C:\EPAULARD\EPAUS3.DLL` | même moteur pour Épaulard, sortie `waveOut` du pilote de Windows |
-| `C:\EPAUDOS.INI` | réglages d'Épaudos ; `Synthese=Synthe3` (défaut, aussi sans clé) ou `Synthese=Apollo` |
+| `C:\EPAULARD\EPAUDOS.INI` | réglages d'Épaudos ; `Synthese=Synthe3` (défaut, aussi sans clé) ou `Synthese=Apollo` |
 
 Le choix se fait dans Épaudos : Inser+E, réglage « Synthèse », puis Entrée
 (enregistré dans `EPAUDOS.INI`), et prend effet au redémarrage. `AUTOEXEC.BAT`
-(modèle `dos/AUTOEXEC.BAT`) lance `LH C:\S3RES.EXE` avant SMARTDRV, puis
-`LH C:\EPAUDOS.COM` dans les deux branches du menu ; S3RES lit le même fichier et ne
+(modèle `dos/AUTOEXEC.BAT`) lance `LH C:\EPAULARD\S3RES.EXE` avant SMARTDRV, puis
+`LH C:\EPAULARD\EPAUDOS.COM` dans les deux branches du menu ; S3RES lit le même fichier et ne
 reste pas résident avec `Synthese=Apollo` (`S3RES /F` : toujours). Sans clé et sans
 S3RES résident (pas de Sound Blaster), Épaudos parle à l'Apollo II. Épaulard a son
 propre réglage « Synthèse » (comme Épaudos par défaut, Synthé3 ou Apollo), appliqué

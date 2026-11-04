@@ -29,7 +29,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_vm_scenarios import FakeBaum, main_vm_busy  # noqa: E402
+from test_vm_scenarios import FakeBaum, epaudos_dir, main_vm_busy  # noqa: E402
 from vmctl import Qmp, type_text  # noqa: E402
 
 BASE = ROOT / 'work/vmtest/reseau.img'
@@ -128,8 +128,9 @@ class NetworkScenarios(unittest.TestCase):
         build = ROOT / 'epaulard/build'
         subprocess.run(['mcopy', '-o', '-i', img, str(build / 'EPAULARD.EXE'), str(build / 'EPAUHOOK.DLL'),
                         '::/EPAULARD/'], check=True)
-        subprocess.run(['mcopy', '-o', '-i', img, str(ROOT / 'epaudos/build/EPAUDOS.COM'), '::/EPAUDOS.COM'],
-                       check=True)
+        folder = epaudos_dir(img)       # C:\\EPAULARD, ou la racine d'un disque plus ancien
+        subprocess.run(['mcopy', '-o', '-i', img, str(ROOT / 'epaudos/build/EPAUDOS.COM'),
+                        f'::/{folder}EPAUDOS.COM'], check=True)
         with tempfile.TemporaryDirectory(prefix='pc486-reseau-') as tmp:
             sonde = Path(tmp) / 'SONDE.EXE'
             build_sonde(sonde)
@@ -138,7 +139,8 @@ class NetworkScenarios(unittest.TestCase):
             # Apollo II sur COM1, même si le disque copié a choisi Synthé3.
             ini = Path(tmp) / 'EPAUDOS.INI'
             ini.write_bytes(b'Synthese=Apollo\r\n')
-            subprocess.run(['mcopy', '-o', '-i', img, str(sonde), str(note), str(ini), '::/'], check=True)
+            subprocess.run(['mcopy', '-o', '-i', img, str(sonde), str(note), '::/'], check=True)
+            subprocess.run(['mcopy', '-o', '-i', img, str(ini), f'::/{folder}EPAUDOS.INI'], check=True)
             # Synthèse imposée dans Inser+E d'Épaulard : retour au mode Auto.
             got = subprocess.run(['mtype', '-i', img, '::/EPAULARD/EPAULARD.INI'], capture_output=True)
             if got.returncode == 0 and re.search(rb'(?im)^Synthese=', got.stdout):

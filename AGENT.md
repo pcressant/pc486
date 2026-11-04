@@ -32,7 +32,7 @@ Apolo-emu (Apollo II virtuel, `github:pcressant/apolo-emu`, entrée du flake) �
 → eSpeak NG. Braille : plage Baum virtuelle sur COM3 → BrlAPI → BRLTTY de l'hôte.
 86Box utilise un pseudo-terminal relié à la socket par socat ; QEMU fournit la socket.
 Chaîne par défaut, sans Apollo ni hôte : **Synthé3 local** sur la Sound Blaster
-(`Synthese=Synthe3` ou clé absente dans `C:\EPAUDOS.INI`, Inser+E d'Épaudos, lu aussi
+(`Synthese=Synthe3` ou clé absente dans `C:\EPAULARD\EPAUDOS.INI`, Inser+E d'Épaudos, lu aussi
 par S3RES ; `Synthese=Apollo` pour l'Apollo II ; Épaulard a son propre réglage
 « Synthèse », « comme Épaudos » par défaut, appliqué aussitôt ;
 `Braille=0` : Épaudos laisse COM3/IRQ9) :
@@ -322,6 +322,10 @@ Préférer `scripts/pc486-dev` aux préfixes de variables, que les règles ne co
 - `86box/86box.cfg` est un modèle : `pc486` génère `$PC486_RUN/86box.cfg` (chemins
   absolus, D: seulement si l'image existe) et le passe en dernier argument à 86Box,
   qui y écrit `host_cpu`/`uuid`. Ne pas relancer 86Box directement sur le modèle.
+- `cpu_speed` sélectionne une entrée de la table des processeurs de 86Box, pas une
+  fréquence arbitraire : une valeur trop basse garde un modèle rapide de la même
+  famille. Changer de famille exige une carte mère compatible et une CMOS adaptée ;
+  vérifier la géométrie avec la sonde avant d'utiliser les disques existants.
 - 86Box : Shuttle HOT-433A, BIOS Award 4.51PG (`bios = hot433a_v451pg`), DX4/100,
   clavier PS/2. `fdc` et `hdc_1` restent `internal` : la carte a son UM8663AF ;
   un `fdc_at` en plus donne « Floppy disk(s) fail (40) » et A: n'amorce plus.
@@ -548,6 +552,11 @@ Préférer `scripts/pc486-dev` aux préfixes de variables, que les règles ne co
   97 Kio de conventionnelle sans message. Vérifier par `MEM /C` sur le disque réel,
   pas sur une AUTOEXEC d'essai. Le modèle est en fins de ligne Unix : ne jamais le
   copier tel quel sur un disque (DOS s'arrête), passer par `final_boot_files`.
+- Épaudos, S3RES et `EPAUDOS.INI` sont dans `C:\EPAULARD` (EPAUDOS.INI lu à côté
+  de l'exécutable par les deux), plus à la racine. Un disque plus ancien charge
+  encore `C:\EPAUDOS.COM` : les essais qui gardent l'AUTOEXEC du disque copié
+  écrivent COM et INI dans le dossier qu'il charge (`epaudos_dir`) ;
+  `move_epaudos_root` (`installation.py`) range un disque arrêté.
 - Les essais VM qui copient `vm/win311.img` écrivent leur propre `EPAUDOS.INI`
   (`Synthese=Apollo`) : Synthé3 est le défaut (fichier ou clé absents compris) et
   rendrait COM1 muet. `EPAULARD.INI` peut aussi imposer `Synthese=Synthe3` : le bac

@@ -39,7 +39,7 @@ class EpaudosVMTests(unittest.TestCase):
             b'@ECHO OFF\r\nPROMPT $P$G\r\nPATH C:\\DOS;C:\\WINDOWS;C:\\\r\n'
             b'MODE CON CODEPAGE PREPARE=((850) C:\\DOS\\EGA.CPI)\r\n'
             b'MODE CON CODEPAGE SELECT=850\r\n'
-            b'KEYB FR,,C:\\DOS\\KEYBOARD.SYS\r\nC:\\EPAUDOS.COM\r\n')
+            b'KEYB FR,,C:\\DOS\\KEYBOARD.SYS\r\nC:\\EPAULARD\\EPAUDOS.COM\r\n')
         # EPAUDOS.INI du disque copié remplacé : Apollo II sur COM1 (le disque de
         # l'utilisateur peut avoir choisi Synthé3).
         ini = BASE / 'EPAUDOS.INI'
@@ -55,9 +55,9 @@ class EpaudosVMTests(unittest.TestCase):
                        check=True, env=env_build)
         dosshell = subprocess.run(['mdir', '-i', img, '::/DOS/DOSSHELL.EXE'],
                                   capture_output=True).returncode == 0
-        for src, dst in ((ROOT / 'epaudos/build/EPAUDOS.COM', 'EPAUDOS.COM'),
+        for src, dst in ((ROOT / 'epaudos/build/EPAUDOS.COM', 'EPAULARD/EPAUDOS.COM'),
                          (autoexec, 'AUTOEXEC.BAT'), (BASE / 'MODES.COM', 'MODES.COM'),
-                         (ini, 'EPAUDOS.INI')):
+                         (ini, 'EPAULARD/EPAUDOS.INI')):
             subprocess.run(['mcopy', '-o', '-i', img, str(src), f'::/{dst}'], check=True)
         spec = importlib.util.spec_from_file_location('epaudos_vmctl', ROOT / 'scripts/vmctl.py')
         vmctl = importlib.util.module_from_spec(spec)
@@ -242,11 +242,11 @@ class EpaudosVMTests(unittest.TestCase):
             b'@ECHO OFF\r\nPROMPT $P$G\r\nPATH C:\\DOS;C:\\WINDOWS;C:\\\r\n'
             b'MODE CON CODEPAGE PREPARE=((850) C:\\DOS\\EGA.CPI)\r\n'
             b'MODE CON CODEPAGE SELECT=850\r\n'
-            b'KEYB FR,,C:\\DOS\\KEYBOARD.SYS\r\nC:\\EPAUDOS.COM\r\n')
+            b'KEYB FR,,C:\\DOS\\KEYBOARD.SYS\r\nC:\\EPAULARD\\EPAUDOS.COM\r\n')
         ini.write_bytes(b'Synthese=Apollo\r\nBraille=0\r\n')
         img = f'{BASE / "dos.img"}@@32256'
-        for src, dst in ((ROOT / 'epaudos/build/EPAUDOS.COM', 'EPAUDOS.COM'),
-                         (autoexec, 'AUTOEXEC.BAT'), (ini, 'EPAUDOS.INI')):
+        for src, dst in ((ROOT / 'epaudos/build/EPAUDOS.COM', 'EPAULARD/EPAUDOS.COM'),
+                         (autoexec, 'AUTOEXEC.BAT'), (ini, 'EPAULARD/EPAUDOS.INI')):
             subprocess.run(['mcopy', '-o', '-i', img, str(src), f'::/{dst}'], check=True)
         spec = importlib.util.spec_from_file_location('epaudos_vmctl', ROOT / 'scripts/vmctl.py')
         vmctl = importlib.util.module_from_spec(spec)

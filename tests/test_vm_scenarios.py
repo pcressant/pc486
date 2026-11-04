@@ -128,6 +128,14 @@ class FakeBaum(threading.Thread):
             self.sock.send(data)
 
 
+def epaudos_dir(img):
+    """Dossier d'où l'AUTOEXEC.BAT du disque charge Épaudos : 'EPAULARD/', ou '' pour un
+    disque installé quand Épaudos était à la racine (même règle qu'installation.py)."""
+    got = subprocess.run(['mtype', '-i', img, '::/AUTOEXEC.BAT'], capture_output=True)
+    text = got.stdout.upper() if got.returncode == 0 else b''
+    return '' if b'C:\\EPAUDOS.COM' in text and b'C:\\EPAULARD\\EPAUDOS.COM' not in text else 'EPAULARD/'
+
+
 def main_vm_busy():
     out = subprocess.run(['ps', '-eo', 'args'], capture_output=True, text=True).stdout
     return any(('86Box' in l or 'qemu-system' in l) and 'win311.img' in l and
@@ -154,8 +162,11 @@ class WindowsScenarios(unittest.TestCase):
                         str(build / 'EPAUHOOK.DLL'), '::/EPAULARD/'], check=True)
         # Épaudos (chargé avant WIN par AUTOEXEC.BAT) : lit l'invite MS-DOS sous Windows
         subprocess.run([str(ROOT / 'epaudos/build.sh')], check=True, capture_output=True)
+        # Dossier d'où l'AUTOEXEC.BAT du disque copié le charge (C:\\EPAULARD, ou la racine
+        # d'un disque installé avant ce rangement) ; EPAUDOS.INI est lu à côté.
+        folder = epaudos_dir(img)
         subprocess.run(['mcopy', '-o', '-i', img, str(ROOT / 'epaudos/build/EPAUDOS.COM'),
-                        '::/EPAUDOS.COM'], check=True)
+                        f'::/{folder}EPAUDOS.COM'], check=True)
         # Disque sans Word (installation minimale) : scénario Word sauté, avant que sa
         # boîte d'erreur ne fausse les suivants. Lu ici, VM encore arrêtée.
         cls.has_word = subprocess.run(['mdir', '-i', img, '::/WINWORD/WINWORD.EXE'],
@@ -169,7 +180,7 @@ class WindowsScenarios(unittest.TestCase):
             # chargé, Épaulard en mode Auto parle alors sur COM1).
             ini = Path(tmp) / 'EPAUDOS.INI'
             ini.write_bytes(b'Synthese=Apollo\r\n')
-            subprocess.run(['mcopy', '-o', '-i', img, str(ini), '::/EPAUDOS.INI'], check=True)
+            subprocess.run(['mcopy', '-o', '-i', img, str(ini), f'::/{folder}EPAUDOS.INI'], check=True)
             # Synthèse imposée dans Inser+E d'Épaulard : retour au mode Auto.
             got = subprocess.run(['mtype', '-i', img, '::/EPAULARD/EPAULARD.INI'], capture_output=True)
             if got.returncode == 0 and re.search(rb'(?im)^Synthese=', got.stdout):

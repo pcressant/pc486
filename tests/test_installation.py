@@ -279,8 +279,15 @@ class ReferenceProfileTests(unittest.TestCase):
         self.assertEqual(autoexec, (ROOT / 'dos/AUTOEXEC.BAT').read_bytes().replace(b'\n', b'\r\n'))
         # Synthèse choisie dans EPAUDOS.INI, lu par Épaudos et S3RES : aucun témoin.
         # Mémoire supérieure : S3RES (et BLASTER, qu'il lit) avant SMARTDRV, Épaudos par LH.
-        self.assertEqual(autoexec.count(b"\r\nLH C:\\EPAUDOS.COM\r\n"), 2)
-        self.assertEqual(autoexec.count(b"IF EXIST C:\\S3RES.EXE LH C:\\S3RES.EXE\r\n"), 1)
+        # Tous deux dans C:\\EPAULARD avec EPAUDOS.INI : rien du projet à la racine.
+        self.assertEqual(autoexec.count(b"\r\nLH C:\\EPAULARD\\EPAUDOS.COM\r\n"), 2)
+        self.assertEqual(autoexec.count(b"IF EXIST C:\\EPAULARD\\S3RES.EXE LH C:\\EPAULARD\\S3RES.EXE\r\n"), 1)
+        self.assertNotRegex(autoexec, rb"C:\\(EPAUDOS|S3RES)\.")
+        self.assertEqual(install.epaudos_dir_of(autoexec), 'EPAULARD/')
+        self.assertEqual(install.epaudos_dir_of(b'KEYB FR\r\nlh c:\\epaudos.com\r\n'), '')
+        self.assertEqual({folder for _, folder in install.SYNTHE3_FILES}, {'EPAULARD/'})
+        self.assertEqual((install.EPAUDOS_COM, install.EPAUDOS_INI),
+                         ('EPAULARD/EPAUDOS.COM', 'EPAULARD/EPAUDOS.INI'))
         self.assertLess(autoexec.index(b"SET BLASTER="), autoexec.index(b"S3RES.EXE"))
         self.assertLess(autoexec.index(b"S3RES.EXE"), autoexec.index(b"SMARTDRV.EXE"))
         self.assertNotIn(b"SYNTHE3.ON", autoexec)
@@ -485,6 +492,25 @@ class ReferenceProfileTests(unittest.TestCase):
             (source / 'prog_60.ima').unlink()
             with self.assertRaisesRegex(install.InstallError, 'PROG_60'):
                 install.collect_word_dos(source, p / 'incomplet')
+
+    @unittest.skipUnless(shutil.which('mformat') and shutil.which('mcopy'), 'mtools absent')
+    def test_epaudos_files_leave_the_root_of_an_older_disk(self):
+        with tempfile.TemporaryDirectory() as d:
+            disk = Path(d) / 'c.img'
+            disk.write_bytes(b'\0' * 1474560)
+            subprocess.run(['mformat', '-f', '1440', '-i', disk, '::'], check=True)
+            self.mput(disk, 'AUTOEXEC.BAT', b'LH C:\\EPAUDOS.COM\r\n')
+            self.mput(disk, 'EPAUDOS.COM', b'ancien')
+            self.mput(disk, 'EPAUDOS.INI', b'Synthese=Apollo\r\n')
+            self.mput(disk, 'S3RES.EXE', b'MZs3')
+            self.mput(disk, 'EPAUDOS.INI', b'Synthese=Synthe3\r\n', 'EPAULARD')
+            self.assertEqual(install.epaudos_dir(disk), '')
+            install.move_epaudos_root(disk)
+            for name, data in (('EPAUDOS.COM', b'ancien'), ('EPAUDOS.INI', b'Synthese=Apollo\r\n'),
+                               ('S3RES.EXE', b'MZs3')):
+                self.assertFalse(install.mexists(disk, name))
+                self.assertEqual(install.run('mtype', '-i', disk, '::/EPAULARD/' + name), data)
+            install.move_epaudos_root(disk)              # rien à déplacer : sans effet
 
     @staticmethod
     def mput(image, name, data, directory=None):

@@ -69,7 +69,9 @@ def apollo_only(disk):
     image = inst.disk_partition(disk)
     with tempfile.TemporaryDirectory() as tmp:
         stage = Path(tmp)
-        for name, section in (('EPAUDOS.INI', None), ('EPAULARD/EPAULARD.INI', b'[Parole]')):
+        # EPAUDOS.INI à côté d'EPAUDOS.COM : C:\\EPAULARD, ou la racine d'un disque plus ancien.
+        epaudos_ini = inst.epaudos_dir(image) + 'EPAUDOS.INI'
+        for name, section in ((epaudos_ini, None), ('EPAULARD/EPAULARD.INI', b'[Parole]')):
             got = subprocess.run(['mtype', '-i', image, '::/' + name], capture_output=True)
             text = re.sub(rb'(?im)^Synthese=.*(\r?\n|$)', b'', got.stdout if got.returncode == 0 else b'')
             if section is None:
@@ -133,7 +135,8 @@ def install(args):
 
 
 def update(args):
-    """Binaires fraîchement compilés vers C:\\EPAULARD et C:\\EPAUDOS.COM du bac à sable."""
+    """Binaires fraîchement compilés vers C:\\EPAULARD du bac à sable (Épaudos compris ;
+    un disque plus ancien y voit passer ses EPAUDOS.COM, EPAUDOS.INI et S3RES.EXE)."""
     disk = DISK.resolve()
     if disk == MAIN or not disk.exists():
         raise inst.InstallError(f'bac à sable absent ou interdit : {disk}')
@@ -144,7 +147,8 @@ def update(args):
         image = inst.disk_partition(disk)
         for name in ('EPAULARD.EXE', 'EPAUHOOK.DLL'):
             inst.run('mcopy', '-o', '-i', image, ROOT / 'epaulard/build' / name, '::/EPAULARD/' + name)
-        inst.run('mcopy', '-o', '-i', image, ROOT / 'epaudos/build/EPAUDOS.COM', '::/EPAUDOS.COM')
+        inst.move_epaudos_root(image)
+        inst.run('mcopy', '-o', '-i', image, ROOT / 'epaudos/build/EPAUDOS.COM', '::/' + inst.EPAUDOS_COM)
         inst.run('mcopy', '-o', '-t', '-i', image, ROOT / 'dos/AUTOEXEC.BAT', '::/AUTOEXEC.BAT')
     finally:
         lock.close()

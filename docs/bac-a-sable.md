@@ -12,7 +12,7 @@ scripts/bac-a-sable installer excel50 media/excel5-fr/…zip  # 5.0, 1,44 Mo
 scripts/bac-a-sable installer access media/access2-fr/…zip
 scripts/bac-a-sable installer amipro media/amipro-fr/lotusamifr.zip --timeout 900
 scripts/bac-a-sable installer norton media/archives-utilitaires-fr/norton-desktop-3.0-fr-win3x.zip
-scripts/bac-a-sable maj        # recompile Épaulard/Épaudos, les copie avec AUTOEXEC.BAT
+scripts/bac-a-sable maj        # recompile Épaulard/Épaudos, les copie dans C:\EPAULARD avec AUTOEXEC.BAT
 ```
 
 Une installation déjà faite est refusée (ACME ne réinstalle pas en mode `/Q`) ; après
