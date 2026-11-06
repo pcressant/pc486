@@ -159,7 +159,7 @@ static void dialog_texts(HWND dlg, char *out, int max, BOOL page)
             continue;
         }
         if (!is_class(c, "STATIC") || !has_style(c, WS_VISIBLE) ||
-            (GetWindowLong(c, GWL_STYLE) & 0x0F) > SS_RIGHT)
+            !TEXT_STATIC(GetWindowLong(c, GWL_STYLE)))
             continue;
         n = GetWindow(c, GW_HWNDNEXT);
         if (!page && n && (is_class(n, "EDIT") || is_class(n, "LISTBOX") || is_class(n, "COMBOBOX")))
@@ -1276,7 +1276,8 @@ void on_command(WPARAM vk, LPARAM lp)
         say("Commandes d'Épaulard, touches de NVDA, avec la touche Inser : T, titre. "
             "Tabulation, focus. Flèche haut, ligne courante. Flèche bas, dire tout. B, "
             "lire la fenêtre. O, lire tout le texte affiché. F, police et mise en forme. "
-            "Fin, barre d'état. N, réglages de la voix. 2, écho des caractères. 3, écho "
+            "M, suivi de la souris. Majuscule M, sons de la souris. "
+            "Fin, barre d'état. N, réglages. 2, écho des caractères. 3, écho "
             "des mots. P, ponctuation. F12, heure, deux fois, date. "
             "Majuscule flèche haut, lire la sélection. F4, quitter. Contrôle seul, "
             "silence.", TRUE);
@@ -1289,8 +1290,7 @@ void on_command(WPARAM vk, LPARAM lp)
             "donner le focus à l'objet.", FALSE);
         say("Souris : barre oblique du pavé, clic gauche ; étoile, clic droit ; avec "
             "majuscule, verrouiller le bouton. Inser barre oblique, amener la souris "
-            "au point de revue. Inser étoile, lire sous la souris. Inser M, suivi de "
-            "la souris. Inser majuscule M, sons de la souris.", FALSE);
+            "au point de revue. Inser étoile, lire sous la souris.", FALSE);
         break;
     case VK_F4:
         say("Épaulard arrêté", TRUE);

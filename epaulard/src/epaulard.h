@@ -1,3 +1,9 @@
+/* Style d'un STATIC qui affiche du texte : SS_LEFT, SS_CENTER, SS_RIGHT, mais aussi
+   SS_SIMPLE (0Bh) et SS_LEFTNOWORDWRAP (0Ch), libellés « De : » et « Vers : » de
+   Renommer du Gestionnaire de fichiers. Les autres sont des icônes et des cadres. */
+#define TEXT_STATIC(style) (((style) & 0x0F) <= SS_RIGHT || ((style) & 0x0F) == 0x0B || \
+                            ((style) & 0x0F) == 0x0C)
+
 /* Messages de EPAUHOOK.DLL vers EPAULARD.EXE */
 #define EPM_CMD      (WM_USER + 100)   /* Inser + touche : wParam = touche virtuelle, lParam bit 0 = Maj */
 #define EPM_SILENCE  (WM_USER + 101)   /* Ctrl seul : couper la parole */

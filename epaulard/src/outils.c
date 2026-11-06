@@ -296,7 +296,7 @@ BOOL label_zorder(HWND h, char *out, int n)
             return TRUE;
     }
     for (p = GetWindow(h, GW_HWNDPREV); p && is_class(p, "STATIC") &&
-         (GetWindowLong(p, GWL_STYLE) & 0x0F) <= SS_RIGHT; p = GetWindow(p, GW_HWNDPREV)) {
+         TEXT_STATIC(GetWindowLong(p, GWL_STYLE)); p = GetWindow(p, GW_HWNDPREV)) {
         if (!has_style(p, WS_VISIBLE) || GetWindowTextLength(p) == 0)
             continue;
         GetWindowText(p, out, n);
@@ -328,7 +328,7 @@ void label_before(HWND h, char *out, int n)
     GetWindowRect(h, &rc);
     for (p = GetWindow(GetParent(h), GW_CHILD); p; p = GetWindow(p, GW_HWNDNEXT)) {
         if (p == h || !has_style(p, WS_VISIBLE) || !is_class(p, "STATIC") ||
-            (GetWindowLong(p, GWL_STYLE) & 0x0F) > SS_RIGHT ||
+            !TEXT_STATIC(GetWindowLong(p, GWL_STYLE)) ||
             GetWindowTextLength(p) == 0 || GetWindowTextLength(p) > TXT - 1)
             continue;
         GetWindowText(p, out, n);
@@ -397,7 +397,7 @@ BOOL label_right(HWND h, char *out, int n)
     GetWindowRect(h, &rc);
     for (p = GetWindow(GetParent(h), GW_CHILD); p; p = GetWindow(p, GW_HWNDNEXT)) {
         if (p == h || !has_style(p, WS_VISIBLE) || !is_class(p, "STATIC") ||
-            (GetWindowLong(p, GWL_STYLE) & 0x0F) > SS_RIGHT || GetWindowTextLength(p) == 0 ||
+            !TEXT_STATIC(GetWindowLong(p, GWL_STYLE)) || GetWindowTextLength(p) == 0 ||
             GetWindowTextLength(p) > TXT - 1)
             continue;
         GetWindowRect(p, &r);

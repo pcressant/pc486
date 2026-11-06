@@ -1793,6 +1793,30 @@ static void test_disabled_controls(void)
     CHECK_STR(out, "Option, case à cocher, non coché, grisé");
 }
 
+/* Renommer du Gestionnaire de fichiers : libellés « &De : » et « &Vers : » en
+   SS_LEFTNOWORDWRAP (0Ch), même identifiant 100, chacun juste avant sa zone */
+static void test_rename_labels(void)
+{
+    HWND dlg, from, to;
+    char out[TXT * 2];
+    boot();
+    dlg = sim_create(0, "#32770", "Renommer", 0, 80, 118, 496, 270);
+    sim_create(dlg, "Static", "Répertoire courant : C:\\WINWORD", 0x8B, 93, 148, 400, 164);
+    sim_create(dlg, "Static", "&Vers :", 0x0C, 93, 210, 150, 226);
+    to = sim_create(dlg, "Edit", "", 0x80, 157, 208, 397, 228);
+    sim_create(dlg, "Static", "&De :", 0x0C, 93, 178, 150, 194);
+    from = sim_create(dlg, "Edit", "C:\\WINWORD\\INSTALLE", 0x80, 157, 175, 397, 197);
+    describe(to, out);
+    CHECK(strstr(out, "Vers") != NULL);
+    describe(from, out);
+    CHECK(strstr(out, "De") != NULL && strstr(out, "INSTALLE") != NULL);
+    sim_active = dlg;
+    sim_focus = to;
+    ap_reset();
+    run(1000);
+    CHECK(spoken_n && strstr(spoken[spoken_n - 1], "Vers"));
+}
+
 /* Suivi de la souris : rangée sous le pointeur dite une fois, mot (réglage « mot »),
    contrôle entier (bouton grisé sous son cadre de groupe), pointeur placé par
    Épaulard tu, Inser+M et Inser+Maj+M. Bips par EPAUS3.DLL chargée pour eux seuls
@@ -3829,6 +3853,7 @@ int main(void)
     { int f = failures; test_navweb(); if (failures > f) dump("test_navweb"); }
     { int f = failures; test_disabled_controls(); if (failures > f) dump("test_disabled_controls"); }
     { int f = failures; test_mouse_tracking(); if (failures > f) dump("test_mouse_tracking"); }
+    { int f = failures; test_rename_labels(); if (failures > f) dump("test_rename_labels"); }
     { int f = failures; test_calculator_states(); if (failures > f) dump("test_calculator_states"); }
     { int f = failures; test_calculator(); if (failures > f) dump("test_calculator"); }
     { int f = failures; test_write_say_all(); if (failures > f) dump("test_write_say_all"); }

@@ -220,7 +220,7 @@ static void sysmodal_say(int code, HWND h)
         add_text(out, h, sizeof(out));
         for (c = GetWindow(h, GW_CHILD); c; c = GetWindow(c, GW_HWNDNEXT)) {
             GetClassName(c, cls, sizeof(cls));
-            if (lstrcmpi(cls, "Static") == 0 && (GetWindowLong(c, GWL_STYLE) & 0x0F) <= SS_RIGHT)
+            if (lstrcmpi(cls, "Static") == 0 && TEXT_STATIC(GetWindowLong(c, GWL_STYLE)))
                 add_text(out, c, sizeof(out));
         }
         f = GetFocus();
