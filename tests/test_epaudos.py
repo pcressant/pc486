@@ -33,6 +33,19 @@ class EpaudosTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
+    def test_com_file_covers_the_resident(self):
+        # LH dans un bloc supérieur plus grand que le fichier mais plus petit que le
+        # résident : la remise à zéro du BSS écrasait le bloc suivant (QEMM sous 86Box).
+        # Fichier complété : DOS ne le place que dans un bloc assez grand.
+        import re
+        build = ROOT / 'epaudos/build'
+        end = int(re.search(r'0000:([0-9a-f]+)\s+_resident_end',
+                            (build / 'EPAUDOS.MAP').read_text()).group(1), 16)
+        stack = int(re.search(r'LOAD_STACK equ (\d+)', (build / 'tsr.asm').read_text()).group(1))
+        size = (build / 'EPAUDOS.COM').stat().st_size
+        self.assertGreaterEqual(size + 0x100, end + stack)
+        self.assertLess(end + stack, 0xfffe)
+
     def test_scenarios(self):
         for scenario in ('review', 'menu', 'pitch', 'sleep', 'guest', 'echo', 'baum', 'frame', 'format', 'keys',
                          'preemption', 'bounded', 'scroll', 'typing', 'screen', 'word', 'wordstart',

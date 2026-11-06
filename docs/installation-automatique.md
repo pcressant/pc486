@@ -91,6 +91,7 @@ scripts/installer \
   --netscape media/netscape3-fr/netscape301_win31x_fr.zip \
   --communicator media/communicator408-fr/netscc16fr408.zip \
   --eudora media/eudora306/eul306.zip \
+  --qemm media/archives-utilitaires-fr/qemm-8.0-fr-win3x.zip \
   --word-dos media/word6-dos-fr/msword60_525hd_dos_fr.zip \
   --cdrom media/udvd2/udvd2.zip \
   --reseau media/tcpip32/tcp32b.zip \
@@ -129,12 +130,13 @@ Options :
 | `--netscape ZIP` | Installe Netscape Navigator 3.01 français 16 bits (dossier `N16FR31` du ZIP) dans `C:\NETSCAPE`, réglé pour `pc486 start --reseau` : proxy 10.0.2.2:8080, page d'accueil `http://pc486/`, courrier 10.0.2.2, signets pc486. Réponses d'`INSTAUTO.EXE`. |
 | `--communicator ZIP` | Installe Netscape Communicator 4.08 français 16 bits (`netscc16fr408.zip`, auto-extracteur InstallShield) dans `C:\NETSCAPE\COMM`. Les mêmes réglages sont écrits par défaut pour tout profil dans `NETSCAPE.CFG` (voir plus bas) ; le profil lui-même est créé par l'assistant de Communicator au premier lancement (lu par Épaulard). |
 | `--eudora ZIP` | Installe Eudora Light 3.06 (anglais, `eul306.zip`) dans `C:\EUDORA` : compte `pc486@10.0.2.2`, SMTP 10.0.2.2 (boîte locale de `--reseau`, mot de passe quelconque). Au premier lancement, Eudora ouvre ses Options, puis signale une table des matières de la boîte In à recréer (« Create new ») : fichiers livrés ainsi. |
+| `--qemm DOSSIER` | Installe QEMM 8.0 français (3 disquettes, `qemm-8.0-fr-win3x.zip`) dans `C:\QEMM`, installation rapide, réponses d'`INSTAUTO.EXE`, sans OPTIMIZE. `QEMM386.SYS RAM FRAME=NONE NOPE` remplace HIMEM et EMM386 ; ordre d'AUTOEXEC.BAT : S3RES, `LH KEYB`, Épaudos puis SMARTDRV. MagnaRAM, FreeMeg, le Gestionnaire de ressources et le logo ajoutés à Windows sont retirés. Mémoire conventionnelle libre : 600 Ko sous 86Box (509 Ko avec EMM386). Voir [qemm.md](qemm.md). |
 | `--word-dos DOSSIER` | Installe Word 6.0 pour DOS dans `C:\WORD` en mode Texte, sans gestionnaire d'imprimante ni de souris, avec le gestionnaire de clavier « pour résidents » ; ajoute `C:\WORD` au PATH. Les fichiers des disquettes restent dans `C:\INSTALL\WORDDOS` pour relancer `INIT` (imprimante, par exemple). |
 | `--cdrom FICHIER` | `UDVD2.SYS` ou le paquet `udvd2.zip` de FreeDOS (`media/udvd2/`) : pilote ATAPI dans `C:\DOS`, `MSCDEX` en E:. Sans lecteur (lancement sans `--cdrom`), UDVD2 ne se charge pas et MSCDEX est sauté. Voir [reseau.md](reseau.md). |
 | `--reseau FICHIER` | `tcp32b.zip` (TCP/IP-32 3.11b) : carte NE2000 (0x300, IRQ10) et TCP/IP de WfW, adresse 10.0.2.15. `RESEAU.EXE`, avant `WIN`, retire le réseau de SYSTEM.INI quand la carte manque. Vérifié en démarrant Windows sans puis avec carte. Voir [reseau.md](reseau.md). |
 | `--synthese apollo\|synthe3` | Synthèse des lecteurs au premier démarrage. `synthe3` (défaut) : Synthé3 sur la Sound Blaster, sans Apollo ni hôte. `apollo` : Apollo II sur COM1. Dans les deux cas Synthé3 est installé et le choix se change ensuite dans la VM ; voir « Synthèse Synthé3 » ci-dessous. Avec `--binaries`, `synthe3` exige `S3RES.EXE` et `EPAUS3.DLL` dans ce dossier. |
 | `--sans-braille` | Ne configure pas la plage. Par défaut, Épaulard utilise une plage Baum sur COM3, base 03E8, IRQ9 (`BraillePort=3`, ports de SYSTEM.INI), comme la VM de référence ; la plage n'est pas contactée pendant l'installation. Avec `--sans-braille`, `EPAUDOS.INI` reçoit aussi `Braille=0` (Épaudos laisse COM3 et l'IRQ9). `--braille`, ancienne option, reste accepté. |
-| `--binaries DOSSIER` | Utilise des binaires déjà compilés : `EPAULARD.EXE`, `EPAUHOOK.DLL`, `EPAUDOS.COM` (et `INSTAUTO.EXE` avec `--word`, `--excel`, `--access`, `--amipro`, `--norton`, `--netscape`, `--communicator` ou `--eudora` ; `RESEAU.EXE` avec `--reseau`). Sinon `epaulard/build.sh` et `epaudos/build.sh` sont lancés. |
+| `--binaries DOSSIER` | Utilise des binaires déjà compilés : `EPAULARD.EXE`, `EPAUHOOK.DLL`, `EPAUDOS.COM` (et `INSTAUTO.EXE` avec `--word`, `--excel`, `--access`, `--amipro`, `--norton`, `--netscape`, `--communicator`, `--eudora` ou `--qemm` ; `RESEAU.EXE` avec `--reseau`). Sinon `epaulard/build.sh` et `epaudos/build.sh` sont lancés. |
 | `--icount N` | Bridage du processeur QEMU : `off` (défaut, pleine vitesse, installation complète en 5 min environ) ou `N`, 2^N ns par instruction (`7`, environ 7,8 MIPS, comme `pc486 start --qemu`, plus de 20 min). |
 | `--timeout S` | Délai maximal par étape VM (défaut 1200 s). |
 
@@ -186,7 +188,9 @@ chargé en mémoire supérieure **avant** SMARTDRV (ordre du modèle `AUTOEXEC.B
 il reste 528 Kio de mémoire conventionnelle avec Synthé3 et 603 Kio avec l'Apollo,
 où S3RES ne reste pas résident. Un `AUTOEXEC.BAT` modifié qui charge SMARTDRV
 avant S3RES fait retomber S3RES en mémoire conventionnelle (465 Kio libres), sans
-message.
+message. Sous 86Box, la mémoire supérieure d'EMM386 est fragmentée : S3RES ne
+tient en haut dans aucun bloc (509 Kio libres) ; avec `--qemm`, 600 Kio
+([qemm.md](qemm.md)).
 
 Processeur : 386 ou mieux, coprocesseur inutile (moteur en calcul entier). Essayé
 sous 86Box en DX4/100 et en 486SX/25. Sur un 386SX à 16 MHz, la synthèse
@@ -252,7 +256,12 @@ Les étapes s'affichent dans le terminal, numérotées selon les options :
    installation complète, Windows, `C:\AMIPRO`, fin, Quitter) sont dans
    `ACME['amipro']` de `scripts/installation.py`. Une boîte inattendue arrête la
    suite des réponses : l'étape échoue alors au délai, capture d'écran et journal
-   conservés. Norton Desktop (Symantec Install) redémarre le PC à la fin :
+   conservés. Assistant dont les pages sont des boîtes sans titre d'une même
+   fenêtre (QEMM 8) : règle `#En-tête de la page|touches`, jouée quand un contrôle
+   visible de la tâche active commence par ce texte ; `{ALT+lettre}` envoie aussi
+   Alt+lettre (menus). Un installateur qui relance Windows après sa dernière boîte
+   (QEMM) trouve INSTAUTO « fini » : il quitte alors Windows au démarrage suivant.
+   Norton Desktop (Symantec Install) redémarre le PC à la fin :
    `INSTAUTO.EXE` reprend au démarrage suivant ; les programmes qu'il laisse
    résidents (`residents=NAVTSRW FASSIST` de `[pc486]`) ne retardent pas la fin.
    Avec Word installé, FileAssist demandait à ce redémarrage s'il fallait le
@@ -305,6 +314,11 @@ Les étapes s'affichent dans le terminal, numérotées selon les options :
    démarrage du choix 1 : S3RES (en UMB) et Épaudos, « Épaudos prêt » lu dans la trace du moteur en
    mémoire ; Ctrl+Alt+Suppr, choix 2 : Épaulard charge EPAUS3.DLL (mode Auto) et
    annonce le Gestionnaire de programmes ; retour à `C:\>` ; aucun octet sur COM1.
+10. Avec `--qemm` : démarrage du choix 1 avec la synthèse finale, `MEM /C` dans
+   `C:\PC486MEM.TXT` (relu puis effacé, copie `qemm-mem.txt` dans le dossier de
+   travail) ; QEMM386 et Épaudos doivent être chargés, S3RES en mémoire
+   supérieure. La mémoire libre sous QEMU est notée dans `supports.json`
+   (`memoire-conventionnelle-libre`).
 
 Groupes Réseau et Démarrage : WfW FR `/H` écrit leurs noms accentués en ANSI
 dans PROGMAN.INI. En page 850, les fichiers sur la FAT s'appellent déjà

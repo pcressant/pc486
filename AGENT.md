@@ -63,6 +63,7 @@ seulement l'analyse de son protocole.
 | --- | --- |
 | Environnement Nix, préparation et lancement | `flake.nix`, `flake.lock` ; `docs/nix.md` |
 | Installation neuve (DOS, outils suppl., Épaudos, Windows, Word, Excel, Access, Ami Pro, Norton Desktop, Netscape, Communicator, Eudora, Épaulard, braille) | `scripts/installer`, `scripts/installation.py` (`ACME`, `stage_acme`, `install_acme`) ; `docs/installation-automatique.md` |
+| QEMM 8.0 (`--qemm`) : mémoire conventionnelle, fichiers de démarrage, ajouts Windows retirés, banc 86Box | `qemm_boot_files`, `qemm_windows`, `verify_qemm`, `ACME['qemm']` (`scripts/installation.py`) ; `tests/test_qemm_86box.py` ; `docs/qemm.md` |
 | ISO locale des supports décompressés (lecteur E:) | `scripts/iso_supports.py`, `scripts/iso-supports`, `nix run .#iso` |
 | Bac à sable : installer un logiciel sur une copie, journal de ce qu'Épaulard dit | `scripts/bac-a-sable` ; `docs/bac-a-sable.md` |
 | Démarrage, arrêt, relais série, supervision, options VM | `scripts/pc486` (Bash) |
@@ -260,6 +261,10 @@ Préférer `scripts/pc486-dev` aux préfixes de variables, que les règles ne co
 
 - Épaudos est un COM 8086 sans bibliothèque C, un seul segment ; la borne
   `_resident_end` de `tail.asm` doit suivre toutes les données et les piles.
+  `build.sh` complète EPAUDOS.COM de zéros jusqu'à cette borne plus `LOAD_STACK` :
+  sinon `LH` le plaçait dans un bloc supérieur plus grand que le fichier mais plus
+  petit que le résident, et la remise à zéro du BSS écrasait le bloc suivant
+  (QEMM sous 86Box : machine figée, chaîne MCB corrompue). `start` vérifie aussi SP.
   Le moteur tourne après le BIOS INT 8h, PIC acquitté et interruptions permises,
   pour recevoir les UART sans FIFO pendant l'analyse de l'écran. Le clavier
   INT 15h/4Fh a sa propre pile de 512 octets ; le moteur et INT 28h partagent
@@ -491,7 +496,16 @@ Préférer `scripts/pc486-dev` aux préfixes de variables, que les règles ne co
   visibles, de haut en bas ; une fenêtre désactivée compte si sa dernière boîte
   (`GetLastActivePopup`) est active. Vérifié contre la boîte affichée sous QEMU.
 - INSTAUTO joue ses réponses dans l'ordre : deux boîtes « Question » successives
-  reçoivent chacune la leur ; ne pas dédoublonner les titres.
+  reçoivent chacune la leur ; ne pas dédoublonner les titres. Pages d'assistant
+  sans titre dans une même fenêtre (QEMM 8, boîtes `#32770`) : règle `#En-tête|…`.
+  `{ALT+lettre}` posté ouvre un menu mais n'active pas un bouton de boîte modale
+  (Tab plutôt). Un installateur qui relance Windows quand INSTAUTO a fini : INSTAUTO
+  quitte de nouveau Windows au démarrage suivant (`etat=fini`).
+- QEMM 8.0 : jamais `LOADHI.COM` pour S3RES (mémoire basse masquée, tampon DMA
+  refusé) ; pas de cadre EMS ni de Stealth (S3RES n'a plus 95 Ko d'un seul bloc ;
+  `ST:M` rend le disque illisible sous QEMU) ; aucune adresse figée, la mémoire
+  supérieure diffère entre QEMU et 86Box. OPTIMIZE n'est pas automatisé : voir
+  `docs/qemm.md`.
 - Une boîte ouverte par un résident dans la tâche d'INSTAUTO, avant sa boucle de
   messages (FileAssist de Norton au redémarrage, « configurer pour Word ? »), ne
   reçoit aucune réponse et n'apparaît pas dans `INSTAUTO.LOG` : la supprimer par

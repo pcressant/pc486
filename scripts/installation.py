@@ -271,12 +271,42 @@ SETUP_CODEPAGE = ('MODE CON CODEPAGE PREPARE=((850) C:\\DOS\\EGA.CPI)\n'
 NORTON_AUTOEXEC = 'SET SYMANTEC=C:\\SYMANTEC\nC:\\NDW\\IMAGE.EXE\n'
 
 
-def final_boot_files(word_dos=False, cdrom=False, reseau=False, norton=False):
+QEMM_OPTIONS = 'RAM FRAME=NONE NOPE'
+MS_MEMORY = 'DEVICE=C:\\WINDOWS\\HIMEM.SYS\nDEVICE=C:\\DOS\\EMM386.EXE NOEMS\n'
+
+
+def qemm_boot_files(config, autoexec, options=None):
+    """Gestion mémoire de QEMM 8.0 au lieu de HIMEM + EMM386 (texte, fins de ligne \\n).
+    Aucune adresse figée (ni RAM=, ni /R:) : QEMM détecte la mémoire supérieure à chaque
+    démarrage ; la même configuration vaut sous QEMU (SeaBIOS) et 86Box (Award).
+    DEVICEHIGH et LH du DOS restent : LOADHI.COM masque la mémoire basse pendant le
+    chargement et S3RES n'y trouve plus son tampon DMA (« mémoire basse insuffisante »).
+    Ordre pour la mémoire supérieure plus grande de QEMM (86Box : B000-B7FF et
+    C800-EFFF) : S3RES, KEYB (LH), Épaudos, puis SMARTDRV, déplacé dans chaque branche
+    après Épaudos ; SMARTDRV (28 Ko) descend en mémoire basse plutôt qu'Épaudos (45 Ko)."""
+    if MS_MEMORY not in config:
+        raise InstallError('dos/CONFIG.SYS sans HIMEM.SYS et EMM386.EXE attendus')
+    config = config.replace(MS_MEMORY, f'DEVICE=C:\\QEMM\\QEMM386.SYS {options or QEMM_OPTIONS}\n')
+    smartdrv = re.search(r'(?m)^(REM SMARTDRV.*\n)?C:\\WINDOWS\\SMARTDRV\.EXE C\n', autoexec)
+    keyb = re.search(r'(?m)^KEYB FR,', autoexec)
+    epaudos = 'LH C:\\EPAULARD\\EPAUDOS.COM\n'
+    if not smartdrv or not keyb or autoexec.count(epaudos) != 2:
+        raise InstallError('dos/AUTOEXEC.BAT : SMARTDRV, KEYB ou Épaudos attendus')
+    autoexec = autoexec[:keyb.start()] + 'LH ' + autoexec[keyb.start():]
+    autoexec = autoexec.replace(smartdrv[0], '', 1).replace(epaudos, epaudos + smartdrv[0])
+    autoexec = re.sub(r"(?m)^REM Memoire superieure :.*\nREM Apollo\).*\n",
+                      'REM Memoire superieure (QEMM) : S3RES, KEYB, puis Epaudos ; SMARTDRV\n'
+                      'REM ensuite, dans chaque branche, en haut s\'il reste de la place.\n', autoexec)
+    return config, autoexec
+
+
+def final_boot_files(word_dos=False, cdrom=False, reseau=False, norton=False, qemm=False):
     """CONFIG.SYS et AUTOEXEC.BAT de la VM de référence (modèles de dos/) :
     1 = DOS avec Épaudos (défaut après 10 s), 2 = Windows avec Épaulard.
     Avec Word pour DOS, C:\\WORD s'ajoute au PATH, seul changement demandé par INIT.
     Avec Norton Desktop : C:\\NDW au PATH, NORTON_AUTOEXEC et FILES=50.
-    Options --cdrom et --reseau : lignes de options_vm.boot_files, sinon aucune."""
+    Options --cdrom et --reseau : lignes de options_vm.boot_files, sinon aucune.
+    Avec QEMM (--qemm) : qemm_boot_files, appliqué en dernier."""
     config, autoexec = ((ROOT / 'dos' / name).read_bytes().decode('cp850').replace('\r\n', '\n')
                         for name in ('CONFIG.SYS', 'AUTOEXEC.BAT'))
     path = 'PATH C:\\WINDOWS;C:\\DOS\n'
@@ -291,6 +321,8 @@ def final_boot_files(word_dos=False, cdrom=False, reseau=False, norton=False):
         autoexec = autoexec.replace(temp, temp + NORTON_AUTOEXEC)
         config = config.replace('FILES=40\n', 'FILES=50\n')
     config, autoexec = options_vm.boot_files(config, autoexec, cdrom, reseau)
+    if qemm:
+        config, autoexec = qemm_boot_files(config, autoexec, None if qemm is True else qemm)
     return tuple(t.replace('\n', '\r\n').encode('cp850') for t in (config, autoexec))
 
 
@@ -573,16 +605,19 @@ class Acme:
     écrits après l'installation, (fichier INI de C:, section, clé, valeur) ; {NOM}
     remplacé. files : fichiers texte créés ensuite, (chemin sur C:, texte) ; before :
     de même, mais écrits avant l'installation. residents : modules laissés en mémoire par l'installateur, ignorés par INSTAUTO
-    pour juger la fin ; unload : programmes retirés ensuite de load=."""
+    pour juger la fin ; unload : programmes retirés ensuite de load=. serial : fichier de
+    la disquette 1 qui porte le numéro de série, remplacé dans les réponses ({SERIE}).
+    Titre « Titre#Texte » : page d'un assistant à fenêtre unique (voir INSTAUTO)."""
     def __init__(self, key, title, folder, disks, sizes, signature, program, marker,
                  quiet=True, merge=False, answers=(), archive=None, setup='INSTALL.EXE',
-                 settings=(), files=(), before=(), residents=(), unload=()):
+                 settings=(), files=(), before=(), residents=(), unload=(), serial=None):
         self.key, self.title, self.folder, self.disks = key, title, folder, disks
         self.sizes, self.signature, self.program, self.marker = sizes, signature, program, marker
         self.quiet, self.merge, self.answers = quiet, merge, answers
         self.archive, self.setup, self.settings, self.files = archive, setup, settings, files
         self.before = before
         self.residents, self.unload = residents, unload
+        self.serial = serial
 
     def source(self, n):
         if self.merge:
@@ -713,6 +748,27 @@ ACME = {
                        ('Norton Desktop - Installation terminée', '{ENTREE}'),      # Redémarrer
                    ), before=(('WINDOWS/FASSIST.INI', FASSIST_INI),),
                    residents=('NAVTSRW', 'FASSIST'), unload=(r'C:\NDW\NAVTSRW.EXE',)),
+    # QEMM 8.0 français : installateur MFC (INSTALL.EXE), 3 disquettes dans un dossier.
+    # Ses pages sont des boîtes sans titre (#32770) d'un même cadre : réponses
+    # « #En-tête de la page » (titre vide, voir INSTAUTO).
+    'qemm': Acme('qemm', 'QEMM 8.0', 'QEMM', 3, SIZES_35,
+                 ('README.TXT', (b'QEMM 8.0',)), 'QEMM/QEMM386.SYS', 'PC486_QEMM_OK',
+                 quiet=False, merge=True, serial='SERIAL.TXT', answers=(
+                     ('#Bienvenue dans Quarterdeck QEMM', '{ENTREE}'),
+                     # Ville et Pays obligatoires ; Tab après Pays, une fois sa saisie
+                     # complétée (FRANCE), seulement 250 ms plus tard (touche suivante)
+                     ('#Personnalisez votre produit',
+                      '{NOM}{TAB}{SOCIETE}{TAB}Paris{TAB}FRANCE{TAB}{SERIE}{ENTREE}'),
+                     ("#Où doit se faire l'installation", '{ENTREE}'),   # C:\QEMM
+                     # focus sur Précédent : Quitter, puis Installation rapide (sans page
+                     # Composants), copie, puis QEMM Setup
+                     ("#Type d'installation", '{TAB}{TAB}{ENTREE}'),
+                     # QEMM Setup enregistre seul CONFIG.SYS (remplacé ensuite par
+                     # final_boot_files) après cette question, puis sa boîte de fin :
+                     # Quitter, sans OPTIMIZE (focus sur README) ; Windows redémarre.
+                     ('QEMM - Setup#Le pilote HIMEM.SYS', '{ENTREE}'),       # retirer HIMEM : Oui
+                     ('QEMM - Setup : Fin', '{TAB}{TAB}{ENTREE}'),
+                 )),
     # Netscape Navigator 3.01 français (16 bits) : InstallShield 3, dossier N16FR31 du ZIP.
     # Réglages : services de l'hôte de « pc486 start --reseau » (docs/reseau.md).
     'netscape': Acme('netscape', 'Netscape Navigator 3.01', 'NETSCAPE', 1, (),
@@ -943,8 +999,9 @@ def stage_acme(stage, image, product, media, name, company, binaries, extra_load
     text = ini.setting(text, 'pc486', 'etat', '')
     if product.residents:
         text = ini.setting(text, 'pc486', 'residents', ' '.join(product.residents))
+    serial = qemm_serial(stage / f'{product.key}-disk1' / product.serial) if product.serial else ''
     for i, (title, keys) in enumerate(product.answers, 1):
-        keys = keys.replace('{NOM}', name).replace('{SOCIETE}', company or name)
+        keys = keys.replace('{NOM}', name).replace('{SOCIETE}', company or name).replace('{SERIE}', serial)
         text = ini.setting(text, 'pc486', f'reponse{i}', f'{title}|{keys}')
     win.write_bytes(text.encode('cp1252'))
     run('mcopy', '-o', '-i', image, win, '::/WINDOWS/WIN.INI')
@@ -952,6 +1009,68 @@ def stage_acme(stage, image, product, media, name, company, binaries, extra_load
     write_dos_file(stage, image, 'AUTOEXEC.BAT',
                    '@ECHO OFF\nPATH C:\\WINDOWS;C:\\DOS\nSET TEMP=C:\\TEMP\n' + SETUP_CODEPAGE +
                    f'C:\nCD \\\n{RESEAU_AUTO}WIN\nECHO {product.marker}\n')
+
+
+def qemm_serial(path):
+    """Numéro de série « S/N: 210-28A-80792 » du fichier de la disquette 1."""
+    m = re.search(rb'([0-9]{3}-[0-9A-Z]{3}-[0-9]{5})', path.read_bytes() if path.is_file() else b'')
+    if not m:
+        raise InstallError(f'numéro de série absent de {path.name}')
+    return m[1].decode('ascii')
+
+
+# Ajouts de l'installateur de QEMM 8.0 à Windows, retirés : MagnaRAM (compression de
+# la mémoire, VxD), FreeMeg et le Gestionnaire de ressources (DLL chargées avant USER
+# et GDI, que détourne Épaulard), logo au démarrage. QEMM386 et QDPMI restent.
+QEMM_DRIVERS = ('C:\\QEMM\\FREEMEG.DLL', 'C:\\QEMM\\RSRCMGR.DLL')
+
+
+def qemm_windows(win, system):
+    """WIN.INI et SYSTEM.INI (texte) sans les ajouts Windows de QEMM."""
+    def words(line, drop):
+        key, _, value = line.partition('=')
+        kept = [w for w in value.split() if w.upper() not in drop]
+        return f'{key}={" ".join(kept)}'
+    newline = '\r\n' if '\r\n' in system else '\n'
+    out, section = [], ''
+    for line in system.splitlines():
+        if line.lstrip().startswith('['):
+            section = line.strip().lower()
+        key = line.split('=', 1)[0].strip().lower()
+        if section == '[boot]' and key == 'drivers':
+            line = words(line, QEMM_DRIVERS)
+        elif section == '[386enh]' and (key == 'pageovercommit' or
+                                         (key == 'device' and 'MAGNA' in line.upper())):
+            continue
+        out.append(line)
+    system = remove_section(newline.join(out) + newline, 'Quarterdeck_MagnaRAM')
+    newline = '\r\n' if '\r\n' in win else '\n'
+    win = newline.join(words(line, ('C:\\QEMM\\LOGO31.EXE',))
+                       if line.split('=', 1)[0].strip().lower() == 'run' else line
+                       for line in win.splitlines()) + newline
+    return win, system
+
+
+def configure_qemm(stage, image):
+    win = run('mtype', '-i', image, '::/WINDOWS/WIN.INI').decode('cp1252')
+    system = run('mtype', '-i', image, '::/WINDOWS/SYSTEM.INI').decode('cp1252')
+    win, system = qemm_windows(win, system)
+    write_win_ini(stage, image, win)
+    local = stage / 'qemm-SYSTEM.INI'
+    local.write_bytes(system.encode('cp1252'))
+    run('mcopy', '-o', '-i', image, local, '::/WINDOWS/SYSTEM.INI')
+
+
+MEM_LINE = re.compile(r'^\s+(\S+)\s+([\d ]+?)\s+\(\d+K\)\s+([\d ]+?)\s+\(\d+K\)\s+([\d ]+?)\s+\(\d+K\)', re.M)
+
+
+def mem_modules(text):
+    """MEM /C (MS-DOS 6.22 français) : {nom: (conventionnelle, supérieure)} en octets ;
+    « Libre » donne la mémoire libre."""
+    out = {}
+    for name, _, low, high in MEM_LINE.findall(text):
+        out[name] = (int(low.replace(' ', '')), int(high.replace(' ', '')))
+    return out
 
 
 # Disque déjà configuré pour le réseau (bac à sable) : sans carte, WfW se bloquerait.
@@ -1416,7 +1535,7 @@ def move_epaudos_root(image):
 
 
 def configure(stage, image, binaries, braille, epaudos, word_dos=False, cdrom=False, reseau=False,
-              norton=False, synthe3=None):
+              norton=False, synthe3=None, qemm=False):
     ini = load_ini_editor()
     for name in ('WIN.INI', 'SYSTEM.INI'):
         p = stage / name
@@ -1453,10 +1572,11 @@ def configure(stage, image, binaries, braille, epaudos, word_dos=False, cdrom=Fa
         for name, folder in SYNTHE3_FILES:
             run('mcopy', '-o', '-i', image, synthe3 / name, f'::/{folder}{name}')
     run('mdel', '-i', image, '::/PC486.SHH')     # réponses de Setup, plus utiles
-    config, autoexec = final_boot_files(word_dos, cdrom, reseau, norton)
+    config, autoexec = final_boot_files(word_dos, cdrom, reseau, norton, qemm)
     write_dos_file(stage, image, 'CONFIG.SYS', config)
     write_dos_file(stage, image, 'AUTOEXEC.BAT', autoexec)
-    required = ['IO.SYS', 'MSDOS.SYS', 'DOS/POWER.EXE', 'DOS/EMM386.EXE', 'WINDOWS/HIMEM.SYS',
+    memory = ['QEMM/QEMM386.SYS'] if qemm else ['DOS/EMM386.EXE', 'WINDOWS/HIMEM.SYS']
+    required = ['IO.SYS', 'MSDOS.SYS', 'DOS/POWER.EXE'] + memory + [
                 'WINDOWS/IFSHLP.SYS', 'WINDOWS/SMARTDRV.EXE', 'WINDOWS/WIN.COM',
                 'WINDOWS/PROGMAN.EXE', 'WINDOWS/SYSTEM.INI']
     required += ['WINDOWS/SYSTEM/' + name for name in SOUND_DRIVERS]
@@ -1632,6 +1752,31 @@ def verify_synthe3(stage, image, disk, timeout, braille=True):
             raise InstallError('parole envoyée sur COM1 alors que Synthé3 est choisi')
 
 
+def verify_qemm(stage, image, disk, timeout):
+    """Démarrage DOS avec QEMM et la synthèse finale : MEM /C dans C:\\PC486MEM.TXT,
+    relu ensuite. Exige QEMM386, S3RES (s'il est résident) en mémoire supérieure et
+    Épaudos chargé ; renvoie (mémoire conventionnelle libre, texte de MEM /C)."""
+    with machine(stage, disk, 'qemm', voice=True) as m:
+        end = time.monotonic() + timeout
+        boot_menu(m, end, '1')
+        if not wait_prompt(m, end):
+            raise InstallError('invite DOS absente avec QEMM ; écran conservé')
+        type_text(m.q, 'mem /c >c:\\pc486mem.txt\n', fr=True, delay=.1)
+        time.sleep(3)
+        if not wait_prompt(m, end):
+            raise InstallError('MEM /C sans retour à l’invite avec QEMM ; écran conservé')
+    raw = run('mtype', '-i', image, '::/PC486MEM.TXT')
+    run('mdel', '-i', image, '::/PC486MEM.TXT')
+    text = raw.decode('cp850').replace('\r', '')
+    (stage / 'qemm-mem.txt').write_text(text)
+    modules = mem_modules(text)
+    if 'QEMM386' not in modules or 'EPAUDOS' not in modules or 'Libre' not in modules:
+        raise InstallError('MEM /C : QEMM386 ou Épaudos absent ; voir qemm-mem.txt')
+    if 'S3RES' in modules and modules['S3RES'][1] == 0:
+        raise InstallError('S3RES chargé en mémoire basse avec QEMM ; voir qemm-mem.txt')
+    return modules['Libre'][0], text
+
+
 def verify_epaudos(stage, disk, timeout, word_dos=False, cdrom=False):
     with machine(stage, disk, 'epaudos', voice=True) as m:
         end = time.monotonic() + timeout
@@ -1698,6 +1843,8 @@ def parser():
                    '(installateur Lotus, réponses jouées par INSTAUTO)')
     p.add_argument('--norton', type=Path, help='dossier ou ZIP local : Norton Desktop 3.0 pour Windows '
                    'français, 7 disquettes (installation automatique, Gestionnaire de programmes gardé)')
+    p.add_argument('--qemm', type=Path, help='dossier ou ZIP local : QEMM 8.0 français, 3 disquettes '
+                   '(qemm-8.0-fr-win3x.zip) ; remplace HIMEM et EMM386, sans OPTIMIZE (docs/qemm.md)')
     p.add_argument('--netscape', type=Path, help='ZIP local de Netscape Navigator 3.01 français 16 bits '
                    '(dossier N16FR31) : réglé sur le proxy de « pc486 start --reseau »')
     p.add_argument('--communicator', type=Path, help='ZIP local de Netscape Communicator 4.08 '
@@ -1746,7 +1893,7 @@ def prerequisites(args):
         raise InstallError('--access-an2000 demande --access')
     if args.binaries:
         acme = (args.word or args.excel or args.access or args.amipro or args.norton or args.netscape or
-                args.communicator or args.eudora)
+                args.communicator or args.eudora or args.qemm)
         for name in ('EPAULARD.EXE', 'EPAUHOOK.DLL', 'EPAUDOS.COM') + (('INSTAUTO.EXE',) if acme else ()) \
                 + (('RESEAU.EXE',) if args.reseau else ()) \
                 + (tuple(n for n, _ in SYNTHE3_FILES) if args.synthese == 'synthe3' else ()):
@@ -1800,6 +1947,8 @@ def main(argv=None):
             steps.append('Installation de Netscape Communicator 4.08 (proxy pc486)')
         if args.eudora:
             steps.append('Installation d’Eudora Light 3.06 (courrier local)')
+        if args.qemm:
+            steps.append('Installation de QEMM 8.0 (installation rapide, sans OPTIMIZE)')
         if args.word_dos:
             steps.append('Installation de Word 6.0 pour DOS (mode Texte)')
         if args.cdrom:
@@ -1813,6 +1962,8 @@ def main(argv=None):
         steps.append('Démarrage DOS avec Épaudos')
         if args.synthese == 'synthe3':
             steps.append('Synthé3 : Épaudos (S3RES) et Épaulard (EPAUS3.DLL)')
+        if args.qemm:
+            steps.append('QEMM : mémoire libre sous DOS (MEM /C)')
         numbered = iter(enumerate(steps, 1))
 
         def step():
@@ -1831,7 +1982,7 @@ def main(argv=None):
             word = collect_media(args.word, 11, stage / 'word')
             validate_word(word)
             manifest['media']['word'] = [dict(name=p.name, sha256=digest(p)) for p in word]
-        excel = access = amipro = norton = netscape = communicator = eudora = (None, None)
+        excel = access = amipro = norton = netscape = communicator = eudora = qemm = (None, None)
         y2k = None
         if args.excel:
             excel = collect_acme(args.excel, stage / 'excel', ('excel', 'excel50'))
@@ -1855,6 +2006,9 @@ def main(argv=None):
         if args.eudora:
             eudora = collect_acme(args.eudora, stage / 'eudora', ('eudora',))
             manifest['media']['eudora'] = [dict(name=args.eudora.name, sha256=digest(args.eudora))]
+        if args.qemm:
+            qemm = collect_acme(args.qemm, stage / 'qemm', ('qemm',))
+            manifest['media']['qemm'] = [dict(name=p.name, sha256=digest(p)) for p in qemm[1]]
         if args.access_an2000:
             y2k = collect_access_y2k(args.access_an2000, stage / 'access-an2000')
             manifest['media']['access-an2000'] = [dict(name=p.name, sha256=digest(p)) for p in y2k]
@@ -1910,7 +2064,7 @@ def main(argv=None):
             step()
             stage_word(stage, image, word, args.name, args.company, binaries)
             install_word(stage, disk, image, args.timeout, args.name, args.company)
-        for product, media in (excel, access, amipro, norton, netscape, communicator, eudora):
+        for product, media in (excel, access, amipro, norton, netscape, communicator, eudora, qemm):
             if product is None:
                 continue
             step()
@@ -1918,6 +2072,8 @@ def main(argv=None):
                            binaries)
             if product.key == 'access' and y2k:
                 install_access_y2k(image, y2k)
+            if product.key == 'qemm':
+                configure_qemm(stage, image)
         if word_dos:
             step()
             stage_word_dos(stage, image, word_dos)
@@ -1930,7 +2086,7 @@ def main(argv=None):
             install_reseau(stage, disk, image, tcp, reseau_exe, args.timeout)
         step()
         configure(stage, image, binaries, args.braille, epaudos, bool(word_dos), bool(cd_driver), bool(tcp),
-                  bool(args.norton), synthe3)
+                  bool(args.norton), synthe3, bool(args.qemm))
         step()
         verify_boot(stage, disk, args.timeout)
         if tcp:
@@ -1945,7 +2101,7 @@ def main(argv=None):
             verified.insert(1, 'suppl-tools')
         if word:
             verified.insert(-2, 'word-setup')
-        for product, _ in (excel, access, amipro, norton):
+        for product, _ in (excel, access, amipro, norton, qemm):
             if product:
                 verified.insert(-2, f'{product.key}-setup')
         step()
@@ -1960,6 +2116,12 @@ def main(argv=None):
             step()
             verify_synthe3(stage, image, disk, args.timeout, args.braille)
             verified.append('synthe3-epaudos-epaulard')
+        if args.qemm:
+            step()
+            free, _ = verify_qemm(stage, image, disk, args.timeout)
+            print(f'  mémoire conventionnelle libre (QEMU) : {free // 1024} Ko', flush=True)
+            manifest['memoire-conventionnelle-libre'] = free
+            verified.append('qemm-mem')
         manifest['epaulard'] = {p.name: digest(p) for p in (binaries / 'EPAULARD.EXE', binaries / 'EPAUHOOK.DLL',
                                                             epaudos)}
         if synthe3:

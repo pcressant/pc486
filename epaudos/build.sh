@@ -40,12 +40,20 @@ wcc -q -0 -ms -ecc -os -s -zl -wx -we core.c
 wcc -q -0 -ms -ecc -os -s -zl -wx -we dialog.c
 wcc -q -0 -ms -ecc -os -s -zl -wx -we dos.c
 wlink op q format dos com name EPAUDOS.COM file tsr.o,core.o,dialog.o,dos.o,tail.o op map=EPAUDOS.MAP
-ls -l EPAUDOS.COM
 python3 - <<'PY'
 from pathlib import Path
 import re
 mapping = Path('EPAUDOS.MAP').read_text()
 end = int(re.search(r'0000:([0-9a-f]+)\s+_resident_end', mapping).group(1), 16)
-assert end < 0xff00, 'Le TSR doit tenir dans un segment avec sa pile.'
+stack = int(re.search(r'LOAD_STACK equ (\d+)', Path('tsr.asm').read_text()).group(1))
+assert end + stack + 16 < 0xfffe, 'Le TSR doit tenir dans un segment avec sa pile.'
+# Fichier complété de zéros jusqu'au résident et à la pile de chargement : DOS ne le
+# met jamais dans un bloc supérieur trop petit (LH charge alors en mémoire basse).
+com = Path('EPAUDOS.COM')
+data = com.read_bytes()
+size = end + stack + 16 - 0x100
+assert len(data) <= size
+com.write_bytes(data + bytes(size - len(data)))
 print('Mémoire résidente (PSP, données et pile compris) : %d octets.' % ((end+15)//16*16))
 PY
+ls -l EPAUDOS.COM

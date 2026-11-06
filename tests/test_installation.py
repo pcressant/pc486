@@ -837,6 +837,86 @@ class OfficeMediaTests(unittest.TestCase):
         _, both = install.final_boot_files(word_dos=True, norton=True)
         self.assertIn(b'PATH C:\\WINDOWS;C:\\DOS;C:\\WORD;C:\\NDW\r\n', both)
 
+    def test_qemm_replaces_himem_and_emm386_without_fixed_addresses(self):
+        config, autoexec = (t.decode('cp850') for t in install.final_boot_files(cdrom=True, qemm=True))
+        self.assertIn('[COMMON]\r\nDEVICE=C:\\QEMM\\QEMM386.SYS RAM FRAME=NONE NOPE\r\n', config)
+        self.assertNotIn('HIMEM', config)
+        self.assertNotIn('EMM386.EXE', config)
+        # ni région ni adresse : la même configuration sous QEMU (SeaBIOS) et 86Box (Award)
+        self.assertNotRegex(config + autoexec, r'(?i)\b(RAM|X|I)=[0-9A-F]{4}-|/R:|ST:')
+        # LH et DEVICEHIGH du DOS : LOADHI.COM masque la mémoire basse, S3RES n'y
+        # trouverait plus son tampon DMA
+        self.assertNotIn('LOADHI', config + autoexec)
+        self.assertIn('DEVICEHIGH=C:\\DOS\\POWER.EXE\r\n', config)
+        self.assertIn('DOS=HIGH,UMB\r\n', config)
+
+    def test_qemm_load_order_s3res_keyb_epaudos_then_smartdrv(self):
+        _, autoexec = install.final_boot_files(qemm=True)
+        lines = autoexec.decode('cp850').split('\r\n')
+        self.assertIn('LH KEYB FR,,C:\\DOS\\KEYBOARD.SYS', lines)
+        for branch, end in ((':DOS', 'GOTO FIN'), (':WIN', 'WIN')):
+            part = lines[lines.index(branch):]
+            part = part[:part.index(end) + 1]
+            self.assertEqual([l for l in part if not l.startswith('REM')][-3:],
+                             ['LH C:\\EPAULARD\\EPAUDOS.COM', 'C:\\WINDOWS\\SMARTDRV.EXE C', end])
+        s3res = next(i for i, l in enumerate(lines) if 'S3RES.EXE' in l and not l.startswith('REM'))
+        smartdrv = [i for i, l in enumerate(lines) if l == 'C:\\WINDOWS\\SMARTDRV.EXE C']
+        self.assertEqual(len(smartdrv), 2)
+        self.assertLess(s3res, min(smartdrv))
+        self.assertLess(s3res, lines.index('LH KEYB FR,,C:\\DOS\\KEYBOARD.SYS'))
+        # sans QEMM, la machine de référence est inchangée
+        _, reference = install.final_boot_files()
+        self.assertEqual(reference.count(b'SMARTDRV.EXE C\r\n'), 1)
+        self.assertIn(b'\r\nKEYB FR,', reference)
+
+    def test_qemm_answers_follow_the_wizard_pages(self):
+        qemm = install.ACME['qemm']
+        self.assertTrue(qemm.merge and not qemm.quiet)
+        self.assertEqual(qemm.serial, 'SERIAL.TXT')
+        titles = [t for t, _ in qemm.answers]
+        # pages : boîtes #32770 sans titre, reconnues à leur en-tête
+        self.assertTrue(all(t.startswith('#') for t in titles[:4]))
+        self.assertEqual(titles[-1], 'QEMM - Setup : Fin')
+        registration = dict(qemm.answers)['#Personnalisez votre produit']
+        self.assertIn('{SERIE}', registration)
+        self.assertIn('Paris{TAB}FRANCE{TAB}', registration)       # Ville et Pays obligatoires
+        self.assertNotIn('{ALT+', ''.join(k for _, k in qemm.answers))
+
+    def test_qemm_serial_from_the_first_floppy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / 'SERIAL.TXT'
+            p.write_bytes(b'S/N: 210-28A-80792\r\n')
+            self.assertEqual(install.qemm_serial(p), '210-28A-80792')
+            p.write_bytes(b'rien\r\n')
+            with self.assertRaises(install.InstallError):
+                install.qemm_serial(p)
+
+    def test_qemm_windows_additions_are_removed(self):
+        system = ('[boot]\r\ndrivers=C:\\QEMM\\FREEMEG.DLL C:\\QEMM\\RSRCMGR.DLL mmsystem.dll\r\n'
+                  '[386Enh]\r\ndevice=*vpicd\r\ndevice=C:\\QEMM\\MAGNA31.VXD\r\nPAGEOVERCOMMIT=8\r\n'
+                  'COM3Irq=9\r\n\r\n[Quarterdeck_MagnaRAM]\r\nCOMPRESSION=ON\r\n')
+        win = '[windows]\r\nload=C:\\EPAULARD\\EPAULARD.EXE\r\nrun=C:\\QEMM\\LOGO31.EXE\r\n'
+        win, system = install.qemm_windows(win, system)
+        self.assertIn('drivers=mmsystem.dll\r\n', system)
+        self.assertIn('device=*vpicd\r\nCOM3Irq=9\r\n', system)
+        self.assertNotIn('MAGNA', system.upper())
+        self.assertNotIn('PAGEOVERCOMMIT', system)
+        self.assertEqual(win, '[windows]\r\nload=C:\\EPAULARD\\EPAULARD.EXE\r\nrun=\r\n')
+
+    def test_mem_report_of_ms_dos_622_in_french(self):
+        text = ('   MSDOS       17 869   (17K)     17 869   (17K)         0    (0K)\n'
+                '   S3RES       97 200   (95K)      2 064    (2K)    95 136   (93K)\n'
+                '   EPAUDOS     46 576   (45K)          0    (0K)    46 576   (45K)\n'
+                '   Libre      630 160  (615K)    614 528  (600K)    15 632   (15K)\n')
+        self.assertEqual(install.mem_modules(text), {
+            'MSDOS': (17869, 0), 'S3RES': (2064, 95136), 'EPAUDOS': (0, 46576), 'Libre': (614528, 15632)})
+
+    def test_qemm_needs_instauto(self):
+        args = install.parser().parse_args(['--dos', 'd', '--windows', 'w', '--qemm', 'q',
+                                            '--binaries', '/nonexistent'])
+        with self.assertRaisesRegex(install.InstallError, 'binaire absent'):
+            install.prerequisites(args)
+
     def test_y2k_fix_requires_access(self):
         args = install.parser().parse_args(['--dos', 'd', '--windows', 'w', '--access-an2000', 'x'])
         with self.assertRaises(install.InstallError):

@@ -2,6 +2,7 @@
 ; .COM 8086 : un segment, pile privée commune aux appels résidents.
 .8086
 .model tiny
+LOAD_STACK equ 1024    ; pile de chargement DOS sous le haut du bloc (_install : ~600 octets)
 .code
 org 100h
 public _old15, _old08, _old28, _old2f
@@ -24,6 +25,25 @@ start:
     mov ax,cs
     mov ds,ax
     mov es,ax
+    ; Bloc reçu de DOS trop petit pour les données, les piles et la pile de
+    ; chargement (LH dans un bloc supérieur plus grand que le fichier mais plus
+    ; petit que le résident) : la remise à zéro écraserait le bloc suivant. Le
+    ; fichier est complété jusqu'à cette taille (build.sh) : DOS le charge alors
+    ; en mémoire basse ; ce contrôle reste une garde. SP = haut du bloc (FFFEh
+    ; à partir de 64 Kio).
+    mov ax,offset _resident_end
+    add ax,LOAD_STACK
+    jc small
+    cmp sp,ax
+    jae roomy
+small:
+    mov dx,offset too_small
+    mov ah,9
+    int 21h
+    mov ax,4c08h
+    int 21h
+too_small db 'Epaudos : bloc memoire trop petit, non charge.',13,10,'$'
+roomy:
     ; Garder la pile de chargement DOS (haut du bloc) : après pose des
     ; vecteurs, une interruption peut déjà utiliser la pile privée.
     cld

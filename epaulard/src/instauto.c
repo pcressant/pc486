@@ -9,15 +9,19 @@
  *   residents=NAVTSRW FASSIST                        modules laissés résidents par
  *                                                    l'installateur (Norton), ignorés
  * Une réponse est jouée quand la fenêtre active a un titre qui commence par le sien :
- * texte (WM_CHAR), {TAB}, {ENTREE}, {ECHAP}, {ESPACE}, {BAS}, une touche toutes les 250 ms, postée
+ * texte (WM_CHAR), {TAB}, {ENTREE}, {ECHAP}, {ESPACE}, {BAS}, {ALT+lettre} (menu ou
+ * raccourci de boîte), une touche toutes les 250 ms, postée
  * à la fenêtre qui a alors le focus (IsDialogMessage de l'installateur la traite
  * comme une frappe). La fenêtre doit être restée active une seconde : le fond de
  * l'installateur Lotus, qui porte le titre de son dernier message, ne l'est qu'un
  * instant entre deux boîtes. Les réponses jouées sont comptées dans « faites ».
+ * Assistant dont toutes les pages sont dans une même fenêtre (QEMM 8) : règle
+ * « Titre#Texte|touches », jouée quand un contrôle visible d'une fenêtre de la tâche
+ * active commence par Texte (en-tête de la page), vu à deux relevés successifs.
  * Premier démarrage : lance la commande. Toutes les tâches autres que le
  * Gestionnaire de programmes, INSTAUTO et les résidents terminées depuis 10 s : quitte
- * Windows. Si l'installateur redémarre Windows (état « lance »), attend de
- * même puis quitte. Les titres des fenêtres visibles sont notés dans
+ * Windows. Si l'installateur redémarre Windows (état « lance », ou « fini » quand
+ * il relance Windows en même temps qu'INSTAUTO le quitte), attend de même puis quitte. Les titres des fenêtres visibles sont notés dans
  * C:\INSTAUTO.LOG, pour le diagnostic hors de la VM.
  */
 #include <windows.h>
@@ -38,6 +42,7 @@ static char answered_title[80]; /* et son titre : Windows réutilise aussitôt l
                                    d'une boîte détruite pour la suivante */
 static int done;                /* réponses jouées */
 static char residents[128];     /* modules à ignorer, séparés par des espaces */
+static int page_seen;           /* relevés successifs où la page attendue est visible */
 
 static void log_line(LPCSTR text)
 {
@@ -121,6 +126,14 @@ static void post_key(HWND to, UINT vk)
     PostMessage(to, WM_KEYUP, vk, 0xC0000001L);
 }
 
+/* Alt+touche : bit 29 (Alt enfoncé) ; TranslateMessage en fait un WM_SYSCHAR, que
+   IsDialogMessage (raccourci) ou DefWindowProc (menu, SC_KEYMENU) traite. */
+static void post_alt(HWND to, UINT vk)
+{
+    PostMessage(to, WM_SYSKEYDOWN, vk, 0x20000001L);
+    PostMessage(to, WM_SYSKEYUP, vk, 0xE0000001L);
+}
+
 /* Une touche (ou un texte jusqu'à la prochaine accolade) de la réponse en cours */
 static void answer_step(HWND hwnd)
 {
@@ -138,6 +151,12 @@ static void answer_step(HWND hwnd)
     if (!to)
         return;
     if (keys[key_pos] == '{') {
+        if (_fstrnicmp(keys + key_pos, "{ALT+", 5) == 0 && keys[key_pos + 5] &&
+            keys[key_pos + 6] == '}') {
+            post_alt(to, (UINT)(BYTE)AnsiUpper((LPSTR)(DWORD)(BYTE)keys[key_pos + 5]));
+            key_pos += 7;
+            return;
+        }
         for (i = 0; i < (int)(sizeof(named) / sizeof(named[0])); i++) {
             n = lstrlen(named[i].name);
             if (_fstrnicmp(keys + key_pos, named[i].name, n) == 0) {
@@ -151,10 +170,37 @@ static void answer_step(HWND hwnd)
         PostMessage(to, WM_CHAR, (BYTE) keys[key_pos], 1L);
 }
 
+/* Contrôle visible, descendant de w, dont le texte commence par text */
+static BOOL page_shown(HWND w, LPCSTR text)
+{
+    char got[80];
+    HWND c;
+    for (c = GetWindow(w, GW_CHILD); c; c = GetWindow(c, GW_HWNDNEXT)) {
+        if (!IsWindowVisible(c))
+            continue;
+        GetWindowText(c, got, sizeof(got));
+        if (_fstrnicmp(got, text, lstrlen(text)) == 0 || page_shown(c, text))
+            return TRUE;
+    }
+    return FALSE;
+}
+
+/* Page affichée par la tâche de la fenêtre active : ses pages peuvent être des
+   fenêtres surgissantes au même titre que le cadre (QEMM 8). */
+static BOOL task_page(HWND act, LPCSTR text)
+{
+    HTASK task = GetWindowTask(act);
+    HWND w;
+    for (w = GetWindow(GetDesktopWindow(), GW_CHILD); w; w = GetWindow(w, GW_HWNDNEXT))
+        if (IsWindowVisible(w) && GetWindowTask(w) == task && page_shown(w, text))
+            return TRUE;
+    return FALSE;
+}
+
 /* Fenêtre active à laquelle la prochaine réponse s'adresse : la préparer */
 static void answer_check(HWND hwnd)
 {
-    char name[16], rule[256], title[80], *bar;
+    char name[16], rule[256], title[80], *bar, *page;
     static HWND stable;
     static char stable_title[80];
     HWND act = GetActiveWindow();
@@ -166,15 +212,30 @@ static void answer_check(HWND hwnd)
         lstrcpy(stable_title, title);
         return;
     }
-    if (keys[key_pos] || !act || act == answered)
+    if (keys[key_pos] || !act)
         return;
     wsprintf(name, "reponse%d", done + 1);
     GetProfileString("pc486", name, "", rule, sizeof(rule));
     if (!rule[0] || (bar = _fstrchr(rule, '|')) == NULL)
         return;
     *bar = 0;
+    page = _fstrchr(rule, '#');
+    if (page)
+        *page++ = 0;
+    else if (act == answered)
+        return;
     if (_fstrnicmp(title, rule, lstrlen(rule)) != 0)
         return;
+    if (page) {
+        /* même fenêtre que la réponse précédente : seule la page change */
+        if (!task_page(act, page)) {
+            page_seen = 0;
+            return;
+        }
+        if (++page_seen < 2)
+            return;
+        page_seen = 0;
+    }
     answered = act;
     lstrcpy(answered_title, title);
     lstrcpyn(keys, bar + 1, sizeof(keys));
@@ -233,7 +294,7 @@ int PASCAL WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     GetProfileString("pc486", "commande", "", command, sizeof(command));
     GetProfileString("pc486", "etat", "", state, sizeof(state));
     GetProfileString("pc486", "residents", "", residents, sizeof(residents));
-    if (command[0] == '\0' || lstrcmp(state, "fini") == 0)
+    if (command[0] == '\0')
         return 0;
 
     wc.style = 0;
@@ -264,7 +325,10 @@ int PASCAL WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
             return 0;
         }
     } else {
-        log_line("Windows redémarré par l'installateur");
+        /* « fini » : l'installateur a relancé Windows après sa dernière boîte (QEMM 8,
+           pour MagnaRAM), alors qu'INSTAUTO allait le quitter : quitter de même. */
+        log_line(lstrcmp(state, "fini") == 0 ? "Windows redémarré après la fin"
+                                              : "Windows redémarré par l'installateur");
         done = GetProfileInt("pc486", "faites", 0);
     }
     seen = TRUE;    /* après lancement ou redémarrage : attendre le calme */
