@@ -75,6 +75,7 @@ seulement l'analyse de son protocole.
 | Description des contrôles, libellés | `controles.c` (`describe`), `outils.c` (`label_*`), `programmes.c` (Aide, Fiches, Horloge…) |
 | Navigation par objet comme NVDA (Inser + pavé : fenêtres puis textes dessinés) | `objet.c` (`obj_command`, actions `EPM_REVIEW` 15 à 24 de `hook.c`) ; `docs/revue-pave.md` |
 | Boîtes SDM (Word, Excel), revue au pavé, souris, dire tout | `boites.c`, `revue.c` (`on_review`), `diretout.c` (`sa_*`) |
+| Suivi de la souris comme NVDA (texte sous le pointeur, bip de hauteur, Inser+M) | `souris.c` (`mouse_poll`, `mouse_placed`), `s3_tone` (`parole.c`), `S3Tone` (`synthe3/src/s3win.c`) ; `docs/revue-pave.md` |
 | Calculatrice Windows : afficheurs standard/scientifique, résultats et erreurs | `calc.c` : `calc_*` ; `docs/calculatrice.md` |
 | Norton Desktop 3.0 : arbre et listes `NLBCLASSV1`, calculatrices, SuperFind, SIW, boîtes « Attention » | `class_alias` (`outils.c`), `tree_level` (`controles.c`), `ncalc_*` (`calc.c`), `message_button` (`epaulard.c`) ; `docs/norton.md` |
 | Tableurs (Excel 5) : cellule, formule, feuille, plage, mise en forme ; grilles à éditeur (Access) ; profils | `tableur.c` (`sheet_*`, `grid_*`) ; `docs/tableur.md` |
@@ -537,6 +538,12 @@ Préférer `scripts/pc486-dev` aux préfixes de variables, que les règles ne co
   la machine DOS active ; le DMA de SNDBLST2.DRV rebouclait (première phrase répétée
   sans fin). Chargé par `LH`, il est dans un UMB paginé par EMM386 :
   le lire par QMP `memsave` (linéaire), pas `pmemsave`.
+- Bips de la souris : uniquement par `S3Tone` d'EPAUS3.DLL (chargée pour eux seuls
+  avec l'Apollo II), jamais par un second `waveOutOpen` : SNDBLST2.DRV n'a qu'une
+  sortie, tenue par la parole de Synthé3. Bip seul = tampon de W_BANK complété de
+  silence ; les échantillons ajoutés ne comptent pas pour les échos `@E` (`submit`,
+  `staged_speech`). Tout `SetCursorPos` d'Épaulard est suivi de `mouse_placed()`,
+  sinon le suivi lit et sonne le déplacement.
 - EPAUS3.DLL : pompe dans la boucle de messages d'Épaulard, jamais dans un crochet ;
   pas de chaîne sans borne de messages postés (`EPM_S3`, trois au plus) : Windows
   ne produit `WM_TIMER` que file vide, la scrutation et le relais de l'invite DOS

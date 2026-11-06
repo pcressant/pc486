@@ -62,6 +62,7 @@ void click_at(POINT pt, BOOL right, BOOL restore)
         SetTimer(hwnd_main, TIMER_MS, 300, NULL);
     }
     SetCursorPos(pt.x, pt.y);
+    mouse_placed();
     mouse_click(right);
 }
 
@@ -242,6 +243,7 @@ void mouse_to_review(void)
         return;
     }
     SetCursorPos(pt.x, pt.y);
+    mouse_placed();
     say("souris déplacée", TRUE);
 }
 

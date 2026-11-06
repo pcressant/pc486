@@ -317,7 +317,9 @@ par Apolo-emu, comme Épaudos. Le dire tout attend l'écho `@E` renvoyé après 
   réseau isolé ci-dessous.
 - Souris, comme NVDA, Verr Num éteint : / du pavé clic gauche, * clic droit, Maj+/ ou
   Maj+* verrouille le bouton, Inser+/ amène le pointeur au point de revue, Inser+*
-  lit sous le pointeur. Voir [la revue et la souris](docs/revue-pave.md).
+  lit sous le pointeur ; suivi de la souris (texte sous le pointeur, bip dont la
+  hauteur suit le pointeur) basculé par Inser+M et Inser+Maj+M. Voir
+  [la revue et la souris](docs/revue-pave.md).
 - Revue au pavé, **Verr Num éteint** : 7/8/9 ligne précédente/courante/suivante,
   4/5/6 mot précédent/courant/suivant, 1/2/3 caractère précédent/courant/suivant.
   **Inser+7 du pavé** bascule entre revue normale et revue à plat (touches de NVDA) ;

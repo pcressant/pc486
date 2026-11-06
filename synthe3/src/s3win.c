@@ -12,6 +12,11 @@
  * de ce qui a été joué et calcule au plus un tampon de 2048 échantillons par appel.
  * Rien n'est calculé dans un crochet USER/GDI : S3Write ne fait que déposer des
  * octets. Exige un 386 (noyaux en assembleur 386, comme sous DOS).
+ *
+ * Bips de la souris (S3Tone, Épaulard) : la Sound Blaster de Windows 3.1 n'a qu'une
+ * sortie, tenue par la parole ; le bip est donc mêlé ici au tampon suivant, ou joué
+ * seul dans un tampon complété de silence. Épaulard charge aussi la DLL pour ses
+ * seuls bips quand l'Apollo II parle.
  */
 #include <windows.h>
 #include <mmsystem.h>
@@ -60,7 +65,7 @@ static HGLOBAL mem[W_BUFS];
 static LPSTR mem_ptr[W_BUFS];   /* verrouillés de S3Open à S3Close */
 static unsigned used[W_BUFS], q_head, q_n;    /* tampons en file : q_head.. */
 static short pcm[W_BANK];
-static unsigned staged;
+static unsigned staged, staged_speech;  /* tampon prêt : longueur, dont parole */
 static DWORD played, phase, request_at, idle_since, wait_since, last_try, vdue, vlast;
 static short last;
 static int out_rate, requested, measured_first;
@@ -68,6 +73,19 @@ static HTASK owner;
 static HINSTANCE self;
 
 void FAR PASCAL __export S3Close(void);
+
+/* Bip en attente (S3Tone) : sinusoïde de tone_n échantillons, pas de phase tone_step
+   (1/65536 de période), demandé à tone_at. Plus vieux que TONE_STALE ms quand vient
+   son tour, il est abandonné : le pointeur est déjà ailleurs. */
+#define TONE_STALE 300
+#define TONE_RAMP 50            /* 5 ms d'attaque et d'extinction : pas de claquement */
+#define TONE_GAIN 8             /* crête 8000 sur 32767 : sous la parole */
+static const short sine[32] = {
+    0, 195, 383, 556, 707, 831, 924, 981, 1000, 981, 924, 831, 707, 556, 383, 195,
+    0, -195, -383, -556, -707, -831, -924, -981, -1000, -981, -924, -831, -707, -556, -383, -195 };
+static unsigned tone_n;
+static WORD tone_step;
+static DWORD tone_at;
 
 static void publish(void)
 {
@@ -115,7 +133,7 @@ static unsigned convert(BYTE FAR *out, unsigned n)
 /* Parole en attente ou en cours, quel que soit l'état du périphérique. */
 static BOOL pending(void)
 {
-    return q_n || staged || vdue || ap_speaking() || ap_link.head != ap_link.tail;
+    return q_n || staged || vdue || tone_n || ap_speaking() || ap_link.head != ap_link.tail;
 }
 
 static void dev_close(void)
@@ -180,17 +198,44 @@ static void reset_out(void)
     if (wave) waveOutReset(wave);
     for (i = 0; i < W_BUFS; i++) used[i] = 0;
     q_head = q_n = 0;
-    staged = 0; played = 0; phase = 0; last = 0; vdue = 0;
+    staged = staged_speech = 0; played = 0; phase = 0; last = 0; vdue = 0;
     info->resets++;
 }
 
-static BOOL submit(unsigned n)
+/* Bip en attente mêlé aux n échantillons de parole de pcm. Le tampon est complété de
+   silence jusqu'à W_BANK : jamais moins de 2048 octets (voir W_BUFS), sinon un bip
+   seul serait perdu. Renvoie la longueur du tampon. */
+static unsigned mix_tone(unsigned n)
+{
+    unsigned i, len = tone_n;
+    WORD ph = 0;
+    long s;
+    if (n < W_BANK) {
+        memset(pcm + n, 0, (W_BANK - n) * sizeof(short));
+        n = W_BANK;
+    }
+    if (len > W_BANK) len = W_BANK;
+    for (i = 0; i < len; i++) {
+        s = (long)sine[ph >> 11] * TONE_GAIN;
+        ph += tone_step;
+        if (i < TONE_RAMP) s = s * (long)i / TONE_RAMP;
+        else if (len - i < TONE_RAMP) s = s * (long)(len - i) / TONE_RAMP;
+        s += pcm[i];
+        pcm[i] = (short)(s > 32767 ? 32767 : s < -32768 ? -32768 : s);
+    }
+    tone_n = 0;
+    return n;
+}
+
+/* n échantillons à jouer, dont speech produits par le moteur : seuls ceux-ci comptent
+   pour les échos @E (ap_played), pas le bip ni le silence ajoutés. */
+static BOOL submit(unsigned n, unsigned speech)
 {
     unsigned i = (q_head + q_n) % W_BUFS;
     hdr[i].dwBufferLength = convert((BYTE FAR *)hdr[i].lpData, n);
     hdr[i].dwFlags &= ~WHDR_DONE;
     if (waveOutWrite(wave, &hdr[i], sizeof(WAVEHDR))) return FALSE;
-    used[i] = n;
+    used[i] = speech;
     q_n++;
     info->written++;
     return TRUE;
@@ -271,10 +316,11 @@ static void play_void(DWORD now)
     DWORD credit = (now - vlast) * (S3_HZ / 1000);
     unsigned n;
     vlast = now;
+    tone_n = 0;                 /* sans périphérique, pas de bip */
     if (credit > vdue) credit = vdue;
     played += credit;
     vdue -= credit;
-    if (staged) { vdue += staged; info->skipped += staged; staged = 0; }
+    if (staged) { vdue += staged_speech; info->skipped += staged_speech; staged = staged_speech = 0; }
     if (vdue < 2 * W_BANK && (n = ap_render(pcm, W_BANK)) != 0) {
         vdue += n;
         info->skipped += n;
@@ -292,6 +338,7 @@ BOOL FAR PASCAL __export S3Pump(void)
     if (!mem[0]) return FALSE;
     info->pumps++;
     if (ap_cut()) reset_out();
+    if (tone_n && t0 - tone_at > TONE_STALE) tone_n = 0;
     if (!wave && pending() && t0 - last_try >= W_RETRY_MS) {
         last_try = t0;
         if (!wait_since) wait_since = t0;
@@ -307,14 +354,17 @@ BOOL FAR PASCAL __export S3Pump(void)
         if (vdue) { played += vdue; vdue = 0; }     /* fin d'une restitution à vide */
         if (q_n < info->buffers) {
             if (!staged) {
-                staged = ap_render(pcm, W_BANK);
+                staged = staged_speech = ap_render(pcm, W_BANK);
                 if (staged && requested && !measured_first) {
                     measured(&info->first_buffer, &info->first_buffer_max);
                     measured_first = 1;
                 }
+                /* bip seul : au plus un tampon en file derrière celui qui joue, sinon
+                   les bips d'un déplacement continu s'accumuleraient en retard */
+                if (tone_n && (staged || q_n < 2)) staged = mix_tone(staged);
             }
-            if (staged && submit(staged)) {
-                staged = 0;
+            if (staged && submit(staged, staged_speech)) {
+                staged = staged_speech = 0;
                 if (requested) {
                     measured(&info->submit, &info->submit_max);
                     requested = 0; info->requests++;
@@ -331,7 +381,7 @@ BOOL FAR PASCAL __export S3Pump(void)
         wait_since = 0;
     }
     ap_played(played);
-    more = wave ? q_n < info->buffers && (staged || ap_speaking()) : FALSE;
+    more = wave ? q_n < info->buffers && (staged || ap_speaking() || (tone_n && q_n < 2)) : FALSE;
     t = timeGetTime() - t0;
     info->busy_ms += t;
     if (t > info->busy_max) info->busy_max = t;
@@ -344,6 +394,19 @@ BOOL FAR PASCAL __export S3Pump(void)
 BOOL FAR PASCAL __export S3Busy(void)
 {
     return pending() || wave != 0;
+}
+
+/* Bip de la souris : hz (100 à 3000), ms (200 au plus), mêlé à la parole en cours ou
+   joué seul. Une demande remplace celle qui n'est pas encore jouée. La pompe le joue. */
+void FAR PASCAL __export S3Tone(WORD hz, WORD ms)
+{
+    if (!mem[0]) return;
+    if (hz < 100) hz = 100;
+    if (hz > 3000) hz = 3000;
+    if (ms > 200) ms = 200;
+    tone_step = (WORD)((DWORD)hz * 65536UL / S3_HZ);
+    tone_n = (unsigned)((DWORD)ms * S3_HZ / 1000);
+    tone_at = timeGetTime();
 }
 
 /* Compteurs (S3W_INFO), pour S3WPROBE.EXE. */
@@ -378,7 +441,7 @@ int FAR PASCAL LibMain(HINSTANCE h, WORD ds, WORD heap, LPSTR cmd)
     info = (S3W_INFO FAR *)(info_area + off);
     _fmemset(info, 0, sizeof(*info));
     _fmemcpy(info->sig, "S3WININF", 8);
-    info->version = 0x0100;
+    info->version = 0x0101;    /* 1.1 : S3Tone */
     return 1;
 }
 

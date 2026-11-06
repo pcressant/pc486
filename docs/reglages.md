@@ -30,6 +30,8 @@ le clavier d'elle-même au bout de 70 s, ou si EPAULARD.EXE a disparu.
 | Écho du clavier | caractères, mots, caractères et mots, aucun | caractères | — |
 | Majuscules | ne rien dire, dire majuscule | ne rien dire | — |
 | Volume | 1 à 8 | 4 | `@A0 1 2 3 5 7 A F` |
+| Suivi de la souris | désactivé, ligne, mot | ligne | — |
+| Sons de la souris | désactivés, activés | activés | — |
 | Synthèse | comme Épaudos, Synthé3, Apollo | comme Épaudos | — |
 
 Les défauts du débit et de la hauteur sont ceux de l'Apollo II, et les mêmes
@@ -60,6 +62,9 @@ Le CR clôt une proposition vide ; le `.` de Sonolect serait prononcé avec `@P1
   Retour arrière le raccourcit ; un déplacement ou un changement de focus l'oublie.
   Avec « mots » seuls, ni les lettres ni les espaces ne sont dits.
 - **Majuscules.** « Majuscule B » pour une lettre capitale dite seule.
+- **Souris.** Texte sous le pointeur quand la souris bouge (ligne ou mot) et bip
+  dont la hauteur suit le pointeur ; Inser+M et Inser+Maj+M les basculent hors du
+  menu. Voir [la revue et la souris](revue-pave.md#suivi-de-la-souris).
 
 ## Fichier
 
@@ -73,3 +78,5 @@ absent). Si Synthé3 est demandé au démarrage mais indisponible, Épaulard par
 COM1 et annonce « Synthé3 indisponible, erreur N » (2 : DLL absente ; 100 : DLL d'une autre version ; 1000 +
 erreur MMSYSTEM, par exemple 1006 sans pilote audio ; 2000 + n : mémoire). Le fichier
 n'est écrit qu'à l'enregistrement (Entrée) ; `build.sh install` n'y touche pas.
+Section `[Souris]` : `Suivi` (0 désactivé, 1 ligne, 2 mot ; défaut 1) et `Sons`
+(0, 1 ; défaut 1).

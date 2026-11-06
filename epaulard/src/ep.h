@@ -31,7 +31,7 @@
 #define SA_MS      50
 #define TXT        256
 #define AUTO_ROWS 40
-#define CFG_N 8
+#define CFG_N 10
 #define CFG_RATE  0             /* débit Apollo II @W, 1 à 9 */
 #define CFG_PITCH 1             /* hauteur @F, 0 à 15 */
 #define CFG_VOICE 2             /* voix préréglée @V, 1 à 6 */
@@ -39,7 +39,9 @@
 #define CFG_ECHO  4             /* écho du clavier : caractères, mots, les deux, aucun */
 #define CFG_CAPS  5             /* dire « majuscule » devant une lettre seule */
 #define CFG_VOLUME 6            /* volume @A, 1 à 8 (@A0 à @AF, 4 : @A3 par défaut) */
-#define CFG_SYNTH 7             /* synthèse : 0 comme Épaudos, 1 Synthé3, 2 Apollo II */
+#define CFG_MOUSE 7             /* suivi de la souris : 0 désactivé, 1 ligne, 2 mot ([Souris]) */
+#define CFG_MSOUND 8            /* bips de la souris (hauteur du pointeur) : 0 non, 1 oui */
+#define CFG_SYNTH 9             /* synthèse : 0 comme Épaudos, 1 Synthé3, 2 Apollo II (dernier) */
 #define CALC_STD 1
 #define CALC_SCI 2
 #define CALC_BOTH 3
@@ -210,7 +212,9 @@ void com_open(void);
 void com_close(void);
 void speech_restart(void);
 extern HINSTANCE s3_lib;
+extern BOOL s3_speech;
 extern int s3_error;
+void s3_tone(int hz, int ms);
 void s3_tick(BOOL timer);
 void s3_stop(void);
 void com_write(const char FAR *s, int n);
@@ -225,6 +229,7 @@ void say_mark(const char FAR *s, char mark);
 void say_char(char c, BOOL cut);
 void com_read(void);
 void echo_char(char ch);
+char *word_cut(char *text, int col);
 void say_word(char *text, int col);
 void clean_label(char *s, char **accel);
 void class_of(HWND h, char *cls, int n);
@@ -316,6 +321,10 @@ BOOL review_screen_point(POINT *pt, HWND *scope);
 void mouse_to_review(void);
 void review_to_mouse(void);
 void say_format(void);
+/* souris.c : suivi de la souris (texte sous le pointeur, bips) */
+void mouse_poll(void);
+void mouse_placed(void);
+void mouse_toggle(BOOL sounds);
 void say_selected(void);
 BOOL braille_same(REVIEW *a, REVIEW *b);
 void braille_selection(REVIEW *r);

@@ -332,6 +332,7 @@ void obj_mouse(void)
     obj_check();
     obj_rect(&r);
     SetCursorPos((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+    mouse_placed();
     say("souris déplacée", TRUE);
 }
 

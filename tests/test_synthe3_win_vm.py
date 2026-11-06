@@ -137,6 +137,25 @@ class Synthe3EpaulardVMTests(unittest.TestCase):
             self.key('esc')
             print('Menus lus', flush=True)
 
+            # Souris (souris.c) : pointeur au coin supérieur gauche, puis descente lente
+            # (pas de 3 points, sous le seuil d'accélération de Windows) : rangées du
+            # Bloc-notes lues, bips de hauteur mêlés par EPAUS3.DLL (cherchés dans le WAV).
+            wav = BASE / 'sound-blaster.wav'
+            wav_from = wav.stat().st_size
+            self.mouse(-40, -40, 30)
+            time.sleep(2)
+            self.mark()
+            try:
+                self.mouse(1, 3, 110, .06)
+                self.wait_speech('ligne du texte', 15)
+            except AssertionError:
+                self.q.cmd('screendump', filename=str(BASE / 'souris.ppm'))
+                raise
+            time.sleep(2)
+            wav_span = (wav_from, wav.stat().st_size)
+            report['souris'] = self.said()
+            print('Souris : rangée sous le pointeur lue', flush=True)
+
             # Dire tout depuis le début : avance par les échos @E rendus par la DLL
             self.key('ctrl-home')
             time.sleep(2)
@@ -237,6 +256,11 @@ class Synthe3EpaulardVMTests(unittest.TestCase):
         report['capture_s'] = round(len(pcm) / channels / rate, 1)
         report['capture_active_s'] = active / 10
         self.assertGreater(active, 50, 'capture Sound Blaster presque silencieuse')
+        first, last = ((b - 44) // (2 * channels) * channels for b in wav_span)
+        tones = self.tone_frames(pcm[first:last], rate, channels)
+        report['bips_souris'] = len(tones)
+        report['bips_hz'] = sorted(set(tones))[:12]
+        self.assertGreaterEqual(len(tones), 5, 'aucun bip de souris dans la capture')
         (BASE / 'mesures.json').write_text(json.dumps(report, indent=1, ensure_ascii=False))
         print(json.dumps(report, ensure_ascii=False), flush=True)
 
@@ -271,6 +295,44 @@ class Synthe3EpaulardVMTests(unittest.TestCase):
                         str(synth / 'EPAUS3.DLL'), '::/EPAULARD/'], check=True)
         subprocess.run(['mcopy', '-o', '-i', img, str(ROOT / 'epaudos/build/EPAUDOS.COM'),
                         str(synth / 'S3RES.EXE'), '::/EPAULARD/'], check=True)
+
+    def mouse(self, dx, dy, steps, pause=.03):
+        for _ in range(steps):
+            self.q.cmd('input-send-event', events=[
+                {'type': 'rel', 'data': {'axis': 'x', 'value': dx}},
+                {'type': 'rel', 'data': {'axis': 'y', 'value': dy}}])
+            time.sleep(pause)
+
+    @staticmethod
+    def tone_frames(pcm, rate, channels):
+        """Fenêtres de 20 ms presque pures entre 200 et 900 Hz (bips de la souris) :
+        une seule raie (Goertzel, pas de 10 Hz) porte plus de 70 % de l'énergie. La
+        parole de Synthé3 n'y arrive pas. Renvoie leurs fréquences."""
+        import math
+        step = max(1, rate // 11025)           # sortie du pilote : 11 kHz au plus
+        mono = pcm[::channels * step]
+        rate //= step
+        n = rate // 50
+        coeffs = [(f, 2 * math.cos(2 * math.pi * f / rate)) for f in range(200, 901, 10)]
+        found = []
+        for start in range(0, len(mono) - n, n):
+            frame = mono[start:start + n]
+            mean = sum(frame) / n
+            x = [v - mean for v in frame]
+            total = sum(v * v for v in x)
+            if total < n * 1500 ** 2:           # silence ou parole faible
+                continue
+            best, best_f = 0, 0
+            for f, c in coeffs:
+                s1 = s2 = 0.0
+                for v in x:
+                    s1, s2 = v + c * s1 - s2, s1
+                power = (s1 * s1 + s2 * s2 - c * s1 * s2) * 2 / n
+                if power > best:
+                    best, best_f = power, f
+            if best > .7 * total:
+                found.append(best_f)
+        return found
 
     @staticmethod
     def dev(*args, check=True):

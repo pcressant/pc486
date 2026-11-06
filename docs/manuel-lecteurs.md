@@ -208,6 +208,13 @@ Les positions estimées dans du texte dessiné peuvent être légèrement décal
 Dans la Calculatrice, activer les boutons avec Inser+Entrée : le parcours des
 boutons ne fournit pas de position pour Inser+/.
 
+Quand la souris bouge, Épaulard dit ce qui est sous le pointeur (contrôle, ligne
+ou mot selon le réglage) et fait entendre un bip, aigu en haut de l’écran, grave en
+bas ; la position horizontale ne s’entend pas (Sound Blaster mono).
+**Inser+M** active ou désactive cette lecture, **Inser+Maj+M** les bips ; les
+deux se règlent et s’enregistrent dans Inser+E. Détails :
+[suivi de la souris](revue-pave.md#suivi-de-la-souris).
+
 ## Épaulard : couverture des applications
 
 « Essayé sous QEMU » désigne les essais consignés avec synthèse simulée ; cela

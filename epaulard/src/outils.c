@@ -24,19 +24,14 @@ static BOOL word_at(const char *t, int i, int n)
 }
 
 /* Mot du texte qui commence ou passe à la colonne col : lettres et chiffres, ou
-   ponctuation (comme Ctrl+flèches de Word et d'Excel : « SOMME », « ( », « B1 ») */
-void say_word(char *text, int col)
+   ponctuation (comme Ctrl+flèches de Word et d'Excel : « SOMME », « ( », « B1 »).
+   Coupé en place ; renvoie son début, NULL sur une espace ou après la fin. */
+char *word_cut(char *text, int col)
 {
     int start = col, end = col, n = lstrlen(text);
     BOOL w;
-    if (col >= n) {
-        say("fin de ligne", TRUE);
-        return;
-    }
-    if (text[col] == ' ' || text[col] == '\t') {
-        say("espace", TRUE);
-        return;
-    }
+    if (col < 0 || col >= n || text[col] == ' ' || text[col] == '\t')
+        return NULL;
     w = word_at(text, col, n);
     while (start > 0 && text[start - 1] != ' ' && text[start - 1] != '\t' &&
            word_at(text, start - 1, n) == w)
@@ -44,7 +39,18 @@ void say_word(char *text, int col)
     while (end < n && text[end] != ' ' && text[end] != '\t' && word_at(text, end, n) == w)
         end++;
     text[end] = 0;
-    say(text + start, TRUE);
+    return text + start;
+}
+
+void say_word(char *text, int col)
+{
+    char *w;
+    if (col >= lstrlen(text))
+        say("fin de ligne", TRUE);
+    else if ((w = word_cut(text, col)) == NULL)
+        say("espace", TRUE);
+    else
+        say(w, TRUE);
 }
 
 /* Retire les « & » des libellés (« &Fichier » -> « Fichier ») et coupe à la tabulation

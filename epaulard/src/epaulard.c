@@ -15,6 +15,7 @@
  *   Inser+Maj+Haut  lire la sélection
  *   / et * du pavé  clic gauche, clic droit ; Maj : verrouiller le bouton
  *   Inser+/      amener la souris au point de revue ; Inser+* : revue à la souris
+ *   Inser+M      suivi de la souris ; Inser+Maj+M : sons de la souris (souris.c)
  *   Inser+PgSuiv lire la barre d'état
  *   Inser+E      réglages (débit, hauteur, voix, ponctuation, écho, majuscules),
  *                enregistrés dans EPAULARD.INI à côté du programme
@@ -810,6 +811,7 @@ void poll(void)
             cfg_close(FALSE);           /* menu oublié : rendre le clavier */
         return;
     }
+    mouse_poll();                       /* texte sous le pointeur, bips */
     if (in_menu || sa_active())
         return;
     if (GetFocus() != last_focus || GetActiveWindow() != last_active)
@@ -1174,6 +1176,9 @@ void on_command(WPARAM vk, LPARAM lp)
         obj_at_mouse();
         review_to_mouse();
         break;
+    case 'M':                           /* NVDA+M */
+        mouse_toggle((lp & 1) != 0);
+        break;
     case 'D':                           /* débogage : focus, classe, curseur texte */
         if (lp & 1) {                   /* avec Maj : fenêtres de la fenêtre active */
             HWND c, a = GetFocus() ? top_level(GetFocus()) : GetActiveWindow();
@@ -1284,7 +1289,8 @@ void on_command(WPARAM vk, LPARAM lp)
             "donner le focus à l'objet.", FALSE);
         say("Souris : barre oblique du pavé, clic gauche ; étoile, clic droit ; avec "
             "majuscule, verrouiller le bouton. Inser barre oblique, amener la souris "
-            "au point de revue. Inser étoile, lire sous la souris.", FALSE);
+            "au point de revue. Inser étoile, lire sous la souris. Inser M, suivi de "
+            "la souris. Inser majuscule M, sons de la souris.", FALSE);
         break;
     case VK_F4:
         say("Épaulard arrêté", TRUE);
@@ -1331,6 +1337,7 @@ LRESULT CALLBACK __export MainProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         } else if (wp == TIMER_MS) {
             KillTimer(h, TIMER_MS);
             SetCursorPos(mouse_back.x, mouse_back.y);
+            mouse_placed();
         } else if (wp == TIMER_MENU)
             on_menu_title();
         else if (wp == TIMER_TAB)
@@ -1537,7 +1544,7 @@ int PASCAL WinMain(HINSTANCE hinst, HINSTANCE hprev, LPSTR cmd, int show)
         return 0;
     cfg_load(hinst);                    /* EPAULARD.INI : Apollo II ou Synthé3 */
     com_open();
-    if (com < 0 && !s3_lib) {
+    if (com < 0 && !s3_speech) {
         MessageBox(NULL, "Impossible d'ouvrir COM1.", "Épaulard", MB_OK | MB_ICONSTOP);
         return 0;
     }

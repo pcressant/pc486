@@ -641,7 +641,7 @@ static void ctrl_alone(void) { PostMessage(hwnd_main, EPM_SILENCE, 0, 0); }
 static BOOL keep_ini;            /* redémarrage : garder EPAULARD.INI */
 static void boot(void)
 {
-    static const int cfg_default[CFG_N] = { 3, 8, 1, 1, 0, 0, 4, 0 };
+    static const int cfg_default[CFG_N] = { 3, 8, 1, 1, 0, 0, 4, 1, 1, 0 };
     if (!keep_ini)
         sim_ini_n = 0;
     keep_ini = FALSE;
@@ -838,6 +838,8 @@ static int s3_more;             /* blocs encore à calculer (longue parole) */
 static BOOL FAR PASCAL s3f_pump(void) { s3_pumps++; return s3_more > 0 && s3_more--; }
 static void FAR PASCAL s3f_close(void) { s3_closed++; }
 static BOOL FAR PASCAL s3f_busy(void) { return s3_more > 0; }
+static int s3_tones, s3_tone_hz;
+static void FAR PASCAL s3f_tone(WORD hz, WORD ms) { s3_tones++; s3_tone_hz = hz; (void) ms; }
 static HMODULE s3f_load(LPCSTR n) { return strstr(n, "EPAUS3.DLL") ? 41 : 2; }
 static FARPROC s3f_proc(HMODULE m, LPCSTR n)
 {
@@ -848,6 +850,7 @@ static FARPROC s3f_proc(HMODULE m, LPCSTR n)
     if (!strcmp(n, "S3PUMP")) return (FARPROC) s3f_pump;
     if (!strcmp(n, "S3CLOSE")) return (FARPROC) s3f_close;
     if (!strcmp(n, "S3BUSY")) return (FARPROC) s3f_busy;
+    if (!strcmp(n, "S3TONE")) return (FARPROC) s3f_tone;
     return 0;
 }
 
@@ -1289,13 +1292,21 @@ static void test_settings(void)
     cfg_press(VK_ESCAPE);
     CHECK(cfg[CFG_RATE] == 4 && !cfg_on);
     CHECK_STR(spoken[spoken_n - 1], "Réglages annulés");
-    /* Synthèse (dernier réglage, Haut depuis Débit), puis Volume : 1..8 -> @A0..@AF,
-       enregistré. */
+    /* Synthèse (dernier réglage, Haut depuis Débit), réglages de la souris ([Souris]),
+       puis Volume : 1..8 -> @A0..@AF, enregistré. */
     ap_reset();
     insert_cmd('E');
     run(4000);
     cfg_press(VK_UP);
     CHECK_STR(spoken[spoken_n - 1], "Synthèse, comme Épaudos, Apollo");
+    cfg_press(VK_UP);
+    CHECK_STR(spoken[spoken_n - 1], "Sons de la souris, activés");
+    cfg_press(VK_LEFT);
+    CHECK_STR(spoken[spoken_n - 1], "désactivés");
+    cfg_press(VK_UP);
+    CHECK_STR(spoken[spoken_n - 1], "Suivi de la souris, ligne");
+    cfg_press(VK_RIGHT);
+    CHECK_STR(spoken[spoken_n - 1], "mot");
     cfg_press(VK_UP);
     CHECK_STR(spoken[spoken_n - 1], "Volume, 4");
     cfg_press(VK_RIGHT);
@@ -1303,9 +1314,12 @@ static void test_settings(void)
     CHECK(cfg[CFG_VOLUME] == 6 && com1_has("@W4@F8@V1@P1@A7\r"));
     cfg_press(VK_RETURN);
     CHECK(GetPrivateProfileInt("Parole", "Volume", 0, "") == 6);
+    CHECK(GetPrivateProfileInt("Souris", "Suivi", 0, "") == 2);
+    CHECK(GetPrivateProfileInt("Souris", "Sons", 1, "") == 0);
     keep_ini = TRUE;                    /* redémarrage : réglages relus */
     boot();
     CHECK(cfg[CFG_RATE] == 4 && cfg[CFG_PUNCT] == 2 && cfg[CFG_VOLUME] == 6);
+    CHECK(cfg[CFG_MOUSE] == 2 && cfg[CFG_MSOUND] == 0);
     CHECK(com1_has("@W4@F8@V1@P1@A7\r"));
     /* Touches de NVDA : Inser+N réglages, Inser+2/3 échos, Inser+P ponctuation,
        Inser+F12 heure puis date. */
@@ -1777,6 +1791,76 @@ static void test_disabled_controls(void)
     check = sim_create(dlg, "Button", "Option", BS_AUTOCHECKBOX | WS_DISABLED, 0, 30, 100, 50);
     describe(check, out);
     CHECK_STR(out, "Option, case à cocher, non coché, grisé");
+}
+
+/* Suivi de la souris : rangée sous le pointeur dite une fois, mot (réglage « mot »),
+   contrôle entier (bouton grisé sous son cadre de groupe), pointeur placé par
+   Épaulard tu, Inser+M et Inser+Maj+M. Bips par EPAUS3.DLL chargée pour eux seuls
+   quand l'Apollo II parle (hauteur : 880 Hz en haut, 220 Hz en bas). */
+static void mouse_to(int x, int y) { sim_cursor.x = x; sim_cursor.y = y; run(300); }
+static void test_mouse_tracking(void)
+{
+    HWND dlg;
+    int n, tones;
+    sim_load_hook = s3f_load;
+    sim_proc_hook = s3f_proc;
+    s3_open_ok = TRUE;
+    sim_s3res = FALSE;
+    s3_mute = FALSE;
+    boot();
+    CHECK(cfg[CFG_MOUSE] == 1 && cfg[CFG_MSOUND] == 1);
+    pm_open();
+    run(1500);
+    mouse_to(600, 470);                 /* hors texte : ni rangée ni parole */
+    CHECK(com == 1 && s3_lib != 0 && !s3_speech && !sim_s3_write);
+    ap_reset();
+    s3_tones = 0;
+    mouse_to(20, 155);
+    CHECK(s3_tones == 1 && s3_tone_hz == 220 + 660 * (479 - 155) / 479);
+    CHECK(spoken_n == 1 && spoken_n && strstr(spoken[0], "Gestionnaire de fichiers") &&
+          strstr(spoken[0], "Lisezmoi"));
+    CHECK(com1_has("Gestionnaire de fichiers"));    /* parole : toujours l'Apollo II */
+    mouse_to(40, 157);                  /* même rangée : rien de plus */
+    CHECK(spoken_n == 1 && s3_tones == 2);
+    mouse_to(20, 225);
+    CHECK(spoken_n == 2 && spoken_n == 2 && strstr(spoken[1], "Windows Installation"));
+    CHECK(s3_tone_hz > 220 && s3_tone_hz < 666);
+    cfg[CFG_MOUSE] = 2;                 /* mot */
+    mouse_to(230, 225);
+    CHECK_STR(spoken[spoken_n - 1], "PIFedit");
+    n = spoken_n;
+    tones = s3_tones;
+    SetCursorPos(20, 155);              /* pointeur placé par Épaulard */
+    mouse_placed();
+    run(300);
+    CHECK(spoken_n == n && s3_tones == tones);
+    insert_cmd('M');
+    run(300);
+    CHECK(cfg[CFG_MOUSE] == 0);
+    CHECK_STR(spoken[spoken_n - 1], "suivi de la souris désactivé");
+    n = spoken_n;
+    mouse_to(20, 225);
+    CHECK(spoken_n == n && s3_tones == tones + 1);
+    insert_cmd('M');
+    run(300);
+    CHECK(cfg[CFG_MOUSE] == 2);         /* le mot est rétabli */
+    PostMessage(hwnd_main, EPM_CMD, 'M', 1);
+    run(300);
+    CHECK_STR(spoken[spoken_n - 1], "sons de la souris désactivés");
+    tones = s3_tones;
+    cfg[CFG_MOUSE] = 1;
+    dlg = sim_create(0, "#32770", "Essai", 0, 100, 100, 400, 300);
+    sim_create(dlg, "Button", "Options", BS_GROUPBOX, 110, 110, 390, 290);
+    sim_create(dlg, "Button", "&OK", WS_DISABLED, 150, 150, 250, 180);
+    sim_active = dlg;
+    mouse_to(200, 160);
+    CHECK_STR(spoken[spoken_n - 1], "OK, bouton, grisé");
+    n = spoken_n;
+    mouse_to(210, 170);
+    CHECK(spoken_n == n && s3_tones == tones);
+    s3_stop();
+    sim_load_hook = NULL;
+    sim_proc_hook = NULL;
 }
 
 static LRESULT tree_proc(HWND h, UINT m, WPARAM w, LPARAM l)
@@ -3744,6 +3828,7 @@ int main(void)
     { int f = failures; test_object_navigation(); if (failures > f) dump("test_object_navigation"); }
     { int f = failures; test_navweb(); if (failures > f) dump("test_navweb"); }
     { int f = failures; test_disabled_controls(); if (failures > f) dump("test_disabled_controls"); }
+    { int f = failures; test_mouse_tracking(); if (failures > f) dump("test_mouse_tracking"); }
     { int f = failures; test_calculator_states(); if (failures > f) dump("test_calculator_states"); }
     { int f = failures; test_calculator(); if (failures > f) dump("test_calculator"); }
     { int f = failures; test_write_say_all(); if (failures > f) dump("test_write_say_all"); }

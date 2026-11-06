@@ -9,16 +9,20 @@
    octets Apollo et rend les mêmes échos ; elle ne calcule que dans sa pompe (s3_tick),
    appelée par la boucle de messages, jamais dans un crochet. */
 HINSTANCE s3_lib;
+BOOL s3_speech;                         /* la DLL parle (sinon : bips seuls, Apollo II) */
+static BOOL s3_mute;                    /* bips impossibles : ne plus charger la DLL */
 static UINT (FAR PASCAL *s3_open)(void);      /* 0 : sortie audio prête */
 static int (FAR PASCAL *s3_write)(LPCSTR s, int n);
 static int (FAR PASCAL *s3_read)(LPSTR buf, int n);
 static BOOL (FAR PASCAL *s3_pump)(void);
 static void (FAR PASCAL *s3_close)(void);
 static BOOL (FAR PASCAL *s3_busy)(void);
+static void (FAR PASCAL *s3_beep)(WORD hz, WORD ms);   /* S3Tone, DLL 1.1 */
 static BOOL s3_posted, s3_timer;
 int s3_error;                           /* Synthé3 demandé mais indisponible : raison */
 
-static BOOL s3_load(void)
+/* EPAUS3.DLL chargée et sa sortie audio prête, sans parler encore */
+static BOOL s3_get(void)
 {
     char path[144];
     int n = GetModuleFileName((HINSTANCE) GetWindowWord(hwnd_main, GWW_HINSTANCE), path, sizeof(path) - 12);
@@ -40,6 +44,7 @@ static BOOL s3_load(void)
     s3_pump = (BOOL (FAR PASCAL *)(void)) GetProcAddress(s3_lib, "S3PUMP");
     s3_close = (void (FAR PASCAL *)(void)) GetProcAddress(s3_lib, "S3CLOSE");
     s3_busy = (BOOL (FAR PASCAL *)(void)) GetProcAddress(s3_lib, "S3BUSY");
+    s3_beep = (void (FAR PASCAL *)(WORD, WORD)) GetProcAddress(s3_lib, "S3TONE");
     s3_error = 100;                     /* 100 : DLL d'une autre version ; 1000+ : waveOut */
     if (s3_open && s3_write && s3_read && s3_pump && s3_close && s3_busy)
         s3_error = (int) s3_open();
@@ -49,9 +54,43 @@ static BOOL s3_load(void)
         s3_lib = 0;
         return FALSE;
     }
+    return TRUE;
+}
+
+static BOOL s3_load(void)
+{
+    if (!s3_lib && !s3_get())
+        return FALSE;
     EpSpeech((FARPROC) s3_write, (FARPROC) s3_pump);
+    s3_speech = TRUE;
     s3_error = 0;
     return TRUE;
+}
+
+/* Bip de la souris, joué par EPAUS3.DLL : la Sound Blaster n'a qu'une sortie, que
+   Synthé3 tient pendant la parole ; la DLL mêle le bip à la parole. Avec l'Apollo II,
+   la DLL est chargée pour ses seuls bips (sans parler) ; DLL absente, ancienne ou
+   aucun pilote audio : silence, sans réessayer. */
+void s3_tone(int hz, int ms)
+{
+    if (s3_mute)
+        return;
+    if (!s3_lib) {
+        int error = s3_error;
+        BOOL ok = s3_get();
+        s3_error = error;               /* (seule la parole annonce son erreur) */
+        if (!ok) {
+            s3_mute = TRUE;
+            return;
+        }
+    }
+    if (!s3_beep) {
+        s3_mute = TRUE;                 /* DLL 1.0 */
+        return;
+    }
+    s3_beep((WORD) hz, (WORD) ms);
+    if (!s3_posted)
+        s3_posted = PostMessage(hwnd_main, EPM_S3, 0, 0L);
 }
 
 /* Pompe de Synthé3. Après une écriture (EPM_S3) : un bloc, puis au plus deux autres
@@ -89,7 +128,9 @@ static void s3_unload(void)
 {
     if (!s3_lib)
         return;
-    EpSpeech(NULL, NULL);
+    if (s3_speech)
+        EpSpeech(NULL, NULL);
+    s3_speech = FALSE;
     s3_close();
     FreeLibrary(s3_lib);
     s3_lib = 0;
@@ -180,6 +221,7 @@ void speech_restart(void)
 {
     silence();
     s3_unload();                        /* parole coupée : rien à laisser finir */
+    s3_mute = FALSE;                    /* bips : nouvel essai */
     com_close();
     com_open();
     EpComm(com);
@@ -188,7 +230,7 @@ void speech_restart(void)
 
 void com_write(const char FAR *s, int n)
 {
-    if (s3_lib && n > 0) {
+    if (s3_speech && n > 0) {
         s3_write(s, n);
         if (!s3_posted)
             s3_posted = PostMessage(hwnd_main, EPM_S3, 0, 0L);
@@ -385,10 +427,10 @@ void com_read(void)
     int n, i;
     COMSTAT st;
 
-    if (com < 0 && !s3_lib)
+    if (com < 0 && !s3_speech)
         return;
     for (;;) {
-        if (s3_lib)
+        if (s3_speech)
             n = s3_read(buf, sizeof(buf));
         else
             n = ReadComm(com, buf, sizeof(buf));

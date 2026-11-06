@@ -61,6 +61,7 @@ Comme le clavier de bureau de NVDA, Verr Num éteint :
 | Maj + / ou Maj + * | verrouiller le bouton gauche ou droit ; même touche pour le relâcher |
 | Inser + / | amener le pointeur au point de revue |
 | Inser + * | lire la rangée sous le pointeur ; en revue à plat, y placer la revue |
+| Inser + M, Inser + Maj + M | suivi de la souris, sons de la souris (ci-dessous) |
 
 Le point de revue est le caractère courant de la revue à plat ; en revue normale,
 le curseur de saisie, l'élément d'une boîte de Word ou le milieu du contrôle qui a
@@ -72,6 +73,40 @@ revue, puis relâcher.
 Les clics passent par le point d'entrée `MOUSE_EVENT` de USER, comme ceux du
 pilote de souris : Windows les traite comme un vrai clic (activation, capture,
 menus). Le pointeur est placé par `SetCursorPos`.
+
+### Suivi de la souris
+
+Comme NVDA, Épaulard suit le pointeur quand l'utilisateur déplace la souris
+(`epaulard/src/souris.c`) :
+
+| Touche | Action |
+| --- | --- |
+| Inser + M | suivi de la souris activé ou désactivé (comme NVDA+M) |
+| Inser + Maj + M | sons de la souris activés ou désactivés |
+
+- **Lecture.** Sous le pointeur, un bouton, une case, une barre de défilement, une
+  liste déroulante ou une zone de saisie d'une ligne est dit en entier (libellé,
+  rôle, état, « grisé » compris), une seule fois tant que le pointeur y reste. Ailleurs
+  (documents, listes, textes dessinés), la rangée de texte de la fenêtre sous le
+  pointeur, relevée par le modèle hors écran, est dite quand elle change ; avec le
+  réglage « mot », seulement le mot sous le pointeur. Un blanc ne dit rien. Chaque
+  annonce coupe la précédente. Rien n'est lu dans un menu ouvert (Windows annonce
+  l'élément survolé), pendant un dire tout ni dans une invite MS-DOS relayée.
+- **Sons.** À chaque déplacement, un bip de 40 ms dont la hauteur suit l'ordonnée du
+  pointeur : 880 Hz en haut de l'écran, 220 Hz en bas (comme les « coordonnées
+  audio » de NVDA). Le pilote Sound Blaster 1.5 de Windows 3.1 étant mono, la
+  position horizontale ne s'entend pas.
+- Les déplacements faits par Épaulard (Inser + /, clic de routage braille) ne sont
+  ni lus ni sonnés.
+
+La scrutation compare la position du pointeur toutes les 100 ms : Windows 3.1 ne
+signale pas les déplacements à un autre programme. Les bips passent par
+`EPAUS3.DLL` (`S3Tone`), seule à tenir la Sound Blaster pendant la parole de
+Synthé3 : elle mêle le bip au tampon suivant, ou le joue seul dans un tampon de
+2048 échantillons complété de silence (SNDBLST2.DRV perd le début des tampons plus
+courts), au plus un derrière celui qui joue ; un bip resté plus de 300 ms en attente
+est abandonné. Avec l'Apollo II, Épaulard charge la DLL pour ses seuls bips, sans
+lui confier la parole ; DLL absente ou sans pilote audio, la souris reste muette.
 
 ## Navigation par objet
 

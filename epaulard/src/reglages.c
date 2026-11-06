@@ -3,15 +3,22 @@
 
 /* -------------------------------------------------------------- réglages */
 
-/* Réglages (Inser+E), lus et enregistrés dans EPAULARD.INI, section [Parole] */
-int cfg[CFG_N] = { 3, 8, 1, 1, 0, 0, 4, 0 };   /* débit, hauteur : défauts de l'Apollo II */
+/* Réglages (Inser+E), lus et enregistrés dans EPAULARD.INI, section [Parole] ; ceux
+   de la souris dans [Souris] (Suivi, Sons) */
+int cfg[CFG_N] = { 3, 8, 1, 1, 0, 0, 4, 1, 1, 0 };  /* débit, hauteur : défauts de l'Apollo II */
 const char *const cfg_key[CFG_N] = {
-    "Debit", "Hauteur", "Voix", "Ponctuation", "Echo", "Majuscules", "Volume", "Synthese" };
+    "Debit", "Hauteur", "Voix", "Ponctuation", "Echo", "Majuscules", "Volume", "Suivi", "Sons",
+    "Synthese" };
 const char *const cfg_label[CFG_N] = {
     "Débit", "Hauteur", "Voix", "Ponctuation", "Écho du clavier", "Majuscules", "Volume",
-    "Synthèse" };
-const int cfg_min[CFG_N] = { 1, 0, 1, 0, 0, 0, 1, 0 };
-const int cfg_max[CFG_N] = { 9, 15, 6, 2, 3, 1, 8, 2 };
+    "Suivi de la souris", "Sons de la souris", "Synthèse" };
+const int cfg_min[CFG_N] = { 1, 0, 1, 0, 0, 0, 1, 0, 0, 0 };
+const int cfg_max[CFG_N] = { 9, 15, 6, 2, 3, 1, 8, 2, 1, 2 };
+
+static const char *cfg_section(int i)
+{
+    return i == CFG_MOUSE || i == CFG_MSOUND ? "Souris" : "Parole";
+}
 /* [Parole] Synthese, selon CFG_SYNTH : Auto suit Épaudos (Synthé3 si S3RES est
    résident, sinon l'Apollo II). */
 static const char *const synth_key[3] = { "Auto", "Synthe3", "Apollo" };
@@ -28,7 +35,7 @@ void cfg_load(HINSTANCE hinst)
         n--;
     lstrcpy(ini_path + n, "EPAULARD.INI");
     for (i = 0; i < CFG_SYNTH; i++) {
-        v = GetPrivateProfileInt("Parole", cfg_key[i], cfg[i], ini_path);
+        v = GetPrivateProfileInt(cfg_section(i), cfg_key[i], cfg[i], ini_path);
         if (v >= cfg_min[i] && v <= cfg_max[i])
             cfg[i] = v;
     }
@@ -47,7 +54,7 @@ void cfg_save(void)
     int i;
     for (i = 0; i < CFG_SYNTH; i++) {
         wsprintf(v, "%d", cfg[i]);
-        WritePrivateProfileString("Parole", cfg_key[i], v, ini_path);
+        WritePrivateProfileString(cfg_section(i), cfg_key[i], v, ini_path);
     }
     WritePrivateProfileString("Parole", "Synthese", synth_key[cfg[CFG_SYNTH]], ini_path);
 }
@@ -70,13 +77,17 @@ void cfg_value(int i, char *out)
         lstrcpy(out, echo[cfg[i]]);
     else if (i == CFG_CAPS)
         lstrcpy(out, cfg[i] ? "dire majuscule" : "ne rien dire");
+    else if (i == CFG_MOUSE)
+        lstrcpy(out, cfg[i] == 0 ? "désactivé" : cfg[i] == 1 ? "ligne" : "mot");
+    else if (i == CFG_MSOUND)
+        lstrcpy(out, cfg[i] ? "activés" : "désactivés");
     else if (i == CFG_SYNTH) {
         /* synthèse qui parle réellement : Auto, ou Synthé3 indisponible */
         lstrcpy(out, cfg[i] == 0 ? "comme Épaudos, " : "");
-        if (cfg[i] == 1 && !s3_lib)
+        if (cfg[i] == 1 && !s3_speech)
             lstrcat(out, "Synthé3 indisponible, Apollo");
         else
-            lstrcat(out, s3_lib ? "Synthé3" : "Apollo");
+            lstrcat(out, s3_speech ? "Synthé3" : "Apollo");
     }
     else
         wsprintf(out, "%d", cfg[i]);
